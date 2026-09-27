@@ -84,25 +84,19 @@ auth.onAuthStateChanged(async (user) => {
         console.log('✅ Sesión iniciada:', user.email, '| UID:', user.uid);
         hideAuthGate();
 
-        // ============================================================
-        // NUEVO: Obtener y mostrar el nombre del usuario en el menú
-        // ============================================================
         const userNameEl = document.getElementById('submenu-user-name');
         const userSubEl  = document.getElementById('submenu-user-sub');
 
         if (userNameEl) {
-            // Valor por defecto (respaldo)
             let displayName = user.displayName || user.email || user.uid;
             let subText = user.email ? user.email : 'Perfil de usuario';
 
             try {
-                // Intentar obtener el nombre desde Firestore (historial_usuarios)
                 const docRef = db.collection('historial_usuarios').doc(user.uid);
                 const docSnap = await docRef.get();
 
                 if (docSnap.exists) {
                     const data = docSnap.data();
-                    // Buscar campos comunes donde se pueda guardar el nombre
                     if (data.nombre) {
                         displayName = data.nombre;
                     } else if (data.name) {
@@ -110,18 +104,15 @@ auth.onAuthStateChanged(async (user) => {
                     } else if (data.displayName) {
                         displayName = data.displayName;
                     }
-                    // Si hay un campo de rol o descripción, mostrarlo en el subtítulo
                     if (data.rol) subText = data.rol;
                 }
             } catch (e) {
                 console.warn('No se pudo obtener el nombre desde Firestore:', e);
             }
 
-            // Actualizar el DOM
             userNameEl.textContent = displayName;
             if (userSubEl) userSubEl.textContent = subText;
         }
-        // ============================================================
 
         await cargarOyentesDeTodas();
         if (typeof window.__cargarHistorialUsuario === 'function') {
@@ -141,7 +132,6 @@ auth.onAuthStateChanged(async (user) => {
         console.log('🔒 Sin sesión. App bloqueada.');
         showAuthGate();
         
-        // Limpiar el nombre al cerrar sesión
         const userNameEl = document.getElementById('submenu-user-name');
         const userSubEl  = document.getElementById('submenu-user-sub');
         if (userNameEl) userNameEl.textContent = 'UID del usuario';
@@ -175,7 +165,6 @@ if (authBtn) {
         }
     });
 }
-/* ---------- FIN AUTENTICACIÓN ---------- */
 
 /* ============================================================
    0.2. SISTEMA DE OYENTES ÚNICOS (ventana móvil de 28 días)
@@ -862,7 +851,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (img) coverObserver.observe(img, { attributes: true, attributeFilter: ['src'] });
     });
 
-    /* BUSCADOR */
     const heartSearchBtn  = document.getElementById('heart-search-btn');
     const searchContainer = document.getElementById('search-container');
     const searchInput     = document.getElementById('search-input');
@@ -895,7 +883,6 @@ document.addEventListener('DOMContentLoaded', () => {
         searchInput.addEventListener('input', applySearchVisibility);
     }
 
-    /* COMPARTIR */
     const shareBtn = document.getElementById('share-btn');
     const SHARE_URL = 'https://kerimmusic.github.io/DescargarAppOmegaBeats/';
 
@@ -920,7 +907,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    /* MENÚ */
     const menuBtn         = document.getElementById('menu-btn');
     const submenu         = document.getElementById('submenu');
     const submenuOverlay  = document.getElementById('submenu-overlay');
@@ -954,7 +940,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.key === 'Escape') closeSubmenu();
     });
 
-    /* FULLSCREEN PLAYER */
     if (!player || !playerCover || !playerTitle || !playButton) return;
 
     const fsHTML = `
@@ -3133,6 +3118,263 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         window.__openPlaylistView = openView;
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+})();
+
+/* ============================================================
+   19. COMPARTIR PERFIL (Buscador de usuarios y envío)
+   ============================================================ */
+(function () {
+    'use strict';
+
+    function init() {
+        const shareBtn         = document.getElementById('share-profile-btn');
+        const modalOverlay     = document.getElementById('share-modal-overlay');
+        const closeBtn         = document.getElementById('share-modal-close');
+        const cancelBtn        = document.getElementById('share-cancel-btn');
+        const searchInput      = document.getElementById('share-search-input');
+        const resultsContainer = document.getElementById('share-results');
+        const selectedWrap     = document.getElementById('share-selected');
+        const selectedCard     = document.getElementById('selected-user-card');
+        const sendBtn          = document.getElementById('share-send-btn');
+
+        if (!shareBtn || !modalOverlay) return;
+
+        let selectedUser = null;
+        let searchDebounce = null;
+        let cacheUsuarios = null;
+
+        /* ---------- Abrir modal ---------- */
+        shareBtn.addEventListener('click', () => {
+            modalOverlay.classList.add('visible');
+            modalOverlay.setAttribute('aria-hidden', 'false');
+            searchInput.value = '';
+            resultsContainer.innerHTML = '';
+            selectedWrap.style.display = 'none';
+            selectedUser = null;
+            sendBtn.disabled = true;
+            sendBtn.textContent = 'Compartir';
+            setTimeout(() => searchInput.focus(), 320);
+
+            if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} }
+        });
+
+        /* ---------- Cerrar modal ---------- */
+        function closeModal() {
+            modalOverlay.classList.remove('visible');
+            modalOverlay.setAttribute('aria-hidden', 'true');
+        }
+
+        closeBtn.addEventListener('click', closeModal);
+        cancelBtn.addEventListener('click', closeModal);
+
+        modalOverlay.addEventListener('click', (e) => {
+            if (e.target === modalOverlay) closeModal();
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && modalOverlay.classList.contains('visible')) {
+                closeModal();
+            }
+        });
+
+        /* ---------- Búsqueda con debounce ---------- */
+        searchInput.addEventListener('input', (e) => {
+            const query = e.target.value.trim().toLowerCase();
+            clearTimeout(searchDebounce);
+
+            if (!query) {
+                resultsContainer.innerHTML = '';
+                return;
+            }
+            searchDebounce = setTimeout(() => buscarUsuarios(query), 280);
+        });
+
+        async function obtenerUsuarios() {
+            if (cacheUsuarios) return cacheUsuarios;
+
+            const usersRef = firebase.firestore().collection('historial_usuarios');
+            const snapshot = await usersRef.get();
+            const lista = [];
+
+            snapshot.forEach(doc => {
+                const data = doc.data() || {};
+                lista.push({
+                    uid:   doc.id,
+                    nombre: data.nombre || data.name || data.displayName || 'Usuario',
+                    email:  data.email || 'Sin correo'
+                });
+            });
+
+            cacheUsuarios = lista;
+            return lista;
+        }
+
+        async function buscarUsuarios(query) {
+            resultsContainer.innerHTML = '<div class="share-empty">Buscando…</div>';
+            try {
+                const lista = await obtenerUsuarios();
+                const currentUser = firebase.auth().currentUser;
+                const resultados = [];
+
+                for (const u of lista) {
+                    if (currentUser && u.uid === currentUser.uid) continue;
+                    const n = (u.nombre || '').toLowerCase();
+                    const e = (u.email  || '').toLowerCase();
+                    if (n.includes(query) || e.includes(query)) {
+                        resultados.push(u);
+                    }
+                }
+
+                renderResultados(resultados);
+            } catch (error) {
+                console.error('Error buscando usuarios:', error);
+                resultsContainer.innerHTML =
+                    '<div class="share-empty">Error al buscar usuarios. Revisa tu conexión.</div>';
+            }
+        }
+
+        /* ---------- Pintar resultados ---------- */
+        function renderResultados(resultados) {
+            resultsContainer.innerHTML = '';
+
+            if (!resultados.length) {
+                resultsContainer.innerHTML =
+                    '<div class="share-empty">No se encontraron usuarios.</div>';
+                return;
+            }
+
+            resultados.slice(0, 30).forEach(user => {
+                const row = document.createElement('div');
+                row.className = 'share-user-row';
+                if (selectedUser && selectedUser.uid === user.uid) {
+                    row.classList.add('selected');
+                }
+
+                const avatar = document.createElement('div');
+                avatar.className = 'share-user-avatar';
+                avatar.textContent = (user.nombre || '?').charAt(0).toUpperCase();
+
+                const info = document.createElement('div');
+                info.className = 'share-user-info';
+
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'share-user-name';
+                nameSpan.textContent = user.nombre;
+
+                const emailSpan = document.createElement('span');
+                emailSpan.className = 'share-user-email';
+                emailSpan.textContent = user.email;
+
+                info.appendChild(nameSpan);
+                info.appendChild(emailSpan);
+                row.appendChild(avatar);
+                row.appendChild(info);
+
+                row.addEventListener('click', () => {
+                    selectedUser = user;
+                    if (navigator.vibrate) { try { navigator.vibrate(10); } catch (_) {} }
+
+                    resultsContainer.querySelectorAll('.share-user-row')
+                        .forEach(el => el.classList.remove('selected'));
+                    row.classList.add('selected');
+
+                    selectedWrap.style.display = 'block';
+                    selectedCard.innerHTML = '';
+                    const miniRow = document.createElement('div');
+                    miniRow.className = 'share-user-row selected';
+                    miniRow.style.cssText = 'background: transparent; border: none; padding: 0; gap: 10px; cursor: default;';
+
+                    const miniAvatar = document.createElement('div');
+                    miniAvatar.className = 'share-user-avatar';
+                    miniAvatar.style.cssText = 'width: 34px; height: 34px; font-size: 14px;';
+                    miniAvatar.textContent = (user.nombre || '?').charAt(0).toUpperCase();
+
+                    const miniInfo = document.createElement('div');
+                    miniInfo.className = 'share-user-info';
+
+                    const miniName = document.createElement('span');
+                    miniName.className = 'share-user-name';
+                    miniName.style.fontSize = '13px';
+                    miniName.textContent = user.nombre;
+
+                    const miniEmail = document.createElement('span');
+                    miniEmail.className = 'share-user-email';
+                    miniEmail.style.fontSize = '10.5px';
+                    miniEmail.textContent = user.email;
+
+                    miniInfo.appendChild(miniName);
+                    miniInfo.appendChild(miniEmail);
+                    miniRow.appendChild(miniAvatar);
+                    miniRow.appendChild(miniInfo);
+                    selectedCard.appendChild(miniRow);
+
+                    sendBtn.disabled = false;
+                });
+
+                resultsContainer.appendChild(row);
+            });
+        }
+
+        /* ---------- Enviar perfil compartido ---------- */
+        sendBtn.addEventListener('click', async () => {
+            if (!selectedUser) return;
+
+            const currentUser = firebase.auth().currentUser;
+            if (!currentUser) {
+                alert('Debes iniciar sesión para compartir.');
+                return;
+            }
+
+            sendBtn.disabled = true;
+            sendBtn.textContent = 'Enviando…';
+
+            try {
+                const currentUserDoc = await firebase.firestore()
+                    .collection('historial_usuarios')
+                    .doc(currentUser.uid)
+                    .get();
+
+                const currentUserData = currentUserDoc.exists ? currentUserDoc.data() : {};
+
+                const perfilData = {
+                    uid:    currentUser.uid,
+                    nombre: currentUserData.nombre
+                            || currentUserData.name
+                            || currentUser.displayName
+                            || 'Usuario',
+                    email:  currentUserData.email
+                            || currentUser.email
+                            || '',
+                    foto:   currentUser.photoURL || ''
+                };
+
+                await firebase.firestore().collection('compartidos_perfiles').add({
+                    de:        currentUser.uid,
+                    para:      selectedUser.uid,
+                    perfil:    perfilData,
+                    fecha:     firebase.firestore.FieldValue.serverTimestamp(),
+                    leido:     false
+                });
+
+                if (navigator.vibrate) { try { navigator.vibrate([15, 40, 15]); } catch (_) {} }
+
+                alert(`✅ Perfil compartido exitosamente con ${selectedUser.nombre}`);
+                closeModal();
+            } catch (error) {
+                console.error('Error al compartir perfil:', error);
+                alert('❌ Hubo un error al compartir el perfil. Intenta de nuevo.');
+            } finally {
+                sendBtn.textContent = 'Compartir';
+                sendBtn.disabled = false;
+            }
+        });
     }
 
     if (document.readyState === 'loading') {
