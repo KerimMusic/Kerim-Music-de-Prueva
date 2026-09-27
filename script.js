@@ -78,6 +78,46 @@ auth.getRedirectResult()
         }
     });
 
+/* ============================================================
+   ACTUALIZAR NOMBRE DE USUARIO EN EL MENÚ HAMBURGUESA
+   ============================================================ */
+async function actualizarNombreMenu(user) {
+    const nameEl = document.getElementById('submenu-user-name');
+    const emailEl = document.getElementById('submenu-user-email');
+    if (!nameEl) return;
+
+    // Si no hay usuario, mostramos estado de invitado
+    if (!user) {
+        nameEl.textContent = 'Invitado';
+        if (emailEl) emailEl.textContent = 'Sin sesión';
+        return;
+    }
+
+    // Valores por defecto desde Firebase Auth
+    let nombre = user.displayName || (user.email ? user.email.split('@')[0] : 'Usuario');
+    let correo = user.email || '';
+
+    try {
+        // Intentar obtener el nombre desde la base de datos de Firebase (Firestore)
+        const docRef = db.collection('historial_usuarios').doc(user.uid);
+        const docSnap = await docRef.get();
+        
+        if (docSnap.exists) {
+            const data = docSnap.data();
+            // Buscamos diferentes posibles nombres de campos por si los tienes guardados
+            if (data.nombre) nombre = data.nombre;
+            else if (data.displayName) nombre = data.displayName;
+            else if (data.name) nombre = data.name;
+        }
+    } catch (e) {
+        console.warn('No se pudo obtener el nombre desde Firestore, usando datos de Auth:', e);
+    }
+
+    // Actualizamos el DOM
+    nameEl.textContent = nombre;
+    if (emailEl) emailEl.textContent = correo;
+}
+
 auth.onAuthStateChanged(async (user) => {
     if (user) {
         window.__currentUser = user;
@@ -96,10 +136,17 @@ auth.onAuthStateChanged(async (user) => {
                 window.__buildListenAgain();
             }
         }
+        
+        // AQUÍ AGREGAMOS LA LLAMADA PARA ACTUALIZAR EL NOMBRE EN EL MENÚ
+        await actualizarNombreMenu(user);
+        
     } else {
         window.__currentUser = null;
         console.log('🔒 Sin sesión. App bloqueada.');
         showAuthGate();
+        
+        // AQUÍ LIMPIAMOS EL NOMBRE CUANDO CIERRA SESIÓN
+        actualizarNombreMenu(null);
     }
 });
 
@@ -309,10 +356,16 @@ window.__getHistorialCache = () => historialCache;
 
 /* ============================================================
    0.4. SISTEMA DE PLAYLISTS "TU PLAYLIST"
+        — Derivado del historial REAL del usuario en Firebase
+        — Solo canciones escuchadas COMPLETAMENTE
+        — Se guarda dentro de historial_usuarios/{uid}
+        — Chunks de 10 canciones (playlists anteriores se conservan)
    ============================================================ */
 const MAX_CANCIONES_POR_PLAYLIST = 10;
-const MAX_COMPLETADAS = 300;
+const MAX_COMPLETADAS = 300; // hasta 30 playlists
 
+// Array de canciones completadas: [{ titulo, fecha }]
+// Orden: del más antiguo (índice 0) al más reciente (último)
 let completadasCache = [];
 
 async function cargarPlaylistsUsuario() {
@@ -374,9 +427,13 @@ async function guardarEnPlaylist(titulo) {
     const user = firebase.auth().currentUser;
     if (!user || !titulo) return;
 
+    // Evitar duplicado: si ya existe, se quita y se reinsertará al final
     completadasCache = completadasCache.filter(c => c.titulo !== titulo);
+
+    // Añadir al FINAL (para no reordenar playlists anteriores)
     completadasCache.push({ titulo, fecha: new Date() });
 
+    // Límite máximo
     if (completadasCache.length > MAX_COMPLETADAS) {
         completadasCache = completadasCache.slice(-MAX_COMPLETADAS);
     }
@@ -388,6 +445,12 @@ async function guardarEnPlaylist(titulo) {
     }
 }
 
+/**
+ * Calcula las playlists a partir del array de canciones completadas.
+ * Cada playlist = chunk de 10 canciones.
+ * Como las nuevas se añaden al FINAL, los chunks anteriores
+ * NO cambian (las playlists anteriores se conservan intactas).
+ */
 function computePlaylistsFromCompletadas() {
     const playlists = [];
     const total = completadasCache.length;
@@ -3087,98 +3150,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         window.__openPlaylistView = openView;
-    }
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
-    } else {
-        init();
-    }
-})();
-
-/* ============================================================
-   19. NOMBRE DEL USUARIO EN EL MENÚ HAMBURGUESA (Firebase)
-   ============================================================ */
-(function () {
-    'use strict';
-
-    function getEl(id) { return document.getElementById(id); }
-
-    function getInitial(name, email) {
-        const src = (name || email || '').trim();
-        if (!src) return '?';
-        return src.charAt(0).toUpperCase();
-    }
-
-    function setAvatar(avatarEl, photoURL, name, email) {
-        if (!avatarEl) return;
-        avatarEl.innerHTML = '';
-        avatarEl.textContent = '';
-        if (photoURL) {
-            avatarEl.style.backgroundImage = 'url("' + photoURL + '")';
-        } else {
-            avatarEl.style.backgroundImage = '';
-            avatarEl.textContent = getInitial(name, email);
-        }
-    }
-
-    function renderUser(user) {
-        const nameEl   = getEl('submenu-user-name');
-        const emailEl  = getEl('submenu-user-email');
-        const avatarEl = getEl('submenu-user-avatar');
-        if (!nameEl) return;
-
-        // Sin sesión
-        if (!user) {
-            nameEl.textContent = 'Invitado';
-            if (emailEl) emailEl.textContent = '';
-            setAvatar(avatarEl, '', '', '');
-            return;
-        }
-
-        const displayName  = (user.displayName || '').trim();
-        const email        = (user.email || '').trim();
-        const fallbackName = email ? email.split('@')[0] : 'Usuario';
-        const nombreMostrado = displayName || fallbackName;
-
-        nameEl.textContent = nombreMostrado;
-        if (emailEl) emailEl.textContent = email;
-        setAvatar(avatarEl, (user.photoURL || '').trim(), displayName, email);
-
-        // Si no hay displayName, intentar leerlo desde Firestore
-        if (!displayName) {
-            try {
-                const db = firebase.firestore();
-                const colecciones = ['usuarios', 'users', 'perfiles'];
-                (async () => {
-                    for (const col of colecciones) {
-                        try {
-                            const snap = await db.collection(col).doc(user.uid).get();
-                            if (snap && snap.exists) {
-                                const d = snap.data() || {};
-                                const nombre = (d.nombre || d.name || d.displayName || d.display_name || '').trim();
-                                if (nombre && nameEl) {
-                                    nameEl.textContent = nombre;
-                                    setAvatar(avatarEl, (user.photoURL || '').trim(), nombre, email);
-                                }
-                                return;
-                            }
-                        } catch (_) { /* probar siguiente colección */ }
-                    }
-                })();
-            } catch (_) {}
-        }
-    }
-
-    function init() {
-        if (typeof firebase === 'undefined' || !firebase.auth) {
-            setTimeout(init, 300);
-            return;
-        }
-        // Se actualiza automáticamente al iniciar / cerrar sesión o cambiar de cuenta
-        firebase.auth().onAuthStateChanged((user) => {
-            renderUser(user);
-        });
     }
 
     if (document.readyState === 'loading') {
