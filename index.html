@@ -8,6 +8,7 @@
 </head>
 <body>
 
+    <!-- ==================== PANTALLA OBLIGATORIA DE LOGIN ==================== -->
     <div class="auth-gate" id="auth-gate" aria-hidden="false">
         <div class="auth-gate-inner">
             <img class="auth-gate-logo"
@@ -70,21 +71,10 @@
                 <span class="submenu-title">MENÚ</span>
                 <button class="close-submenu" id="close-submenu" aria-label="Cerrar menú">&times;</button>
             </div>
-            
+
             <div class="submenu-user-section">
                 <span class="submenu-user-name" id="submenu-user-name">Cargando usuario...</span>
                 <span class="submenu-user-sub" id="submenu-user-sub">Perfil de usuario</span>
-                <!-- NUEVO BOTÓN COMPARTIR PERFIL -->
-                <button class="share-profile-btn" id="share-profile-btn" type="button">
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px; vertical-align:middle;">
-                        <circle cx="18" cy="5" r="3"/>
-                        <circle cx="6" cy="12" r="3"/>
-                        <circle cx="18" cy="19" r="3"/>
-                        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
-                        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
-                    </svg>
-                    Compartir perfil
-                </button>
             </div>
 
             <ul class="submenu-list">
@@ -125,6 +115,12 @@
                     <div class="home-carousel" id="carousel-albums"></div>
                 </section>
 
+                <!-- NUEVO: Playlists compartidas contigo -->
+                <section class="home-section" id="sec-shared" style="display:none;">
+                    <h2 class="home-section-title">Playlists compartidas contigo</h2>
+                    <div class="home-carousel" id="carousel-shared"></div>
+                </section>
+
                 <div class="home-all-header">
                     <h2 class="home-section-title home-section-title--all">Todas las canciones</h2>
                     <button class="show-all-btn" id="show-all-btn" type="button">
@@ -133,6 +129,7 @@
                 </div>
             </div>
 
+            <!-- ==================== Barrio Bajo ==================== -->
             <div class="playlist-item"
                  data-src="https://www.dropbox.com/scl/fi/1yohh9j4442pchcu7k03w/Master_Se-te-sube-la-Nota-Pri-Ramirez.wav?rlkey=94t60a2ae0hg1rt701l94w8ho&st=kjqj3eez&raw=1">
                 <div class="thumbnail">
@@ -155,6 +152,7 @@
                 </div>
             </div>
 
+            <!-- ==================== Escribo ==================== -->
             <div class="playlist-item"
                  data-src="https://www.dropbox.com/scl/fi/dxhc72dtjjadyzrwupddg/Cosas-de-la-vida-Escribo.wav?rlkey=li3bvmvax97t2f4ion1oiffw8&st=cfc98dg2&raw=1">
                 <div class="thumbnail">
@@ -188,6 +186,7 @@
                 </div>
             </div>
 
+            <!-- ==================== Dany Zm ==================== -->
             <div class="playlist-item"
                  data-src="https://www.dropbox.com/scl/fi/g8ojpqgcavyfp2fgwn2wg/Dany_Zm_Tu-eres-mia-Ofical.wav?rlkey=xiowtehy8h6fq38maadjid4bq&st=3hz6dasg&raw=1">
                 <div class="thumbnail">
@@ -366,6 +365,7 @@
                 </div>
             </div>
 
+            <!-- ==================== El placoso de la L ==================== -->
             <div class="playlist-item"
                  data-src="https://www.dropbox.com/scl/fi/u81ryisgb72g89ya0md8l/No-Te-Importo-EPDL.wav?rlkey=le8nk4ap3uzoo7uv8yn4yig46&st=ksvr1ckd&raw=1">
                 <div class="thumbnail">
@@ -426,6 +426,7 @@
                 </div>
             </div>
 
+            <!-- ==================== Aizber ==================== -->
             <div class="playlist-item"
                  data-src="https://www.dropbox.com/scl/fi/0y977tgyjp66og2ze36uh/SIgoVivoIazberMp3.wav?rlkey=6vdswfh8f3wtqa66seeugc480&st=rj9g6llz&raw=1">
                 <div class="thumbnail">
@@ -448,6 +449,7 @@
                 </div>
             </div>
 
+            <!-- ==================== Emsek ==================== -->
             <div class="playlist-item"
                  data-src="https://www.dropbox.com/scl/fi/thmc7o0uftl3hhvig4lc6/Entre_tus_Redes_-msek__HM___462__Casero_Records_MP3_256kbps_128k.mp3?rlkey=6raowpgc6b5j5a0h21qyo6p34&st=5jws1foy&raw=1">
                 <div class="thumbnail">
@@ -568,6 +570,7 @@
                 </div>
             </div>
 
+            <!-- ==================== J Vazquez ==================== -->
             <div class="playlist-item"
                  data-src="https://www.dropbox.com/scl/fi/kurcwgvu4c0813rskvtg6/Beyby-J-Vazquez.flac?rlkey=hi0ficbezkryiigcmqt8nfrrr&st=anpkz9kv&raw=1">
                 <div class="thumbnail">
@@ -724,6 +727,7 @@
                 </div>
             </div>
 
+            <!-- ==================== Danuel s ==================== -->
             <div class="playlist-item"
                  data-src="https://www.dropbox.com/scl/fi/fvmn4j26twgsls5qruhx7/en-la-intimidad-l-daniels.mp3?rlkey=zkj3ddoqmpczehqxzx707saol&st=9v36eejh&raw=1">
                 <div class="thumbnail">
@@ -821,6 +825,7 @@
             </div>
         </div>
 
+        <!-- ==================== VISTA DE "TU PLAYLIST" ==================== -->
         <div class="playlist-view" id="playlist-view" aria-hidden="true">
             <div class="pv-header">
                 <button class="pv-back" id="pv-back" type="button" aria-label="Volver">
@@ -831,6 +836,19 @@
                     </svg>
                 </button>
                 <h1 class="pv-title" id="pv-title">Tu Playlist</h1>
+
+                <!-- NUEVO: botón compartir playlist -->
+                <button class="pv-share" id="pv-share" type="button" aria-label="Compartir playlist">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
+                         stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="18" cy="5"  r="3" fill="#ffffff" stroke="none"/>
+                        <circle cx="6"  cy="12" r="3" fill="#ffffff" stroke="none"/>
+                        <circle cx="18" cy="19" r="3" fill="#ffffff" stroke="none"/>
+                        <line x1="8.59"  y1="13.51" x2="15.42" y2="17.49"/>
+                        <line x1="15.41" y1="6.51"  x2="8.59"  y2="10.49"/>
+                    </svg>
+                    <span>Compartir<br>playlist</span>
+                </button>
             </div>
 
             <div class="pv-scroll" id="pv-scroll">
@@ -850,31 +868,23 @@
 
     </div>
 
-    <!-- ==================== MODAL COMPARTIR PERFIL ==================== -->
-    <div class="share-modal-overlay" id="share-modal-overlay" aria-hidden="true">
-        <div class="share-modal">
+    <audio id="audio-player" preload="metadata"></audio>
+
+    <!-- NUEVO: Modal para compartir playlist -->
+    <div class="share-modal" id="share-modal" aria-hidden="true">
+        <div class="share-modal-backdrop" id="share-modal-backdrop"></div>
+        <div class="share-modal-box" role="dialog" aria-modal="true" aria-labelledby="share-modal-title">
             <div class="share-modal-header">
-                <h3>COMPARTIR PERFIL</h3>
-                <button class="share-modal-close" id="share-modal-close" type="button">&times;</button>
+                <h2 class="share-modal-title" id="share-modal-title">Compartir playlist</h2>
+                <button class="share-modal-close" id="share-modal-close" type="button"
+                        aria-label="Cerrar">&times;</button>
             </div>
-            <div class="share-modal-body">
-                <div class="share-search-wrap">
-                    <input type="text" id="share-search-input" placeholder="Buscar perfil para compartir...">
-                </div>
-                <div class="share-results" id="share-results"></div>
-                <div class="share-selected" id="share-selected" style="display: none;">
-                    <p>Usuario seleccionado:</p>
-                    <div class="selected-user-card" id="selected-user-card"></div>
-                </div>
-            </div>
-            <div class="share-modal-footer">
-                <button class="share-cancel-btn" id="share-cancel-btn" type="button">Cancelar</button>
-                <button class="share-send-btn" id="share-send-btn" type="button" disabled>Compartir</button>
-            </div>
+            <input type="text" class="share-modal-input" id="share-modal-input"
+                   placeholder="Buscar usuario por nombre o correo..." autocomplete="off">
+            <div class="share-modal-results" id="share-modal-results"></div>
+            <p class="share-modal-status" id="share-modal-status"></p>
         </div>
     </div>
-
-    <audio id="audio-player" preload="metadata"></audio>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
