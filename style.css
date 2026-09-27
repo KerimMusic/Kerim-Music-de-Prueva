@@ -187,30 +187,33 @@ input, textarea {
     transform: scale(1.15);
 }
 
-/* --- NUEVO: INFORMACIÓN DE USUARIO EN SUBMENÚ --- */
-.submenu-user-info {
+/* ============================================================
+   INFORMACIÓN DEL USUARIO EN EL SUBMENÚ (NUEVO)
+   ============================================================ */
+.submenu-user-section {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    padding: 0 12px 15px;
-    margin-top: -15px; /* Ajusta el espacio para que quede cerca del título MENÚ */
+    padding-bottom: 15px;
+    margin-bottom: 20px;
     border-bottom: 1px solid #1f1f1f;
-    margin-bottom: 15px;
-    word-break: break-word;
 }
 
 .submenu-user-name {
     font-size: 16px;
-    font-weight: 700;
+    font-weight: 600;
     color: #ffffff;
-    line-height: 1.2;
+    word-break: break-word;
+    line-height: 1.3;
 }
 
-.submenu-user-email {
-    font-size: 12px;
+.submenu-user-sub {
+    font-size: 11px;
     color: #888888;
-    line-height: 1.2;
+    line-height: 1.3;
+    letter-spacing: 0.3px;
 }
+/* ============================================================ */
 
 .submenu-list {
     list-style: none;
