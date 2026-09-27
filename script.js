@@ -116,14 +116,13 @@ auth.onAuthStateChanged(async (user) => {
 
         // ============================================================
         // NUEVO: Garantizar que historial_usuarios tenga nombre/email/foto
-        // para que el buscador de "Compartir playlist" muestre datos reales.
         // ============================================================
         try {
             const docRef = db.collection('historial_usuarios').doc(user.uid);
             const docSnap = await docRef.get();
             const baseData = {
                 nombre: user.displayName || (user.email ? user.email.split('@')[0] : '') || 'Usuario',
-                email:  user.email || '',
+                email:  (user.email || '').toLowerCase(),
                 foto:   user.photoURL || ''
             };
             if (!docSnap.exists) {
@@ -3164,7 +3163,7 @@ document.addEventListener('DOMContentLoaded', () => {
 })();
 
 /* ============================================================
-   19. NUEVO: COMPARTIR PLAYLIST ENTRE USUARIOS
+   19. COMPARTIR PLAYLIST ENTRE USUARIOS (BÚSQUEDA ACTUALIZADA)
    ============================================================ */
 (function () {
     'use strict';
@@ -3195,15 +3194,27 @@ document.addEventListener('DOMContentLoaded', () => {
         return item ? (item.querySelector('.item-subtitle')?.textContent.trim() || '') : '';
     }
 
-    // ============================================================
-    // ACTUALIZADO: Ignorar documentos sin nombre NI email
-    // ============================================================
+    /* ---------- NORMALIZACIÓN PARA BÚSQUEDA ---------- */
+    function normalizeUserStr(str) {
+        return String(str || '')
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    /* ---------- CARGA INICIAL (caché para sugerencias) ---------- */
     async function cargarUsuariosFirebase() {
         if (usersCache) return usersCache;
         if (usersLoadingPromise) return usersLoadingPromise;
 
         usersLoadingPromise = (async () => {
-            const snap = await firebase.firestore().collection('historial_usuarios').get();
+            const snap = await firebase.firestore()
+                .collection('historial_usuarios')
+                .limit(200)
+                .get();
+
             const users = [];
             snap.forEach(doc => {
                 const d = doc.data() || {};
@@ -3211,16 +3222,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 const email  = d.email || '';
                 const foto   = d.foto || d.photoURL || d.photoUrl || '';
 
-                // Ignorar documentos basura (solo UID, sin datos)
                 if (!nombre && !email) return;
 
                 users.push({
                     uid: doc.id,
-                    nombre: nombre || email.split('@')[0] || 'Usuario',
+                    nombre: nombre || (email ? email.split('@')[0] : 'Usuario'),
                     email,
                     foto
                 });
             });
+
             usersCache = users;
             console.log(`👥 Usuarios válidos cargados: ${users.length}`);
             return users;
@@ -3228,16 +3239,85 @@ document.addEventListener('DOMContentLoaded', () => {
             usersLoadingPromise = null;
             throw err;
         });
+
         return usersLoadingPromise;
     }
 
+    /* ---------- BÚSQUEDA DIRECTA EN FIRESTORE (email + nombre) ---------- */
+    async function buscarUsuariosEnFirestore(query) {
+        const q = normalizeUserStr(query);
+        if (!q) return [];
+
+        const db = firebase.firestore();
+        const col = db.collection('historial_usuarios');
+        const currentUid = firebase.auth().currentUser?.uid || '';
+
+        const resultados = new Map();
+
+        // 1) Email exacto (normalizado en minúsculas)
+        try {
+            const snapEmail = await col
+                .where('email', '==', query.trim().toLowerCase())
+                .limit(10)
+                .get();
+            snapEmail.forEach(doc => {
+                if (doc.id === currentUid) return;
+                const d = doc.data() || {};
+                if (!d.email && !d.nombre) return;
+                resultados.set(doc.id, {
+                    uid: doc.id,
+                    nombre: d.nombre || d.name || d.displayName || d.email.split('@')[0],
+                    email: d.email || '',
+                    foto: d.foto || d.photoURL || d.photoUrl || ''
+                });
+            });
+        } catch (_) {}
+
+        // 2) Prefijo de nombre
+        try {
+            const snapNombre = await col
+                .orderBy('nombre')
+                .startAt(query)
+                .endAt(query + '\uf8ff')
+                .limit(15)
+                .get();
+            snapNombre.forEach(doc => {
+                if (doc.id === currentUid) return;
+                const d = doc.data() || {};
+                if (!d.email && !d.nombre) return;
+                resultados.set(doc.id, {
+                    uid: doc.id,
+                    nombre: d.nombre || d.name || d.displayName || d.email.split('@')[0],
+                    email: d.email || '',
+                    foto: d.foto || d.photoURL || d.photoUrl || ''
+                });
+            });
+        } catch (_) {}
+
+        // 3) Fallback local (case/accent-insensitive)
+        try {
+            const todos = await cargarUsuariosFirebase();
+            todos.forEach(u => {
+                if (u.uid === currentUid) return;
+                const nNombre = normalizeUserStr(u.nombre);
+                const nEmail  = normalizeUserStr(u.email);
+                if (nNombre.includes(q) || nEmail.includes(q)) {
+                    resultados.set(u.uid, u);
+                }
+            });
+        } catch (_) {}
+
+        return Array.from(resultados.values()).slice(0, 30);
+    }
+
+    /* ---------- FILTRADO LOCAL (respaldo inmediato) ---------- */
     function filtrarUsuarios(users, q) {
-        const nq = String(q || '').toLowerCase().trim();
+        const nq = normalizeUserStr(q);
         if (!nq) return users.slice(0, 30);
         return users.filter(u =>
-            (u.nombre && u.nombre.toLowerCase().includes(nq)) ||
-            (u.email && u.email.toLowerCase().includes(nq)) ||
-            (u.uid && u.uid.toLowerCase().includes(nq))
+            normalizeUserStr(u.nombre).includes(nq) ||
+            normalizeUserStr(u.email).includes(nq) ||
+            normalizeUserStr(u.uid).includes(nq)
         ).slice(0, 30);
     }
 
@@ -3278,9 +3358,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return true;
     }
 
-    // ============================================================
-    // ACTUALIZADO: Fallbacks amigables en el subtítulo
-    // ============================================================
+    /* ---------- RENDER DE RESULTADOS ---------- */
     function renderUserResults(users, container, onPick) {
         if (!container) return;
         container.innerHTML = '';
@@ -3292,8 +3370,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const empty = document.createElement('div');
             empty.className = 'search-empty';
             empty.innerHTML =
-                '<div class="search-empty-title">Sin usuarios disponibles</div>' +
-                '<div class="search-empty-sub">Aún no hay otros usuarios registrados.</div>';
+                '<div class="search-empty-title">Sin resultados</div>' +
+                '<div class="search-empty-sub">No se encontraron usuarios registrados con ese criterio.</div>';
             container.appendChild(empty);
             return;
         }
@@ -3501,17 +3579,38 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
+        /* ---------- BÚSQUEDA EN VIVO (email + nombre) ---------- */
         let debounceTimer = null;
+        let searchToken = 0;
+
         if (input) {
             input.addEventListener('input', () => {
-                const q = input.value;
+                const q = input.value.trim();
                 if (debounceTimer) clearTimeout(debounceTimer);
+
+                if (!q) {
+                    cargarUsuariosFirebase().then(users => {
+                        renderUserResults(filtrarUsuarios(users, ''), results, onPickUser);
+                    }).catch(() => {});
+                    return;
+                }
+
+                // Feedback inmediato desde caché
+                if (usersCache) {
+                    renderUserResults(filtrarUsuarios(usersCache, q), results, onPickUser);
+                }
+
+                // Búsqueda real en Firestore
                 debounceTimer = setTimeout(async () => {
+                    const myToken = ++searchToken;
                     try {
-                        const users = usersCache || await cargarUsuariosFirebase();
-                        renderUserResults(filtrarUsuarios(users, q), results, onPickUser);
-                    } catch (e) { /* ignore */ }
-                }, 120);
+                        const encontrados = await buscarUsuariosEnFirestore(q);
+                        if (myToken !== searchToken) return;
+                        renderUserResults(encontrados, results, onPickUser);
+                    } catch (err) {
+                        console.warn('Error en búsqueda de usuarios:', err);
+                    }
+                }, 180);
             });
         }
 
