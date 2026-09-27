@@ -114,6 +114,37 @@ auth.onAuthStateChanged(async (user) => {
             if (userSubEl) userSubEl.textContent = subText;
         }
 
+        // ============================================================
+        // NUEVO: Garantizar que historial_usuarios tenga nombre/email/foto
+        // para que el buscador de "Compartir playlist" muestre datos reales.
+        // ============================================================
+        try {
+            const docRef = db.collection('historial_usuarios').doc(user.uid);
+            const docSnap = await docRef.get();
+            const baseData = {
+                nombre: user.displayName || (user.email ? user.email.split('@')[0] : '') || 'Usuario',
+                email:  user.email || '',
+                foto:   user.photoURL || ''
+            };
+            if (!docSnap.exists) {
+                await docRef.set(baseData, { merge: true });
+                console.log('🆕 Perfil de usuario creado en historial_usuarios');
+            } else {
+                const existing = docSnap.data() || {};
+                const update = {};
+                if (!existing.nombre && baseData.nombre) update.nombre = baseData.nombre;
+                if (!existing.email  && baseData.email)  update.email  = baseData.email;
+                if (!existing.foto   && baseData.foto)   update.foto   = baseData.foto;
+                if (Object.keys(update).length) {
+                    await docRef.set(update, { merge: true });
+                    console.log('🔄 Perfil de usuario sincronizado:', update);
+                }
+            }
+        } catch (e) {
+            console.warn('No se pudo sincronizar nombre/email en Firestore:', e);
+        }
+        // ============================================================
+
         await cargarOyentesDeTodas();
         if (typeof window.__cargarHistorialUsuario === 'function') {
             await window.__cargarHistorialUsuario();
@@ -3164,6 +3195,9 @@ document.addEventListener('DOMContentLoaded', () => {
         return item ? (item.querySelector('.item-subtitle')?.textContent.trim() || '') : '';
     }
 
+    // ============================================================
+    // ACTUALIZADO: Ignorar documentos sin nombre NI email
+    // ============================================================
     async function cargarUsuariosFirebase() {
         if (usersCache) return usersCache;
         if (usersLoadingPromise) return usersLoadingPromise;
@@ -3173,14 +3207,22 @@ document.addEventListener('DOMContentLoaded', () => {
             const users = [];
             snap.forEach(doc => {
                 const d = doc.data() || {};
+                const nombre = d.nombre || d.name || d.displayName || '';
+                const email  = d.email || '';
+                const foto   = d.foto || d.photoURL || d.photoUrl || '';
+
+                // Ignorar documentos basura (solo UID, sin datos)
+                if (!nombre && !email) return;
+
                 users.push({
                     uid: doc.id,
-                    nombre: d.nombre || d.name || d.displayName || d.email || doc.id,
-                    email: d.email || '',
-                    foto: d.foto || d.photoURL || d.photoUrl || ''
+                    nombre: nombre || email.split('@')[0] || 'Usuario',
+                    email,
+                    foto
                 });
             });
             usersCache = users;
+            console.log(`👥 Usuarios válidos cargados: ${users.length}`);
             return users;
         })().catch(err => {
             usersLoadingPromise = null;
@@ -3236,6 +3278,9 @@ document.addEventListener('DOMContentLoaded', () => {
         return true;
     }
 
+    // ============================================================
+    // ACTUALIZADO: Fallbacks amigables en el subtítulo
+    // ============================================================
     function renderUserResults(users, container, onPick) {
         if (!container) return;
         container.innerHTML = '';
@@ -3247,8 +3292,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const empty = document.createElement('div');
             empty.className = 'search-empty';
             empty.innerHTML =
-                '<div class="search-empty-title">Sin resultados</div>' +
-                '<div class="search-empty-sub">No se encontró ningún usuario.</div>';
+                '<div class="search-empty-title">Sin usuarios disponibles</div>' +
+                '<div class="search-empty-sub">Aún no hay otros usuarios registrados.</div>';
             container.appendChild(empty);
             return;
         }
@@ -3278,12 +3323,11 @@ document.addEventListener('DOMContentLoaded', () => {
             nameEl.textContent = u.nombre;
             info.appendChild(nameEl);
 
-            if (u.email) {
-                const subEl = document.createElement('span');
-                subEl.className = 'share-user-sub';
-                subEl.textContent = u.email;
-                info.appendChild(subEl);
-            }
+            const subEl = document.createElement('span');
+            subEl.className = 'share-user-sub';
+            subEl.textContent = u.email || 'Usuario de Kerim Music';
+            info.appendChild(subEl);
+
             row.appendChild(info);
 
             row.addEventListener('click', () => onPick(u));
