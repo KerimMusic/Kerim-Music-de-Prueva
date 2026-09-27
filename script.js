@@ -131,7 +131,7 @@ auth.onAuthStateChanged(async (user) => {
         window.__currentUser = null;
         console.log('🔒 Sin sesión. App bloqueada.');
         showAuthGate();
-        
+
         const userNameEl = document.getElementById('submenu-user-name');
         const userSubEl  = document.getElementById('submenu-user-sub');
         if (userNameEl) userNameEl.textContent = 'UID del usuario';
@@ -165,6 +165,7 @@ if (authBtn) {
         }
     });
 }
+/* ---------- FIN AUTENTICACIÓN ---------- */
 
 /* ============================================================
    0.2. SISTEMA DE OYENTES ÚNICOS (ventana móvil de 28 días)
@@ -851,6 +852,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (img) coverObserver.observe(img, { attributes: true, attributeFilter: ['src'] });
     });
 
+    /* BUSCADOR */
     const heartSearchBtn  = document.getElementById('heart-search-btn');
     const searchContainer = document.getElementById('search-container');
     const searchInput     = document.getElementById('search-input');
@@ -883,6 +885,7 @@ document.addEventListener('DOMContentLoaded', () => {
         searchInput.addEventListener('input', applySearchVisibility);
     }
 
+    /* COMPARTIR */
     const shareBtn = document.getElementById('share-btn');
     const SHARE_URL = 'https://kerimmusic.github.io/DescargarAppOmegaBeats/';
 
@@ -907,6 +910,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    /* MENÚ */
     const menuBtn         = document.getElementById('menu-btn');
     const submenu         = document.getElementById('submenu');
     const submenuOverlay  = document.getElementById('submenu-overlay');
@@ -940,6 +944,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.key === 'Escape') closeSubmenu();
     });
 
+    /* FULLSCREEN PLAYER */
     if (!player || !playerCover || !playerTitle || !playButton) return;
 
     const fsHTML = `
@@ -3128,253 +3133,354 @@ document.addEventListener('DOMContentLoaded', () => {
 })();
 
 /* ============================================================
-   19. COMPARTIR PERFIL (Buscador de usuarios y envío)
+   19. NUEVO: COMPARTIR PLAYLIST ENTRE USUARIOS
    ============================================================ */
 (function () {
     'use strict';
 
-    function init() {
-        const shareBtn         = document.getElementById('share-profile-btn');
-        const modalOverlay     = document.getElementById('share-modal-overlay');
-        const closeBtn         = document.getElementById('share-modal-close');
-        const cancelBtn        = document.getElementById('share-cancel-btn');
-        const searchInput      = document.getElementById('share-search-input');
-        const resultsContainer = document.getElementById('share-results');
-        const selectedWrap     = document.getElementById('share-selected');
-        const selectedCard     = document.getElementById('selected-user-card');
-        const sendBtn          = document.getElementById('share-send-btn');
+    let usersCache = null;
+    let usersLoadingPromise = null;
+    let currentPlaylistToShare = null;
+    let currentTargetUser = null;
+    let sharedUnsubscribe = null;
 
-        if (!shareBtn || !modalOverlay) return;
+    const $ = (id) => document.getElementById(id);
 
-        let selectedUser = null;
-        let searchDebounce = null;
-        let cacheUsuarios = null;
+    function findLocalItemByTitle(title) {
+        const pl = $('playlist');
+        if (!pl) return null;
+        const n = String(title || '').toLowerCase().trim();
+        if (!n) return null;
+        for (const it of pl.querySelectorAll('.playlist-item')) {
+            const t = (it.querySelector('.item-title')?.textContent || '').trim();
+            if (t.toLowerCase() === n) return it;
+        }
+        return null;
+    }
+    function getCoverFromItem(item) {
+        return item ? (item.querySelector('.thumbnail img')?.src || '') : '';
+    }
+    function getSubtitleFromItem(item) {
+        return item ? (item.querySelector('.item-subtitle')?.textContent.trim() || '') : '';
+    }
 
-        /* ---------- Abrir modal ---------- */
-        shareBtn.addEventListener('click', () => {
-            modalOverlay.classList.add('visible');
-            modalOverlay.setAttribute('aria-hidden', 'false');
-            searchInput.value = '';
-            resultsContainer.innerHTML = '';
-            selectedWrap.style.display = 'none';
-            selectedUser = null;
-            sendBtn.disabled = true;
-            sendBtn.textContent = 'Compartir';
-            setTimeout(() => searchInput.focus(), 320);
+    async function cargarUsuariosFirebase() {
+        if (usersCache) return usersCache;
+        if (usersLoadingPromise) return usersLoadingPromise;
 
-            if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} }
+        usersLoadingPromise = (async () => {
+            const snap = await firebase.firestore().collection('historial_usuarios').get();
+            const users = [];
+            snap.forEach(doc => {
+                const d = doc.data() || {};
+                users.push({
+                    uid: doc.id,
+                    nombre: d.nombre || d.name || d.displayName || d.email || doc.id,
+                    email: d.email || '',
+                    foto: d.foto || d.photoURL || d.photoUrl || ''
+                });
+            });
+            usersCache = users;
+            return users;
+        })().catch(err => {
+            usersLoadingPromise = null;
+            throw err;
+        });
+        return usersLoadingPromise;
+    }
+
+    function filtrarUsuarios(users, q) {
+        const nq = String(q || '').toLowerCase().trim();
+        if (!nq) return users.slice(0, 30);
+        return users.filter(u =>
+            (u.nombre && u.nombre.toLowerCase().includes(nq)) ||
+            (u.email && u.email.toLowerCase().includes(nq)) ||
+            (u.uid && u.uid.toLowerCase().includes(nq))
+        ).slice(0, 30);
+    }
+
+    async function compartirPlaylistConUsuario(playlist, targetUid, targetName) {
+        const user = firebase.auth().currentUser;
+        if (!user) throw new Error('Debes iniciar sesión.');
+        if (!playlist || !Array.isArray(playlist.canciones) || !playlist.canciones.length) {
+            throw new Error('La playlist está vacía.');
+        }
+        if (user.uid === targetUid) throw new Error('No puedes compartir contigo mismo.');
+
+        const canciones = playlist.canciones.map(c => {
+            const it = findLocalItemByTitle(c.titulo);
+            return {
+                titulo: c.titulo,
+                portada: getCoverFromItem(it) || c.portada || '',
+                subtitulo: getSubtitleFromItem(it) || c.subtitulo || ''
+            };
         });
 
-        /* ---------- Cerrar modal ---------- */
-        function closeModal() {
-            modalOverlay.classList.remove('visible');
-            modalOverlay.setAttribute('aria-hidden', 'true');
+        let portada = '';
+        for (const c of canciones) {
+            if (c.portada) { portada = c.portada; break; }
         }
 
-        closeBtn.addEventListener('click', closeModal);
-        cancelBtn.addEventListener('click', closeModal);
-
-        modalOverlay.addEventListener('click', (e) => {
-            if (e.target === modalOverlay) closeModal();
+        await firebase.firestore().collection('playlists_compartidas').add({
+            de: user.uid,
+            deNombre: user.displayName || user.email || 'Usuario',
+            deEmail: user.email || '',
+            para: targetUid,
+            paraNombre: targetName || '',
+            nombre: playlist.nombre || 'Playlist',
+            portada,
+            canciones,
+            fecha: firebase.firestore.FieldValue.serverTimestamp()
         });
+
+        return true;
+    }
+
+    function renderUserResults(users, container, onPick) {
+        if (!container) return;
+        container.innerHTML = '';
+
+        const currentUid = firebase.auth().currentUser?.uid || '';
+        const filtered = users.filter(u => u.uid !== currentUid);
+
+        if (!filtered.length) {
+            const empty = document.createElement('div');
+            empty.className = 'search-empty';
+            empty.innerHTML =
+                '<div class="search-empty-title">Sin resultados</div>' +
+                '<div class="search-empty-sub">No se encontró ningún usuario.</div>';
+            container.appendChild(empty);
+            return;
+        }
+
+        filtered.forEach(u => {
+            const row = document.createElement('button');
+            row.type = 'button';
+            row.className = 'share-user-row';
+
+            const av = document.createElement('div');
+            av.className = 'share-user-avatar';
+            if (u.foto) {
+                const img = document.createElement('img');
+                img.src = u.foto;
+                img.alt = u.nombre;
+                av.appendChild(img);
+            } else {
+                av.textContent = (String(u.nombre).trim()[0] || '?').toUpperCase();
+            }
+            row.appendChild(av);
+
+            const info = document.createElement('div');
+            info.className = 'share-user-info';
+
+            const nameEl = document.createElement('span');
+            nameEl.className = 'share-user-name';
+            nameEl.textContent = u.nombre;
+            info.appendChild(nameEl);
+
+            if (u.email) {
+                const subEl = document.createElement('span');
+                subEl.className = 'share-user-sub';
+                subEl.textContent = u.email;
+                info.appendChild(subEl);
+            }
+            row.appendChild(info);
+
+            row.addEventListener('click', () => onPick(u));
+            container.appendChild(row);
+        });
+    }
+
+    function openShareModal(playlist) {
+        currentPlaylistToShare = playlist;
+        currentTargetUser = null;
+
+        const modal = $('share-modal');
+        const input = $('share-modal-input');
+        const results = $('share-modal-results');
+        const status = $('share-modal-status');
+        if (!modal) return;
+
+        if (input) input.value = '';
+        if (status) { status.textContent = ''; status.classList.remove('ok'); }
+        if (results) results.innerHTML =
+            '<div class="search-empty"><div class="search-empty-sub">Cargando usuarios…</div></div>';
+
+        modal.classList.add('visible');
+        modal.setAttribute('aria-hidden', 'false');
+
+        cargarUsuariosFirebase().then(users => {
+            renderUserResults(filtrarUsuarios(users, ''), results, onPickUser);
+        }).catch(err => {
+            console.warn('Error cargando usuarios:', err);
+            if (results) results.innerHTML =
+                '<div class="search-empty">' +
+                    '<div class="search-empty-title">Error</div>' +
+                    '<div class="search-empty-sub">No se pudieron cargar los usuarios.</div>' +
+                '</div>';
+        });
+    }
+
+    function closeShareModal() {
+        const modal = $('share-modal');
+        if (!modal) return;
+        modal.classList.remove('visible');
+        modal.setAttribute('aria-hidden', 'true');
+        currentPlaylistToShare = null;
+        currentTargetUser = null;
+    }
+
+    async function onPickUser(u) {
+        const status = $('share-modal-status');
+        if (!status) return;
+        if (currentTargetUser && currentTargetUser.uid === u.uid) return;
+        currentTargetUser = u;
+
+        status.textContent = 'Compartiendo con ' + u.nombre + '…';
+        status.classList.remove('ok');
+
+        try {
+            await compartirPlaylistConUsuario(currentPlaylistToShare, u.uid, u.nombre);
+            status.textContent = '✓ Playlist compartida con ' + u.nombre;
+            status.classList.add('ok');
+            setTimeout(closeShareModal, 1400);
+        } catch (err) {
+            console.warn('Error al compartir:', err);
+            status.textContent = err.message || 'No se pudo compartir la playlist.';
+            status.classList.remove('ok');
+            currentTargetUser = null;
+        }
+    }
+
+    function renderSharedPlaylists(playlists) {
+        const sec = $('sec-shared');
+        const carousel = $('carousel-shared');
+        if (!sec || !carousel) return;
+
+        carousel.innerHTML = '';
+        if (!playlists.length) { sec.style.display = 'none'; return; }
+        sec.style.display = '';
+
+        playlists.forEach(pl => {
+            const card = document.createElement('button');
+            card.type = 'button';
+            card.className = 'home-card home-card--playlist';
+            card.setAttribute('aria-label', pl.nombre);
+
+            const thumb = document.createElement('div');
+            thumb.className = 'home-card-thumb';
+            if (pl.portada) {
+                const img = document.createElement('img');
+                img.src = pl.portada;
+                img.alt = pl.nombre;
+                img.loading = 'lazy';
+                thumb.appendChild(img);
+            }
+            card.appendChild(thumb);
+
+            const t = document.createElement('span');
+            t.className = 'home-card-title';
+            t.textContent = pl.nombre;
+            card.appendChild(t);
+
+            const s = document.createElement('span');
+            s.className = 'home-card-sub';
+            s.textContent = 'De ' + (pl.deNombre || 'un usuario');
+            card.appendChild(s);
+
+            card.addEventListener('click', () => {
+                if (typeof window.__openPlaylistView === 'function') {
+                    window.__openPlaylistView(pl);
+                }
+            });
+
+            carousel.appendChild(card);
+        });
+    }
+
+    function listenSharedPlaylists(user) {
+        if (sharedUnsubscribe) { sharedUnsubscribe(); sharedUnsubscribe = null; }
+
+        sharedUnsubscribe = firebase.firestore()
+            .collection('playlists_compartidas')
+            .where('para', '==', user.uid)
+            .onSnapshot(snap => {
+                const list = [];
+                snap.forEach(doc => {
+                    const d = doc.data() || {};
+                    list.push({
+                        id: doc.id,
+                        nombre: d.nombre || 'Playlist compartida',
+                        portada: d.portada || '',
+                        deNombre: d.deNombre || '',
+                        canciones: Array.isArray(d.canciones) ? d.canciones.slice() : []
+                    });
+                });
+                list.sort((a, b) => String(a.nombre).localeCompare(String(b.nombre)));
+                renderSharedPlaylists(list);
+            }, err => {
+                console.warn('No se pudieron cargar playlists compartidas:', err);
+                renderSharedPlaylists([]);
+            });
+    }
+
+    function init() {
+        if (typeof window.__openPlaylistView === 'function' && !window.__openPlaylistView.__shareWrapped) {
+            const orig = window.__openPlaylistView;
+            const wrapped = function (pl) {
+                window.__currentOpenPlaylist = pl;
+                return orig.apply(this, arguments);
+            };
+            wrapped.__shareWrapped = true;
+            window.__openPlaylistView = wrapped;
+        }
+
+        const shareBtn   = $('pv-share');
+        const input      = $('share-modal-input');
+        const results    = $('share-modal-results');
+        const closeBtn   = $('share-modal-close');
+        const backdrop   = $('share-modal-backdrop');
+
+        if (shareBtn) {
+            shareBtn.addEventListener('click', () => {
+                const pl = window.__currentOpenPlaylist;
+                if (!pl) return;
+                openShareModal(pl);
+            });
+        }
+        if (closeBtn) closeBtn.addEventListener('click', closeShareModal);
+        if (backdrop) backdrop.addEventListener('click', closeShareModal);
 
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && modalOverlay.classList.contains('visible')) {
-                closeModal();
+            if (e.key === 'Escape' && $('share-modal')?.classList.contains('visible')) {
+                closeShareModal();
             }
         });
 
-        /* ---------- Búsqueda con debounce ---------- */
-        searchInput.addEventListener('input', (e) => {
-            const query = e.target.value.trim().toLowerCase();
-            clearTimeout(searchDebounce);
-
-            if (!query) {
-                resultsContainer.innerHTML = '';
-                return;
-            }
-            searchDebounce = setTimeout(() => buscarUsuarios(query), 280);
-        });
-
-        async function obtenerUsuarios() {
-            if (cacheUsuarios) return cacheUsuarios;
-
-            const usersRef = firebase.firestore().collection('historial_usuarios');
-            const snapshot = await usersRef.get();
-            const lista = [];
-
-            snapshot.forEach(doc => {
-                const data = doc.data() || {};
-                lista.push({
-                    uid:   doc.id,
-                    nombre: data.nombre || data.name || data.displayName || 'Usuario',
-                    email:  data.email || 'Sin correo'
-                });
-            });
-
-            cacheUsuarios = lista;
-            return lista;
-        }
-
-        async function buscarUsuarios(query) {
-            resultsContainer.innerHTML = '<div class="share-empty">Buscando…</div>';
-            try {
-                const lista = await obtenerUsuarios();
-                const currentUser = firebase.auth().currentUser;
-                const resultados = [];
-
-                for (const u of lista) {
-                    if (currentUser && u.uid === currentUser.uid) continue;
-                    const n = (u.nombre || '').toLowerCase();
-                    const e = (u.email  || '').toLowerCase();
-                    if (n.includes(query) || e.includes(query)) {
-                        resultados.push(u);
-                    }
-                }
-
-                renderResultados(resultados);
-            } catch (error) {
-                console.error('Error buscando usuarios:', error);
-                resultsContainer.innerHTML =
-                    '<div class="share-empty">Error al buscar usuarios. Revisa tu conexión.</div>';
-            }
-        }
-
-        /* ---------- Pintar resultados ---------- */
-        function renderResultados(resultados) {
-            resultsContainer.innerHTML = '';
-
-            if (!resultados.length) {
-                resultsContainer.innerHTML =
-                    '<div class="share-empty">No se encontraron usuarios.</div>';
-                return;
-            }
-
-            resultados.slice(0, 30).forEach(user => {
-                const row = document.createElement('div');
-                row.className = 'share-user-row';
-                if (selectedUser && selectedUser.uid === user.uid) {
-                    row.classList.add('selected');
-                }
-
-                const avatar = document.createElement('div');
-                avatar.className = 'share-user-avatar';
-                avatar.textContent = (user.nombre || '?').charAt(0).toUpperCase();
-
-                const info = document.createElement('div');
-                info.className = 'share-user-info';
-
-                const nameSpan = document.createElement('span');
-                nameSpan.className = 'share-user-name';
-                nameSpan.textContent = user.nombre;
-
-                const emailSpan = document.createElement('span');
-                emailSpan.className = 'share-user-email';
-                emailSpan.textContent = user.email;
-
-                info.appendChild(nameSpan);
-                info.appendChild(emailSpan);
-                row.appendChild(avatar);
-                row.appendChild(info);
-
-                row.addEventListener('click', () => {
-                    selectedUser = user;
-                    if (navigator.vibrate) { try { navigator.vibrate(10); } catch (_) {} }
-
-                    resultsContainer.querySelectorAll('.share-user-row')
-                        .forEach(el => el.classList.remove('selected'));
-                    row.classList.add('selected');
-
-                    selectedWrap.style.display = 'block';
-                    selectedCard.innerHTML = '';
-                    const miniRow = document.createElement('div');
-                    miniRow.className = 'share-user-row selected';
-                    miniRow.style.cssText = 'background: transparent; border: none; padding: 0; gap: 10px; cursor: default;';
-
-                    const miniAvatar = document.createElement('div');
-                    miniAvatar.className = 'share-user-avatar';
-                    miniAvatar.style.cssText = 'width: 34px; height: 34px; font-size: 14px;';
-                    miniAvatar.textContent = (user.nombre || '?').charAt(0).toUpperCase();
-
-                    const miniInfo = document.createElement('div');
-                    miniInfo.className = 'share-user-info';
-
-                    const miniName = document.createElement('span');
-                    miniName.className = 'share-user-name';
-                    miniName.style.fontSize = '13px';
-                    miniName.textContent = user.nombre;
-
-                    const miniEmail = document.createElement('span');
-                    miniEmail.className = 'share-user-email';
-                    miniEmail.style.fontSize = '10.5px';
-                    miniEmail.textContent = user.email;
-
-                    miniInfo.appendChild(miniName);
-                    miniInfo.appendChild(miniEmail);
-                    miniRow.appendChild(miniAvatar);
-                    miniRow.appendChild(miniInfo);
-                    selectedCard.appendChild(miniRow);
-
-                    sendBtn.disabled = false;
-                });
-
-                resultsContainer.appendChild(row);
+        let debounceTimer = null;
+        if (input) {
+            input.addEventListener('input', () => {
+                const q = input.value;
+                if (debounceTimer) clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(async () => {
+                    try {
+                        const users = usersCache || await cargarUsuariosFirebase();
+                        renderUserResults(filtrarUsuarios(users, q), results, onPickUser);
+                    } catch (e) { /* ignore */ }
+                }, 120);
             });
         }
 
-        /* ---------- Enviar perfil compartido ---------- */
-        sendBtn.addEventListener('click', async () => {
-            if (!selectedUser) return;
-
-            const currentUser = firebase.auth().currentUser;
-            if (!currentUser) {
-                alert('Debes iniciar sesión para compartir.');
-                return;
-            }
-
-            sendBtn.disabled = true;
-            sendBtn.textContent = 'Enviando…';
-
-            try {
-                const currentUserDoc = await firebase.firestore()
-                    .collection('historial_usuarios')
-                    .doc(currentUser.uid)
-                    .get();
-
-                const currentUserData = currentUserDoc.exists ? currentUserDoc.data() : {};
-
-                const perfilData = {
-                    uid:    currentUser.uid,
-                    nombre: currentUserData.nombre
-                            || currentUserData.name
-                            || currentUser.displayName
-                            || 'Usuario',
-                    email:  currentUserData.email
-                            || currentUser.email
-                            || '',
-                    foto:   currentUser.photoURL || ''
-                };
-
-                await firebase.firestore().collection('compartidos_perfiles').add({
-                    de:        currentUser.uid,
-                    para:      selectedUser.uid,
-                    perfil:    perfilData,
-                    fecha:     firebase.firestore.FieldValue.serverTimestamp(),
-                    leido:     false
-                });
-
-                if (navigator.vibrate) { try { navigator.vibrate([15, 40, 15]); } catch (_) {} }
-
-                alert(`✅ Perfil compartido exitosamente con ${selectedUser.nombre}`);
-                closeModal();
-            } catch (error) {
-                console.error('Error al compartir perfil:', error);
-                alert('❌ Hubo un error al compartir el perfil. Intenta de nuevo.');
-            } finally {
-                sendBtn.textContent = 'Compartir';
-                sendBtn.disabled = false;
-            }
-        });
+        if (typeof firebase !== 'undefined' && firebase.auth) {
+            firebase.auth().onAuthStateChanged(user => {
+                if (user) {
+                    listenSharedPlaylists(user);
+                } else {
+                    if (sharedUnsubscribe) { sharedUnsubscribe(); sharedUnsubscribe = null; }
+                    renderSharedPlaylists([]);
+                }
+            });
+        }
     }
 
     if (document.readyState === 'loading') {
