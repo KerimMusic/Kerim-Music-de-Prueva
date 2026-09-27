@@ -78,51 +78,51 @@ auth.getRedirectResult()
         }
     });
 
-/* ============================================================
-   ACTUALIZAR NOMBRE DE USUARIO EN EL MENÚ HAMBURGUESA
-   ============================================================ */
-async function actualizarNombreMenu(user) {
-    const nameEl = document.getElementById('submenu-user-name');
-    const emailEl = document.getElementById('submenu-user-email');
-    if (!nameEl) return;
-
-    // Si no hay usuario, mostramos estado de invitado
-    if (!user) {
-        nameEl.textContent = 'Invitado';
-        if (emailEl) emailEl.textContent = 'Sin sesión';
-        return;
-    }
-
-    // Valores por defecto desde Firebase Auth
-    let nombre = user.displayName || (user.email ? user.email.split('@')[0] : 'Usuario');
-    let correo = user.email || '';
-
-    try {
-        // Intentar obtener el nombre desde la base de datos de Firebase (Firestore)
-        const docRef = db.collection('historial_usuarios').doc(user.uid);
-        const docSnap = await docRef.get();
-        
-        if (docSnap.exists) {
-            const data = docSnap.data();
-            // Buscamos diferentes posibles nombres de campos por si los tienes guardados
-            if (data.nombre) nombre = data.nombre;
-            else if (data.displayName) nombre = data.displayName;
-            else if (data.name) nombre = data.name;
-        }
-    } catch (e) {
-        console.warn('No se pudo obtener el nombre desde Firestore, usando datos de Auth:', e);
-    }
-
-    // Actualizamos el DOM
-    nameEl.textContent = nombre;
-    if (emailEl) emailEl.textContent = correo;
-}
-
 auth.onAuthStateChanged(async (user) => {
     if (user) {
         window.__currentUser = user;
         console.log('✅ Sesión iniciada:', user.email, '| UID:', user.uid);
         hideAuthGate();
+
+        // ============================================================
+        // NUEVO: Obtener y mostrar el nombre del usuario en el menú
+        // ============================================================
+        const userNameEl = document.getElementById('submenu-user-name');
+        const userSubEl  = document.getElementById('submenu-user-sub');
+
+        if (userNameEl) {
+            // Valor por defecto (respaldo)
+            let displayName = user.displayName || user.email || user.uid;
+            let subText = user.email ? user.email : 'Perfil de usuario';
+
+            try {
+                // Intentar obtener el nombre desde Firestore (historial_usuarios)
+                const docRef = db.collection('historial_usuarios').doc(user.uid);
+                const docSnap = await docRef.get();
+
+                if (docSnap.exists) {
+                    const data = docSnap.data();
+                    // Buscar campos comunes donde se pueda guardar el nombre
+                    if (data.nombre) {
+                        displayName = data.nombre;
+                    } else if (data.name) {
+                        displayName = data.name;
+                    } else if (data.displayName) {
+                        displayName = data.displayName;
+                    }
+                    // Si hay un campo de rol o descripción, mostrarlo en el subtítulo
+                    if (data.rol) subText = data.rol;
+                }
+            } catch (e) {
+                console.warn('No se pudo obtener el nombre desde Firestore:', e);
+            }
+
+            // Actualizar el DOM
+            userNameEl.textContent = displayName;
+            if (userSubEl) userSubEl.textContent = subText;
+        }
+        // ============================================================
+
         await cargarOyentesDeTodas();
         if (typeof window.__cargarHistorialUsuario === 'function') {
             await window.__cargarHistorialUsuario();
@@ -136,17 +136,16 @@ auth.onAuthStateChanged(async (user) => {
                 window.__buildListenAgain();
             }
         }
-        
-        // AQUÍ AGREGAMOS LA LLAMADA PARA ACTUALIZAR EL NOMBRE EN EL MENÚ
-        await actualizarNombreMenu(user);
-        
     } else {
         window.__currentUser = null;
         console.log('🔒 Sin sesión. App bloqueada.');
         showAuthGate();
         
-        // AQUÍ LIMPIAMOS EL NOMBRE CUANDO CIERRA SESIÓN
-        actualizarNombreMenu(null);
+        // Limpiar el nombre al cerrar sesión
+        const userNameEl = document.getElementById('submenu-user-name');
+        const userSubEl  = document.getElementById('submenu-user-sub');
+        if (userNameEl) userNameEl.textContent = 'UID del usuario';
+        if (userSubEl) userSubEl.textContent = '(A qui va el nombre de usuario)';
     }
 });
 
@@ -356,16 +355,10 @@ window.__getHistorialCache = () => historialCache;
 
 /* ============================================================
    0.4. SISTEMA DE PLAYLISTS "TU PLAYLIST"
-        — Derivado del historial REAL del usuario en Firebase
-        — Solo canciones escuchadas COMPLETAMENTE
-        — Se guarda dentro de historial_usuarios/{uid}
-        — Chunks de 10 canciones (playlists anteriores se conservan)
    ============================================================ */
 const MAX_CANCIONES_POR_PLAYLIST = 10;
-const MAX_COMPLETADAS = 300; // hasta 30 playlists
+const MAX_COMPLETADAS = 300;
 
-// Array de canciones completadas: [{ titulo, fecha }]
-// Orden: del más antiguo (índice 0) al más reciente (último)
 let completadasCache = [];
 
 async function cargarPlaylistsUsuario() {
@@ -427,13 +420,9 @@ async function guardarEnPlaylist(titulo) {
     const user = firebase.auth().currentUser;
     if (!user || !titulo) return;
 
-    // Evitar duplicado: si ya existe, se quita y se reinsertará al final
     completadasCache = completadasCache.filter(c => c.titulo !== titulo);
-
-    // Añadir al FINAL (para no reordenar playlists anteriores)
     completadasCache.push({ titulo, fecha: new Date() });
 
-    // Límite máximo
     if (completadasCache.length > MAX_COMPLETADAS) {
         completadasCache = completadasCache.slice(-MAX_COMPLETADAS);
     }
@@ -445,12 +434,6 @@ async function guardarEnPlaylist(titulo) {
     }
 }
 
-/**
- * Calcula las playlists a partir del array de canciones completadas.
- * Cada playlist = chunk de 10 canciones.
- * Como las nuevas se añaden al FINAL, los chunks anteriores
- * NO cambian (las playlists anteriores se conservan intactas).
- */
 function computePlaylistsFromCompletadas() {
     const playlists = [];
     const total = completadasCache.length;
