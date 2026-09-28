@@ -3574,3 +3574,81 @@ document.addEventListener('DOMContentLoaded', () => {
     window.__openMiPlaylistView = openMiPlaylistView;
     window.__togglePlaylistVisibility = togglePlaylistVisibility;
 })();
+
+/* ============================================================
+   21. ✨ RESET AUTOMÁTICO DE SCROLL AL ABRIR VENTANAS
+   ============================================================
+   Asegura que cada vista nueva aparezca SIEMPRE desde arriba,
+   sin conservar la posición de scroll previa.
+   No modifica ninguna función existente.
+   ============================================================ */
+(function () {
+    'use strict';
+
+    const VIEW_SCROLL_MAP = [
+        { view: 'playlist-view',    scroll: 'pv-scroll' },
+        { view: 'mi-playlist-view', scroll: 'mp-scroll' },
+        { view: 'album-view',       scroll: 'av-scroll' },
+        { view: 'artist-profile',   scroll: 'ap-scroll' }
+    ];
+
+    const MODAL_SCROLL_MAP = [
+        { modal: 'share-modal',  scroll: 'share-modal-results' },
+        { modal: 'mp-add-modal', scroll: 'mp-add-list' }
+    ];
+
+    function resetScrollFor(scrollId, extraEl) {
+        const scroller = document.getElementById(scrollId);
+        if (scroller) {
+            scroller.scrollTop = 0;
+            scroller.scrollLeft = 0;
+        }
+        if (extraEl) {
+            extraEl.scrollTop = 0;
+            extraEl.scrollLeft = 0;
+        }
+    }
+
+    function observeView(viewId, scrollId) {
+        const view = document.getElementById(viewId);
+        if (!view || view.dataset.scrollResetObserved === '1') return;
+        view.dataset.scrollResetObserved = '1';
+
+        const obs = new MutationObserver(() => {
+            if (view.classList.contains('visible')) {
+                resetScrollFor(scrollId, view);
+                requestAnimationFrame(() => resetScrollFor(scrollId, view));
+                setTimeout(() => resetScrollFor(scrollId, view), 60);
+                setTimeout(() => resetScrollFor(scrollId, view), 240);
+            }
+        });
+        obs.observe(view, { attributes: true, attributeFilter: ['class'] });
+    }
+
+    function observeModal(modalId, scrollId) {
+        const modal = document.getElementById(modalId);
+        if (!modal || modal.dataset.scrollResetObserved === '1') return;
+        modal.dataset.scrollResetObserved = '1';
+
+        const obs = new MutationObserver(() => {
+            if (modal.classList.contains('visible')) {
+                resetScrollFor(scrollId);
+                requestAnimationFrame(() => resetScrollFor(scrollId));
+                setTimeout(() => resetScrollFor(scrollId), 60);
+            }
+        });
+        obs.observe(modal, { attributes: true, attributeFilter: ['class'] });
+    }
+
+    function init() {
+        VIEW_SCROLL_MAP.forEach(({ view, scroll }) => observeView(view, scroll));
+        MODAL_SCROLL_MAP.forEach(({ modal, scroll }) => observeModal(modal, scroll));
+        console.log('✅ Reset de scroll activo para ventanas y modales');
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+})();
