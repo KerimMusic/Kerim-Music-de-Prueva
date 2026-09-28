@@ -3333,6 +3333,7 @@ document.addEventListener('DOMContentLoaded', () => {
             await firebase.firestore().collection(COLLECTION).add({
                 uid: user.uid,
                 nombre,
+                autorNombre: user.displayName || (user.email ? user.email.split('@')[0] : '') || 'Usuario',
                 privada: !!(privCheck && privCheck.checked),
                 canciones: [],
                 fecha: firebase.firestore.FieldValue.serverTimestamp()
@@ -3736,5 +3737,180 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     window.__closeOtherModals = function (currentEl) {
         if (currentEl) closeOthers(currentEl, MODAL_SELECTOR);
+    };
+})();
+
+/* ============================================================
+   23. PLAYLISTS PÚBLICAS DE OTROS USUARIOS
+   ============================================================ */
+(function () {
+    'use strict';
+
+    const COLLECTION = 'mis_playlists';
+    const $ = (id) => document.getElementById(id);
+
+    let pubUnsubscribe = null;
+    let publicPlaylistsCache = [];
+    const ownerNamesCache = {};
+
+    function findLocalItem(title) {
+        const pl = $('playlist');
+        if (!pl || !title) return null;
+        const n = String(title).toLowerCase().trim();
+        for (const it of pl.querySelectorAll('.playlist-item')) {
+            const t = (it.querySelector('.item-title')?.textContent || '').trim().toLowerCase();
+            if (t === n) return it;
+        }
+        return null;
+    }
+
+    async function fetchOwnerName(uid) {
+        if (!uid) return 'Usuario';
+        if (ownerNamesCache[uid]) return ownerNamesCache[uid];
+        try {
+            const doc = await firebase.firestore().collection('historial_usuarios').doc(uid).get();
+            if (doc.exists) {
+                const d = doc.data() || {};
+                const name = d.nombre || d.name || d.displayName || 'Usuario';
+                ownerNamesCache[uid] = name;
+                return name;
+            }
+        } catch (e) { /* ignore */ }
+        ownerNamesCache[uid] = 'Usuario';
+        return 'Usuario';
+    }
+
+    function renderPublicPlaylists(playlists) {
+        const sec = $('sec-public-playlists');
+        const carousel = $('carousel-public');
+        if (!sec || !carousel) return;
+        carousel.innerHTML = '';
+
+        if (!playlists.length) {
+            sec.style.display = 'none';
+            return;
+        }
+        sec.style.display = '';
+
+        playlists.forEach(pl => {
+            const card = document.createElement('button');
+            card.type = 'button';
+            card.className = 'home-card home-card--playlist';
+            card.setAttribute('aria-label', pl.nombre || 'Playlist');
+
+            const thumb = document.createElement('div');
+            thumb.className = 'home-card-thumb playlist-collage';
+
+            const canciones = Array.isArray(pl.canciones) ? pl.canciones : [];
+            const covers = canciones.slice(0, 4).map(c => {
+                const local = findLocalItem(c.titulo);
+                return local ? (local.querySelector('.thumbnail img')?.src || '') : (c.portada || '');
+            });
+            while (covers.length < 4) covers.push('');
+            covers.forEach(cover => {
+                const cell = document.createElement('div');
+                cell.className = 'playlist-collage-cell';
+                if (cover) {
+                    const img = document.createElement('img');
+                    img.src = cover; img.alt = ''; img.loading = 'lazy';
+                    cell.appendChild(img);
+                }
+                thumb.appendChild(cell);
+            });
+            card.appendChild(thumb);
+
+            const t = document.createElement('span');
+            t.className = 'home-card-title';
+            t.textContent = pl.nombre || 'Playlist';
+            card.appendChild(t);
+
+            const s = document.createElement('span');
+            s.className = 'home-card-sub';
+            s.textContent = 'De ' + (pl.autorNombre || 'Usuario');
+            card.appendChild(s);
+
+            card.addEventListener('click', () => openPublicPlaylist(pl));
+            carousel.appendChild(card);
+        });
+    }
+
+    function openPublicPlaylist(pl) {
+        const canciones = (Array.isArray(pl.canciones) ? pl.canciones : []).map(c => {
+            const local = findLocalItem(c.titulo);
+            return {
+                titulo: c.titulo,
+                portada: (local && local.querySelector('.thumbnail img')?.src) || c.portada || '',
+                subtitulo: (local && local.querySelector('.item-subtitle')?.textContent.trim()) || c.subtitulo || ''
+            };
+        });
+        const plView = {
+            id: pl.id,
+            nombre: pl.nombre,
+            canciones,
+            isOwner: false,          // No es dueño: solo lectura
+            esMiPlaylist: false,
+            privada: false
+        };
+        if (typeof window.__openPlaylistView === 'function') window.__openPlaylistView(plView);
+    }
+
+    function listenPublicPlaylists(user) {
+        if (pubUnsubscribe) { pubUnsubscribe(); pubUnsubscribe = null; }
+        if (!user) { publicPlaylistsCache = []; renderPublicPlaylists([]); return; }
+
+        pubUnsubscribe = firebase.firestore()
+            .collection(COLLECTION)
+            .where('privada', '==', false)
+            .onSnapshot(async snap => {
+                const rawList = [];
+                const uidsSinNombre = new Set();
+
+                snap.forEach(doc => {
+                    const d = doc.data() || {};
+                    if (d.uid === user.uid) return;   // no mostrar las propias aquí
+                    rawList.push({
+                        id: doc.id,
+                        nombre: d.nombre || 'Playlist',
+                        uid: d.uid || '',
+                        autorNombre: d.autorNombre || '',
+                        canciones: Array.isArray(d.canciones) ? d.canciones.slice() : []
+                    });
+                    if (!d.autorNombre && d.uid) uidsSinNombre.add(d.uid);
+                });
+
+                if (uidsSinNombre.size) {
+                    await Promise.all([...uidsSinNombre].map(uid => fetchOwnerName(uid)));
+                }
+
+                rawList.forEach(pl => {
+                    pl.autorNombre = pl.autorNombre || ownerNamesCache[pl.uid] || 'Usuario';
+                });
+
+                rawList.sort((a, b) => String(a.nombre).localeCompare(String(b.nombre)));
+                publicPlaylistsCache = rawList;
+                renderPublicPlaylists(rawList);
+            }, err => {
+                console.warn('Error cargando playlists públicas:', err);
+                renderPublicPlaylists([]);
+            });
+    }
+
+    function init() {
+        if (typeof firebase !== 'undefined' && firebase.auth) {
+            firebase.auth().onAuthStateChanged(user => {
+                listenPublicPlaylists(user);
+            });
+        }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+
+    // Permitir forzar recarga manualmente si hace falta
+    window.__loadPublicPlaylists = function () {
+        listenPublicPlaylists(firebase.auth().currentUser);
     };
 })();
