@@ -78,8 +78,9 @@
             </div>
 
             <ul class="submenu-list">
+                <!-- ✨ NUEVO: Mi Playlist -->
+                <li><a href="#" id="mi-playlist-link" class="submenu-link" type="button">Mi Playlist</a></li>
                 <li><a href="#" id="logout-link" class="submenu-link" type="button">Cerrar Sesion</a></li>
-                <span class="" id="submenu-user-sub">Mi playlist</span>
             </ul>
         </nav>
 
@@ -837,7 +838,6 @@
                 </button>
                 <h1 class="pv-title" id="pv-title">Tu Playlist</h1>
 
-                <!-- ✨ NUEVO: botón EDITAR (solo visible para el propietario) -->
                 <button class="pv-edit" id="pv-edit" type="button" aria-label="Editar playlist" style="display:none;">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
                          stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -868,7 +868,6 @@
                 <div class="pv-list" id="pv-list"></div>
             </div>
 
-            <!-- ✨ MODIFICADO: footer con botones de edición -->
             <div class="pv-footer">
                 <button class="pv-cancel" id="pv-cancel" type="button" style="display:none;">
                     Cancelar
@@ -882,6 +881,73 @@
             </div>
         </div>
 
+        <!-- ==================== ✨ NUEVO: VISTA "MI PLAYLIST" ==================== -->
+        <div class="mi-playlist-view" id="mi-playlist-view" aria-hidden="true">
+            <div class="mp-header">
+                <button class="mp-back" id="mp-back" type="button" aria-label="Volver">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none"
+                         stroke="#ffffff" stroke-width="2.4" stroke-linecap="round"
+                         stroke-linejoin="round">
+                        <polyline points="15 18 9 12 15 6"/>
+                    </svg>
+                </button>
+                <h1 class="mp-title">Mi Playlist</h1>
+                <button class="mp-create" id="mp-create" type="button">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
+                         stroke="#ffffff" stroke-width="2.6" stroke-linecap="round">
+                        <line x1="12" y1="5" x2="12" y2="19"/>
+                        <line x1="5" y1="12" x2="19" y2="12"/>
+                    </svg>
+                    <span>Crear +</span>
+                </button>
+            </div>
+            <div class="mp-scroll" id="mp-scroll">
+                <div class="mp-grid" id="mp-grid"></div>
+                <div class="mp-empty" id="mp-empty" style="display:none;">
+                    <div class="mp-empty-title">Aún no tienes playlists</div>
+                    <div class="mp-empty-sub">Toca "Crear +" para crear tu primera playlist</div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- ==================== ✨ NUEVO: Modal Crear Playlist ==================== -->
+    <div class="mp-modal" id="mp-create-modal" aria-hidden="true">
+        <div class="mp-modal-backdrop" id="mp-create-backdrop"></div>
+        <div class="mp-modal-box" role="dialog" aria-modal="true" aria-labelledby="mp-create-title">
+            <div class="mp-modal-header">
+                <h2 class="mp-modal-title" id="mp-create-title">Nueva Playlist</h2>
+                <button class="mp-modal-close" id="mp-create-close" type="button" aria-label="Cerrar">&times;</button>
+            </div>
+            <input type="text" class="mp-modal-input" id="mp-create-input"
+                   placeholder="Nombre de la playlist..." maxlength="60" autocomplete="off">
+            <div class="mp-modal-toggle-row">
+                <span class="mp-modal-toggle-label">Hacerla privada</span>
+                <label class="mp-switch">
+                    <input type="checkbox" id="mp-create-private">
+                    <span class="mp-switch-slider"></span>
+                </label>
+            </div>
+            <p class="mp-modal-status" id="mp-create-status"></p>
+            <div class="mp-modal-actions">
+                <button class="mp-modal-btn mp-modal-btn-cancel" id="mp-create-cancel" type="button">Cancelar</button>
+                <button class="mp-modal-btn mp-modal-btn-confirm" id="mp-create-confirm" type="button">Crear</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== ✨ NUEVO: Modal Añadir a Playlist ==================== -->
+    <div class="mp-modal" id="mp-add-modal" aria-hidden="true">
+        <div class="mp-modal-backdrop" id="mp-add-backdrop"></div>
+        <div class="mp-modal-box" role="dialog" aria-modal="true" aria-labelledby="mp-add-title">
+            <div class="mp-modal-header">
+                <h2 class="mp-modal-title" id="mp-add-title">Añadir a Playlist</h2>
+                <button class="mp-modal-close" id="mp-add-close" type="button" aria-label="Cerrar">&times;</button>
+            </div>
+            <div class="mp-add-list" id="mp-add-list"></div>
+            <p class="mp-modal-status" id="mp-add-status"></p>
+        </div>
     </div>
 
     <audio id="audio-player" preload="metadata"></audio>
