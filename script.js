@@ -3661,3 +3661,80 @@ document.addEventListener('DOMContentLoaded', () => {
         if (el) forceReset(el);
     };
 })();
+
+/* ============================================================
+   22. GESTOR DE VENTANAS: solo una visible a la vez
+   ============================================================ */
+(function () {
+    'use strict';
+
+    // Vistas principales (pantalla completa) - mutuamente exclusivas
+    const VIEW_SELECTOR = '.playlist-view, .artist-profile, .album-view, .mi-playlist-view';
+
+    // Modales (overlays) - mutuamente exclusivos entre sí,
+    // pero pueden coexistir con una vista de fondo
+    const MODAL_SELECTOR = '.share-modal, .mp-modal';
+
+    const VIEW_IDS = [
+        'playlist-view',
+        'artist-profile',
+        'album-view',
+        'mi-playlist-view'
+    ];
+
+    const MODAL_IDS = [
+        'share-modal',
+        'mp-create-modal',
+        'mp-add-modal'
+    ];
+
+    function closeOthers(currentEl, groupSelector) {
+        const others = document.querySelectorAll(groupSelector);
+        for (const el of others) {
+            if (el === currentEl) continue;
+            if (!el.classList.contains('visible')) continue;
+            el.classList.remove('visible');
+            el.setAttribute('aria-hidden', 'true');
+        }
+    }
+
+    function observeWindow(el, groupSelector) {
+        if (!el || el.dataset.windowManagerReady === '1') return;
+        el.dataset.windowManagerReady = '1';
+
+        const obs = new MutationObserver((mutations) => {
+            for (const m of mutations) {
+                if (m.attributeName !== 'class') continue;
+                if (!el.classList.contains('visible')) continue;
+                closeOthers(el, groupSelector);
+                break;
+            }
+        });
+        obs.observe(el, { attributes: true, attributeFilter: ['class'] });
+    }
+
+    function init() {
+        VIEW_IDS.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) observeWindow(el, VIEW_SELECTOR);
+        });
+        MODAL_IDS.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) observeWindow(el, MODAL_SELECTOR);
+        });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+
+    // Helper manual (opcional) por si lo quieres invocar desde código
+    window.__closeOtherViews = function (currentEl) {
+        if (currentEl) closeOthers(currentEl, VIEW_SELECTOR);
+    };
+    window.__closeOtherModals = function (currentEl) {
+        if (currentEl) closeOthers(currentEl, MODAL_SELECTOR);
+    };
+})();
