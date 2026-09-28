@@ -2848,6 +2848,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!user) throw new Error('Debes iniciar sesión.');
         if (!playlist || !Array.isArray(playlist.canciones) || !playlist.canciones.length) throw new Error('La playlist está vacía.');
         if (user.uid === targetUid) throw new Error('No puedes compartir contigo mismo.');
+
+        // ⭐ NUEVO: Bloquear compartir playlists privadas
+        if (playlist.privada === true) {
+            throw new Error('No puedes compartir una playlist privada. Cámbiala a pública primero.');
+        }
+
         const canciones = playlist.canciones.map(c => {
             const it = findLocalItemByTitle(c.titulo);
             return { titulo: c.titulo, portada: getCoverFromItem(it) || c.portada || '', subtitulo: getSubtitleFromItem(it) || c.subtitulo || '' };
@@ -2945,6 +2951,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function openShareModal(playlist) {
+        // ⭐ NUEVO: impedir abrir el modal si la playlist es privada
+        if (playlist && playlist.privada === true) {
+            alert('No puedes compartir una playlist privada. Cámbiala a pública primero.');
+            return;
+        }
         currentPlaylistToShare = playlist;
         currentTargetUser = null;
         contactosRecientesCache = null;
@@ -3442,10 +3453,28 @@ document.addEventListener('DOMContentLoaded', () => {
         return { titulo, portada, subtitulo };
     }
 
-    // ⭐ CAMBIO 1: Actualiza la caché local y re-renderiza "Mi Playlist" al cambiar visibilidad
+    // ⭐ ACTUALIZADO: al privatizar, elimina las copias compartidas
     async function togglePlaylistVisibility(plId, nuevoPrivada) {
         try {
             await firebase.firestore().collection(COLLECTION).doc(plId).update({ privada: !!nuevoPrivada });
+
+            // ⭐ NUEVO: si la playlist pasa a privada, eliminar todas las copias
+            // compartidas para que deje de estar disponible INMEDIATAMENTE
+            // para los demás usuarios (los que la tenían en "Compartidas contigo").
+            if (nuevoPrivada) {
+                try {
+                    const user = firebase.auth().currentUser;
+                    if (user) {
+                        const snap = await firebase.firestore()
+                            .collection('playlists_compartidas')
+                            .where('de', '==', user.uid)
+                            .where('playlistId', '==', plId)
+                            .get();
+                        await Promise.all(snap.docs.map(d => d.ref.delete()));
+                    }
+                } catch (e) { console.warn('Error eliminando compartidos al privatizar:', e); }
+            }
+
             // Actualizamos la caché local para reflejar el cambio inmediatamente
             const pl = miPlaylistsCache.find(p => p.id === plId);
             if (pl) {
@@ -3477,7 +3506,6 @@ document.addEventListener('DOMContentLoaded', () => {
         btnPublic.type = 'button';
         btnPublic.className = 'mp-share-vis-btn' + (!pl.privada ? ' active' : '');
         btnPublic.textContent = 'Pública';
-        // ⭐ CAMBIO 2: Actualiza pl.privada localmente tras el cambio
         btnPublic.addEventListener('click', async () => {
             if (pl.privada) {
                 await togglePlaylistVisibility(pl.id, false);
@@ -3492,7 +3520,6 @@ document.addEventListener('DOMContentLoaded', () => {
         btnPriv.type = 'button';
         btnPriv.className = 'mp-share-vis-btn' + (pl.privada ? ' active' : '');
         btnPriv.textContent = 'Privada';
-        // ⭐ CAMBIO 2 (cont.): Actualiza pl.privada localmente tras el cambio
         btnPriv.addEventListener('click', async () => {
             if (!pl.privada) {
                 await togglePlaylistVisibility(pl.id, true);
@@ -3864,7 +3891,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (typeof window.__openPlaylistView === 'function') window.__openPlaylistView(plView);
     }
 
-    // ⭐ CAMBIO 3: Escucha TODOS los documentos y filtra en el cliente
+    // ⭐ Escucha TODOS los documentos y filtra en el cliente
     // Esto garantiza que si una playlist cambia de pública a privada (o viceversa),
     // desaparezca o aparezca en tiempo real.
     function listenPublicPlaylists(user) {
