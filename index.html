@@ -115,7 +115,6 @@
                     <div class="home-carousel" id="carousel-albums"></div>
                 </section>
 
-                <!-- NUEVO: Playlists compartidas contigo -->
                 <section class="home-section" id="sec-shared" style="display:none;">
                     <h2 class="home-section-title">Playlists compartidas contigo</h2>
                     <div class="home-carousel" id="carousel-shared"></div>
@@ -837,7 +836,6 @@
                 </button>
                 <h1 class="pv-title" id="pv-title">Tu Playlist</h1>
 
-                <!-- NUEVO: botón compartir playlist -->
                 <button class="pv-share" id="pv-share" type="button" aria-label="Compartir playlist">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
                          stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -870,7 +868,7 @@
 
     <audio id="audio-player" preload="metadata"></audio>
 
-    <!-- NUEVO: Modal para compartir playlist -->
+    <!-- Modal para compartir playlist -->
     <div class="share-modal" id="share-modal" aria-hidden="true">
         <div class="share-modal-backdrop" id="share-modal-backdrop"></div>
         <div class="share-modal-box" role="dialog" aria-modal="true" aria-labelledby="share-modal-title">
@@ -881,6 +879,10 @@
             </div>
             <input type="text" class="share-modal-input" id="share-modal-input"
                    placeholder="Buscar usuario por nombre o correo..." autocomplete="off">
+
+            <!-- NUEVO: bloque "Seguir compartiendo" -->
+            <div id="share-modal-recent"></div>
+
             <div class="share-modal-results" id="share-modal-results"></div>
             <p class="share-modal-status" id="share-modal-status"></p>
         </div>
