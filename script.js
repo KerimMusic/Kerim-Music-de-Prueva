@@ -3442,9 +3442,16 @@ document.addEventListener('DOMContentLoaded', () => {
         return { titulo, portada, subtitulo };
     }
 
+    // ⭐ CAMBIO 1: Actualiza la caché local y re-renderiza "Mi Playlist" al cambiar visibilidad
     async function togglePlaylistVisibility(plId, nuevoPrivada) {
         try {
             await firebase.firestore().collection(COLLECTION).doc(plId).update({ privada: !!nuevoPrivada });
+            // Actualizamos la caché local para reflejar el cambio inmediatamente
+            const pl = miPlaylistsCache.find(p => p.id === plId);
+            if (pl) {
+                pl.privada = !!nuevoPrivada;
+                renderMiPlaylists();
+            }
         } catch (e) { console.warn('Error actualizando visibilidad:', e); }
     }
 
@@ -3470,8 +3477,12 @@ document.addEventListener('DOMContentLoaded', () => {
         btnPublic.type = 'button';
         btnPublic.className = 'mp-share-vis-btn' + (!pl.privada ? ' active' : '');
         btnPublic.textContent = 'Pública';
+        // ⭐ CAMBIO 2: Actualiza pl.privada localmente tras el cambio
         btnPublic.addEventListener('click', async () => {
-            if (pl.privada) { await togglePlaylistVisibility(pl.id, false); pl.privada = false; }
+            if (pl.privada) {
+                await togglePlaylistVisibility(pl.id, false);
+                pl.privada = false;
+            }
             btnPublic.classList.add('active');
             btnPriv.classList.remove('active');
         });
@@ -3481,8 +3492,12 @@ document.addEventListener('DOMContentLoaded', () => {
         btnPriv.type = 'button';
         btnPriv.className = 'mp-share-vis-btn' + (pl.privada ? ' active' : '');
         btnPriv.textContent = 'Privada';
+        // ⭐ CAMBIO 2 (cont.): Actualiza pl.privada localmente tras el cambio
         btnPriv.addEventListener('click', async () => {
-            if (!pl.privada) { await togglePlaylistVisibility(pl.id, true); pl.privada = true; }
+            if (!pl.privada) {
+                await togglePlaylistVisibility(pl.id, true);
+                pl.privada = true;
+            }
             btnPriv.classList.add('active');
             btnPublic.classList.remove('active');
         });
@@ -3669,11 +3684,7 @@ document.addEventListener('DOMContentLoaded', () => {
 (function () {
     'use strict';
 
-    // Vistas principales (pantalla completa) - mutuamente exclusivas
     const VIEW_SELECTOR = '.playlist-view, .artist-profile, .album-view, .mi-playlist-view';
-
-    // Modales (overlays) - mutuamente exclusivos entre sí,
-    // pero pueden coexistir con una vista de fondo
     const MODAL_SELECTOR = '.share-modal, .mp-modal';
 
     const VIEW_IDS = [
@@ -3731,7 +3742,6 @@ document.addEventListener('DOMContentLoaded', () => {
         init();
     }
 
-    // Helper manual (opcional) por si lo quieres invocar desde código
     window.__closeOtherViews = function (currentEl) {
         if (currentEl) closeOthers(currentEl, VIEW_SELECTOR);
     };
@@ -3847,33 +3857,40 @@ document.addEventListener('DOMContentLoaded', () => {
             id: pl.id,
             nombre: pl.nombre,
             canciones,
-            isOwner: false,          // No es dueño: solo lectura
+            isOwner: false,
             esMiPlaylist: false,
             privada: false
         };
         if (typeof window.__openPlaylistView === 'function') window.__openPlaylistView(plView);
     }
 
+    // ⭐ CAMBIO 3: Escucha TODOS los documentos y filtra en el cliente
+    // Esto garantiza que si una playlist cambia de pública a privada (o viceversa),
+    // desaparezca o aparezca en tiempo real.
     function listenPublicPlaylists(user) {
         if (pubUnsubscribe) { pubUnsubscribe(); pubUnsubscribe = null; }
         if (!user) { publicPlaylistsCache = []; renderPublicPlaylists([]); return; }
 
         pubUnsubscribe = firebase.firestore()
             .collection(COLLECTION)
-            .where('privada', '==', false)
             .onSnapshot(async snap => {
                 const rawList = [];
                 const uidsSinNombre = new Set();
 
                 snap.forEach(doc => {
                     const d = doc.data() || {};
-                    if (d.uid === user.uid) return;   // no mostrar las propias aquí
+                    // ⭐ FILTRO CLAVE: si es privada, no la mostramos en "Playlists públicas"
+                    if (d.privada === true) return;
+                    // No mostrar las propias aquí (ya están en "Mi Playlist")
+                    if (d.uid === user.uid) return;
+
                     rawList.push({
                         id: doc.id,
                         nombre: d.nombre || 'Playlist',
                         uid: d.uid || '',
                         autorNombre: d.autorNombre || '',
-                        canciones: Array.isArray(d.canciones) ? d.canciones.slice() : []
+                        canciones: Array.isArray(d.canciones) ? d.canciones.slice() : [],
+                        privada: d.privada === true
                     });
                     if (!d.autorNombre && d.uid) uidsSinNombre.add(d.uid);
                 });
@@ -3909,7 +3926,6 @@ document.addEventListener('DOMContentLoaded', () => {
         init();
     }
 
-    // Permitir forzar recarga manualmente si hace falta
     window.__loadPublicPlaylists = function () {
         listenPublicPlaylists(firebase.auth().currentUser);
     };
