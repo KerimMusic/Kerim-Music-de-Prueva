@@ -39,8 +39,9 @@ const appContainer  = document.querySelector('.app-container');
 
 function showAuthGate() {
     if (authGate) { authGate.classList.remove('hidden'); authGate.setAttribute('aria-hidden', 'false'); }
-    if (appContainer) appContainer.classList.add('auth-locked');
-    document.body.style.overflow = 'hidden';
+    // ✅ CORRECCIÓN: Ya NO bloqueamos el app-container ni el scroll del body.
+    //    Solo mostramos la pantalla de login por encima.
+    //    El bloqueo visual lo hace el propio overlay fixed.
 }
 function hideAuthGate() {
     if (authGate) { authGate.classList.add('hidden'); authGate.setAttribute('aria-hidden', 'true'); }
@@ -1390,4 +1391,50 @@ document.addEventListener('DOMContentLoaded', () => {
         const fsActions = document.querySelector('.fs-actions');
         if (!fsActions) return false;
         if (!document.getElementById('fs-repeat')) {
-            repeatBtn = document.createElem
+            repeatBtn = document.createElement('button');
+            repeatBtn.id = 'fs-repeat';
+            repeatBtn.type = 'button';
+            repeatBtn.className = 'fs-mode-btn';
+            repeatBtn.innerHTML = ICON_REPEAT;
+            fsActions.insertBefore(repeatBtn, fsActions.firstChild);
+        } else {
+            repeatBtn = document.getElementById('fs-repeat');
+        }
+        if (!document.getElementById('fs-shuffle')) {
+            shuffleBtn = document.createElement('button');
+            shuffleBtn.id = 'fs-shuffle';
+            shuffleBtn.type = 'button';
+            shuffleBtn.className = 'fs-mode-btn';
+            shuffleBtn.innerHTML = ICON_SHUFFLE;
+            fsActions.insertBefore(shuffleBtn, repeatBtn.nextSibling);
+        } else {
+            shuffleBtn = document.getElementById('fs-shuffle');
+        }
+        applyRepeatToAudio();
+        updateRepeatUI();
+        updateShuffleUI();
+
+        repeatBtn.addEventListener('click', () => {
+            haptic();
+            if (repeatMode === 'off') repeatMode = 'all';
+            else if (repeatMode === 'all') repeatMode = 'one';
+            else repeatMode = 'off';
+            persist(); updateRepeatUI();
+            toast(repeatMode === 'one' ? 'Repetir: 1 canción' : repeatMode === 'all' ? 'Repetir: todo' : 'Repetir: desactivado');
+        });
+        shuffleBtn.addEventListener('click', () => {
+            haptic();
+            shuffleOn = !shuffleOn;
+            persist(); updateShuffleUI();
+            toast(shuffleOn ? 'Aleatorio: activado' : 'Aleatorio: desactivado');
+        });
+        document.addEventListener('ended', onEndedCapture, true);
+        return true;
+    }
+    let tries = 0;
+    const iv = setInterval(() => {
+        if (init() || ++tries > 40) clearInterval(iv);
+    }, 250);
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => { if (init()) clearInterval(iv); });
+    else { if (init()) clearInterval(iv); }
+})();
