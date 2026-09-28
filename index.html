@@ -79,7 +79,7 @@
 
             <ul class="submenu-list">
                 <li><a href="#" id="mi-playlist-link" class="submenu-link" type="button">Mi Playlist</a></li>
-                <li><a href="#" id="" class="submenu-link" type="button">Mensajes</a></li>
+                <li><a href="#" id="mensajes-link" class="submenu-link" type="button">Mensajes <span class="msg-badge" id="msg-badge" style="display:none;">0</span></a></li>
                 <li><a href="#" id="logout-link" class="submenu-link" type="button">Cerrar Sesion</a></li>
             </ul>
         </nav>
@@ -907,6 +907,90 @@
                     <div class="mp-empty-title">Aún no tienes playlists</div>
                     <div class="mp-empty-sub">Toca "Crear +" para crear tu primera playlist</div>
                 </div>
+            </div>
+        </div>
+
+        <!-- ==================== VISTA MENSAJES (conversaciones) ==================== -->
+        <div class="mensajes-view" id="mensajes-view" aria-hidden="true">
+            <div class="msg-header">
+                <button class="msg-back" id="msg-back" type="button" aria-label="Volver">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none"
+                         stroke="#ffffff" stroke-width="2.4" stroke-linecap="round"
+                         stroke-linejoin="round">
+                        <polyline points="15 18 9 12 15 6"/>
+                    </svg>
+                </button>
+                <h1 class="msg-title">Mensajes</h1>
+                <button class="msg-new-btn" id="msg-new-btn" type="button" aria-label="Nuevo mensaje">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none"
+                         stroke="#ffffff" stroke-width="2.4" stroke-linecap="round"
+                         stroke-linejoin="round">
+                        <path d="M12 20h9"/>
+                        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="msg-scroll" id="msg-scroll">
+                <div class="msg-list" id="msg-list"></div>
+                <div class="msg-empty" id="msg-empty" style="display:none;">
+                    <div class="msg-empty-title">Sin mensajes</div>
+                    <div class="msg-empty-sub">Inicia una conversación tocando el botón de arriba</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== VISTA CHAT (conversación) ==================== -->
+        <div class="chat-view" id="chat-view" aria-hidden="true">
+            <div class="chat-header">
+                <button class="chat-back" id="chat-back" type="button" aria-label="Volver">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none"
+                         stroke="#ffffff" stroke-width="2.4" stroke-linecap="round"
+                         stroke-linejoin="round">
+                        <polyline points="15 18 9 12 15 6"/>
+                    </svg>
+                </button>
+                <div class="chat-user-info">
+                    <div class="chat-avatar" id="chat-avatar"></div>
+                    <span class="chat-username" id="chat-username">Usuario</span>
+                </div>
+            </div>
+            <div class="chat-scroll" id="chat-scroll">
+                <div class="chat-messages" id="chat-messages"></div>
+            </div>
+            <div class="chat-composer">
+                <div class="chat-attachment" id="chat-attachment" style="display:none;"></div>
+                <div class="chat-composer-row">
+                    <input type="text" class="chat-input" id="chat-input"
+                           placeholder="Escribe un mensaje..." autocomplete="off">
+                    <button class="chat-send" id="chat-send" type="button" aria-label="Enviar">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="#ffffff"
+                             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="22" y1="2" x2="11" y2="13"/>
+                            <polygon points="22 2 15 22 11 13 2 9 22 2" fill="#ffffff" stroke="none"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== VISTA NUEVO MENSAJE (buscador) ==================== -->
+        <div class="newmsg-view" id="newmsg-view" aria-hidden="true">
+            <div class="newmsg-header">
+                <button class="newmsg-back" id="newmsg-back" type="button" aria-label="Volver">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none"
+                         stroke="#ffffff" stroke-width="2.4" stroke-linecap="round"
+                         stroke-linejoin="round">
+                        <polyline points="15 18 9 12 15 6"/>
+                    </svg>
+                </button>
+                <h1 class="newmsg-title">Nuevo mensaje</h1>
+            </div>
+            <div class="newmsg-search-wrap">
+                <input type="text" class="newmsg-input" id="newmsg-input"
+                       placeholder="Buscar por nombre o correo..." autocomplete="off">
+            </div>
+            <div class="newmsg-scroll" id="newmsg-scroll">
+                <div class="newmsg-list" id="newmsg-list"></div>
             </div>
         </div>
 
