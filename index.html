@@ -836,6 +836,16 @@
                 </button>
                 <h1 class="pv-title" id="pv-title">Tu Playlist</h1>
 
+                <!-- ✨ NUEVO: botón EDITAR (solo visible para el propietario) -->
+                <button class="pv-edit" id="pv-edit" type="button" aria-label="Editar playlist" style="display:none;">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
+                         stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 20h9"/>
+                        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                    </svg>
+                    <span>Editar<br>playlist</span>
+                </button>
+
                 <button class="pv-share" id="pv-share" type="button" aria-label="Compartir playlist">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
                          stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -857,9 +867,16 @@
                 <div class="pv-list" id="pv-list"></div>
             </div>
 
+            <!-- ✨ MODIFICADO: footer con botones de edición -->
             <div class="pv-footer">
+                <button class="pv-cancel" id="pv-cancel" type="button" style="display:none;">
+                    Cancelar
+                </button>
                 <button class="pv-play-all" id="pv-play-all" type="button">
                     Escuchar esta playlist
+                </button>
+                <button class="pv-save" id="pv-save" type="button" style="display:none;">
+                    Guardar cambios
                 </button>
             </div>
         </div>
@@ -880,7 +897,6 @@
             <input type="text" class="share-modal-input" id="share-modal-input"
                    placeholder="Buscar usuario por nombre o correo..." autocomplete="off">
 
-            <!-- NUEVO: bloque "Seguir compartiendo" -->
             <div id="share-modal-recent"></div>
 
             <div class="share-modal-results" id="share-modal-results"></div>
