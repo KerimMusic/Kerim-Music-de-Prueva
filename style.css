@@ -1953,3 +1953,26 @@ button:active { opacity: 0.72; }
     color: #999999;
     font-size: 14px;
 }
+/* ============================================================
+   REFUERZO VISUAL DEL BADGE DE MENSAJES
+   ============================================================ */
+#msg-badge {
+    transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.submenu-link:has(#msg-badge[style*="inline-flex"]) {
+    display: flex !important;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+#msg-badge {
+    animation: badge-pop 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes badge-pop {
+    0%   { transform: scale(0.4); opacity: 0; }
+    60%  { transform: scale(1.15); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+}
