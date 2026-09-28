@@ -5254,3 +5254,69 @@ button:active {
     transition: color 0.2s ease;
 }
 .share-modal-status.ok { color: #4ade80; font-weight: 700; }
+
+/* ============================================================
+   SEGUIR COMPARTIENDO + DEJAR DE COMPARTIR
+   ============================================================ */
+
+#share-modal-recent {
+    margin-top: 10px;
+    margin-bottom: 6px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+#share-modal-recent:empty {
+    display: none;
+}
+
+.share-recent-header {
+    font-size: 12px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1.4px;
+    color: #ff2a2a;
+    margin: 4px 0 8px 4px;
+}
+
+.share-recent-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+/* Acción "Compartir" / "Continuar" / "Dejar de compartir" */
+.share-user-action {
+    margin-left: auto;
+    color: #999999;
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    padding-left: 8px;
+    transition: color 0.2s ease;
+}
+
+.share-user-row--recent .share-user-action {
+    color: #ff2a2a;
+    font-weight: 800;
+}
+
+.share-user-row--already .share-user-action,
+.share-user-action--danger {
+    color: #ff4d4d;
+    font-weight: 800;
+}
+
+.share-user-row--already {
+    background: rgba(255, 60, 60, 0.06);
+    border: 1px solid rgba(255, 60, 60, 0.18);
+}
+
+.share-user-row--already:active {
+    background: rgba(255, 60, 60, 0.12);
+}
+
+.share-user-row--recent {
+    background: rgba(255, 42, 42, 0.05);
+}
