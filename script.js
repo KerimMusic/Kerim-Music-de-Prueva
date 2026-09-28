@@ -3160,7 +3160,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /* ============================================================
    19. COMPARTIR PLAYLIST ENTRE USUARIOS
-   (BÚSQUEDA POR NOMBRE O CORREO + SEGUIR COMPARTIENDO)
+   (BÚSQUEDA POR NOMBRE O CORREO + SEGUIR / DEJAR DE COMPARTIR)
    ============================================================ */
 (function () {
     'use strict';
@@ -3171,6 +3171,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentTargetUser = null;
     let sharedUnsubscribe = null;
     let contactosRecientesCache = null;
+
+    // Cache: { [targetUid]: true } → indica si ya compartimos la playlist actual con ese usuario
+    let yaCompartidosCache = new Set();
 
     const $ = (id) => document.getElementById(id);
 
@@ -3192,7 +3195,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return item ? (item.querySelector('.item-subtitle')?.textContent.trim() || '') : '';
     }
 
-    /* ---------- NORMALIZACIÓN ---------- */
     function normalizeUserStr(str) {
         return String(str || '')
             .toLowerCase()
@@ -3202,7 +3204,7 @@ document.addEventListener('DOMContentLoaded', () => {
             .trim();
     }
 
-    /* ---------- CARGA COMPLETA EN CACHÉ ---------- */
+    /* ---------- CARGA DE USUARIOS ---------- */
     async function cargarUsuariosFirebase() {
         if (usersCache) return usersCache;
         if (usersLoadingPromise) return usersLoadingPromise;
@@ -3241,7 +3243,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return usersLoadingPromise;
     }
 
-    /* ---------- CONTACTOS RECIENTES (SEGUIR COMPARTIENDO) ---------- */
+    /* ---------- CONTACTOS RECIENTES ---------- */
     async function cargarContactosRecientes() {
         const user = firebase.auth().currentUser;
         if (!user) return [];
@@ -3310,7 +3312,79 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ---------- BÚSQUEDA DIRECTA EN FIRESTORE (nombre + email) ---------- */
+    /* ---------- COMPARTIDOS DE LA PLAYLIST ACTUAL ---------- */
+    async function cargarCompartidosDePlaylist(playlist) {
+        yaCompartidosCache = new Set();
+        const user = firebase.auth().currentUser;
+        if (!user || !playlist) return;
+
+        try {
+            const snap = await firebase.firestore()
+                .collection('playlists_compartidas')
+                .where('de', '==', user.uid)
+                .get();
+
+            const nombreActual = String(playlist.nombre || '').trim().toLowerCase();
+            const idActual     = String(playlist.id || '').trim();
+
+            snap.forEach(doc => {
+                const d = doc.data() || {};
+                const nombreDoc = String(d.nombre || '').trim().toLowerCase();
+                const idDoc     = String(d.playlistId || '').trim();
+
+                const coincideNombre = nombreActual && nombreDoc && nombreActual === nombreDoc;
+                const coincideId     = idActual && idDoc && idActual === idDoc;
+
+                if (coincideNombre || coincideId) {
+                    if (d.para) yaCompartidosCache.add(d.para);
+                }
+            });
+            console.log(`📤 Compartidos previos de "${playlist.nombre}":`, yaCompartidosCache.size);
+        } catch (e) {
+            console.warn('No se pudieron cargar los compartidos de la playlist:', e);
+        }
+    }
+
+    async function buscarDocCompartido(playlist, targetUid) {
+        const user = firebase.auth().currentUser;
+        if (!user || !playlist || !targetUid) return null;
+
+        try {
+            const snap = await firebase.firestore()
+                .collection('playlists_compartidas')
+                .where('de', '==', user.uid)
+                .where('para', '==', targetUid)
+                .get();
+
+            const nombreActual = String(playlist.nombre || '').trim().toLowerCase();
+            const idActual     = String(playlist.id || '').trim();
+
+            for (const doc of snap.docs) {
+                const d = doc.data() || {};
+                const nombreDoc = String(d.nombre || '').trim().toLowerCase();
+                const idDoc     = String(d.playlistId || '').trim();
+
+                const coincideNombre = nombreActual && nombreDoc && nombreActual === nombreDoc;
+                const coincideId     = idActual && idDoc && idActual === idDoc;
+
+                if (coincideNombre || coincideId) return { id: doc.id, ref: doc.ref };
+            }
+        } catch (e) {
+            console.warn('Error buscando doc compartido:', e);
+        }
+        return null;
+    }
+
+    async function dejarDeCompartirPlaylist(playlist, targetUid) {
+        const doc = await buscarDocCompartido(playlist, targetUid);
+        if (!doc) throw new Error('No se encontró la playlist compartida con este usuario.');
+        await doc.ref.delete();
+        yaCompartidosCache.delete(targetUid);
+        console.log('🗑️ Se dejó de compartir la playlist con', targetUid);
+        return true;
+    }
+
+    /* ---------- BÚSQUEDA DE USUARIOS ---------- */
     async function buscarUsuariosEnFirestore(query) {
         const raw = String(query || '').trim();
         const q   = normalizeUserStr(raw);
@@ -3407,22 +3481,25 @@ document.addEventListener('DOMContentLoaded', () => {
             para: targetUid,
             paraNombre: targetName || '',
             nombre: playlist.nombre || 'Playlist',
+            playlistId: playlist.id || '',
             portada,
             canciones,
             fecha: firebase.firestore.FieldValue.serverTimestamp()
         });
 
         await registrarContactoCompartido(targetUid, targetName, targetEmail, targetFoto);
-
+        yaCompartidosCache.add(targetUid);
         return true;
     }
 
-    /* ---------- RENDER ---------- */
-    function buildUserRow(u, onPick, isReciente) {
+    /* ---------- RENDER DE FILAS ---------- */
+    function buildUserRow(u, onPick, mode) {
+        // mode: 'search' | 'recent' | 'already'
         const row = document.createElement('button');
         row.type = 'button';
         row.className = 'share-user-row';
-        if (isReciente) row.classList.add('share-user-row--recent');
+        if (mode === 'recent')  row.classList.add('share-user-row--recent');
+        if (mode === 'already') row.classList.add('share-user-row--already');
 
         const av = document.createElement('div');
         av.className = 'share-user-avatar';
@@ -3446,16 +3523,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const subEl = document.createElement('span');
         subEl.className = 'share-user-sub';
-        subEl.textContent = isReciente
-            ? ('Seguir compartiendo · ' + (u.email || 'Usuario'))
-            : (u.email || 'Usuario de Kerim Music');
-        info.appendChild(subEl);
 
+        if (mode === 'already') {
+            subEl.textContent = 'Ya compartida · ' + (u.email || 'Usuario');
+        } else if (mode === 'recent') {
+            subEl.textContent = 'Seguir compartiendo · ' + (u.email || 'Usuario');
+        } else {
+            subEl.textContent = u.email || 'Usuario de Kerim Music';
+        }
+        info.appendChild(subEl);
         row.appendChild(info);
 
         const action = document.createElement('span');
         action.className = 'share-user-action';
-        action.textContent = isReciente ? 'Continuar' : 'Compartir';
+        if (mode === 'already') {
+            action.classList.add('share-user-action--danger');
+            action.textContent = 'Dejar de compartir';
+        } else if (mode === 'recent') {
+            action.textContent = 'Continuar';
+        } else {
+            action.textContent = 'Compartir';
+        }
         row.appendChild(action);
 
         row.addEventListener('click', () => onPick(u));
@@ -3486,7 +3574,15 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        filtered.forEach(u => container.appendChild(buildUserRow(u, onPick, false)));
+        const yaList = [];
+        const resto  = [];
+        filtered.forEach(u => {
+            if (yaCompartidosCache.has(u.uid)) yaList.push(u);
+            else resto.push(u);
+        });
+
+        yaList.forEach(u => container.appendChild(buildUserRow(u, onPick, 'already')));
+        resto.forEach(u => container.appendChild(buildUserRow(u, onPick, 'search')));
     }
 
     /* ---------- BLOQUE "SEGUIR COMPARTIENDO" ---------- */
@@ -3521,13 +3617,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 email: (c.email || '').toLowerCase(),
                 foto: c.foto || ''
             };
-            list.appendChild(buildUserRow(u, onPick, true));
+            const mode = yaCompartidosCache.has(u.uid) ? 'already' : 'recent';
+            list.appendChild(buildUserRow(u, onPick, mode));
         });
 
         container.appendChild(list);
     }
 
-    function openShareModal(playlist) {
+    /* ---------- MODAL ---------- */
+    async function openShareModal(playlist) {
         currentPlaylistToShare = playlist;
         currentTargetUser = null;
         contactosRecientesCache = null;
@@ -3546,6 +3644,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         modal.classList.add('visible');
         modal.setAttribute('aria-hidden', 'false');
+
+        await cargarCompartidosDePlaylist(playlist);
 
         if (recentBox) {
             renderSeguirCompartiendo(recentBox, onPickUser).catch(() => {});
@@ -3578,6 +3678,40 @@ document.addEventListener('DOMContentLoaded', () => {
         if (currentTargetUser && currentTargetUser.uid === u.uid) return;
         currentTargetUser = u;
 
+        const yaCompartida = yaCompartidosCache.has(u.uid);
+
+        if (yaCompartida) {
+            // DEJAR DE COMPARTIR
+            status.textContent = 'Dejando de compartir con ' + u.nombre + '…';
+            status.classList.remove('ok');
+            try {
+                await dejarDeCompartirPlaylist(currentPlaylistToShare, u.uid);
+                status.textContent = '✓ Dejaste de compartir con ' + u.nombre;
+                status.classList.add('ok');
+                const results = $('share-modal-results');
+                const recentBox = $('share-modal-recent');
+                if (usersCache) {
+                    const q = ($('share-modal-input')?.value || '').trim();
+                    renderUserResults(filtrarUsuarios(usersCache, q), results, onPickUser, q);
+                }
+                if (recentBox) {
+                    renderSeguirCompartiendo(recentBox, onPickUser).catch(() => {});
+                }
+                setTimeout(() => {
+                    status.textContent = '';
+                    status.classList.remove('ok');
+                    currentTargetUser = null;
+                }, 1400);
+            } catch (err) {
+                console.warn('Error al dejar de compartir:', err);
+                status.textContent = err.message || 'No se pudo dejar de compartir.';
+                status.classList.remove('ok');
+                currentTargetUser = null;
+            }
+            return;
+        }
+
+        // COMPARTIR
         status.textContent = 'Compartiendo con ' + u.nombre + '…';
         status.classList.remove('ok');
 
@@ -3591,7 +3725,22 @@ document.addEventListener('DOMContentLoaded', () => {
             );
             status.textContent = '✓ Playlist compartida con ' + u.nombre;
             status.classList.add('ok');
-            setTimeout(closeShareModal, 1400);
+
+            const results = $('share-modal-results');
+            const recentBox = $('share-modal-recent');
+            if (usersCache) {
+                const q = ($('share-modal-input')?.value || '').trim();
+                renderUserResults(filtrarUsuarios(usersCache, q), results, onPickUser, q);
+            }
+            if (recentBox) {
+                renderSeguirCompartiendo(recentBox, onPickUser).catch(() => {});
+            }
+
+            setTimeout(() => {
+                status.textContent = '';
+                status.classList.remove('ok');
+                currentTargetUser = null;
+            }, 1600);
         } catch (err) {
             console.warn('Error al compartir:', err);
             status.textContent = err.message || 'No se pudo compartir la playlist.';
