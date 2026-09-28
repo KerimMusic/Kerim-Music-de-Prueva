@@ -3981,3 +3981,716 @@ document.addEventListener('DOMContentLoaded', () => {
         init();
     }
 })();
+/* ============================================================
+   24. MENSAJES DIRECTOS
+   ------------------------------------------------------------
+   - Icono "Mensaje" en el reproductor a pantalla completa
+   - Sección "Mensajes" en el menú (con badge de no leídos)
+   - Chat con envío de texto + canción adjunta
+   - Buscador de usuarios por nombre o correo
+   - Firebase:
+       conversaciones/{uid1__uid2}
+       conversaciones/{uid1__uid2}/mensajes/{msgId}
+   - No modifica ninguna sección existente
+   ============================================================ */
+(function () {
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+    const MAIN_VIEWS = ['playlist-view', 'artist-profile', 'album-view', 'mi-playlist-view'];
+    const MY_VIEWS   = ['mensajes-view', 'chat-view', 'newmsg-view'];
+    const ALL_VIEWS  = MAIN_VIEWS.concat(MY_VIEWS);
+
+    let currentUser = null;
+    let currentChat = null;          // { uid, nombre, foto }
+    let currentAttachment = null;    // { titulo, artista, portada, audioUrl }
+    let unsubConversaciones = null;
+    let unsubChatMessages = null;
+    let allUsersCache = null;
+    let allUsersPromise = null;
+    let lastRenderedIds = '';
+
+    /* -------------------- Utilidades -------------------- */
+    function normalizeStr(s) {
+        return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+    }
+    function escapeHtml(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[c]));
+    }
+    function makeConvId(uid1, uid2) {
+        return [uid1, uid2].sort().join('__');
+    }
+    function timeAgo(date) {
+        if (!date) return '';
+        const diff = (Date.now() - date.getTime()) / 1000;
+        if (diff < 60) return 'ahora';
+        if (diff < 3600) return Math.floor(diff / 60) + 'm';
+        if (diff < 86400) return Math.floor(diff / 3600) + 'h';
+        if (diff < 604800) return Math.floor(diff / 86400) + 'd';
+        return date.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
+    }
+    function avatarHTML(u) {
+        const name = (u && u.nombre) || 'U';
+        const initial = name.trim()[0] ? name.trim()[0].toUpperCase() : '?';
+        if (u && u.foto) {
+            return '<img src="' + escapeHtml(u.foto) + '" alt="' + escapeHtml(name) + '" onerror="this.style.display=\'none\';this.parentNode.textContent=\'' + initial + '\';">';
+        }
+        return initial;
+    }
+
+    /* -------------------- Exclusividad de vistas -------------------- */
+    function closeOtherViews(except) {
+        ALL_VIEWS.forEach(id => {
+            if (id === except) return;
+            const el = $(id);
+            if (el && el.classList.contains('visible')) {
+                el.classList.remove('visible');
+                el.setAttribute('aria-hidden', 'true');
+            }
+        });
+    }
+    function openView(id) {
+        closeOtherViews(id);
+        const el = $(id);
+        if (el) { el.classList.add('visible'); el.setAttribute('aria-hidden', 'false'); }
+    }
+    function closeView(id) {
+        const el = $(id);
+        if (el) { el.classList.remove('visible'); el.setAttribute('aria-hidden', 'true'); }
+    }
+    function watchOtherViews() {
+        MAIN_VIEWS.forEach(id => {
+            const el = $(id);
+            if (!el || el.dataset.msgWatch === '1') return;
+            el.dataset.msgWatch = '1';
+            const obs = new MutationObserver((muts) => {
+                for (const m of muts) {
+                    if (m.attributeName === 'class' && el.classList.contains('visible')) {
+                        MY_VIEWS.forEach(mid => closeView(mid));
+                        break;
+                    }
+                }
+            });
+            obs.observe(el, { attributes: true, attributeFilter: ['class'] });
+        });
+    }
+
+    /* -------------------- Carga de usuarios -------------------- */
+    async function loadAllUsers() {
+        if (allUsersCache) return allUsersCache;
+        if (allUsersPromise) return allUsersPromise;
+        allUsersPromise = (async () => {
+            const snap = await firebase.firestore().collection('historial_usuarios').limit(1000).get();
+            const users = [];
+            snap.forEach(doc => {
+                const d = doc.data() || {};
+                const nombre = d.nombre || d.name || d.displayName || '';
+                const email = (d.email || '').toLowerCase();
+                const foto = d.foto || d.photoURL || d.photoUrl || '';
+                if (!nombre && !email) return;
+                users.push({ uid: doc.id, nombre: nombre || (email ? email.split('@')[0] : 'Usuario'), email, foto });
+            });
+            allUsersCache = users;
+            return users;
+        })().catch(err => { allUsersPromise = null; throw err; });
+        return allUsersPromise;
+    }
+    function filterUsers(users, q) {
+        const me = currentUser ? currentUser.uid : '';
+        const list = users.filter(u => u.uid !== me);
+        const nq = normalizeStr(q);
+        if (!nq) return list.slice(0, 60);
+        return list.filter(u =>
+            normalizeStr(u.nombre).includes(nq) ||
+            normalizeStr(u.email).includes(nq)
+        ).slice(0, 60);
+    }
+
+    /* -------------------- Badge de no leídos -------------------- */
+    function listenConversaciones() {
+        if (unsubConversaciones) { unsubConversaciones(); unsubConversaciones = null; }
+        if (!currentUser) return;
+        unsubConversaciones = firebase.firestore()
+            .collection('conversaciones')
+            .where('participantes', 'array-contains', currentUser.uid)
+            .onSnapshot(snap => {
+                const convs = [];
+                let totalUnread = 0;
+                snap.forEach(doc => {
+                    const d = doc.data() || {};
+                    const otherUid = (d.participantes || []).find(u => u !== currentUser.uid);
+                    if (!otherUid) return;
+                    const info = (d.info && d.info[otherUid]) || {};
+                    const noLeidos = (d.noLeidos && d.noLeidos[currentUser.uid]) || 0;
+                    totalUnread += noLeidos;
+                    const ultimo = d.ultimoMensaje || {};
+                    convs.push({
+                        id: doc.id,
+                        otherUid,
+                        otherName: info.nombre || 'Usuario',
+                        otherFoto: info.foto || '',
+                        ultimoTexto: ultimo.texto || '',
+                        tieneCancion: !!ultimo.tieneCancion,
+                        fecha: ultimo.fecha && typeof ultimo.fecha.toDate === 'function' ? ultimo.fecha.toDate() : null,
+                        noLeidos
+                    });
+                });
+                convs.sort((a, b) => (b.fecha ? b.fecha.getTime() : 0) - (a.fecha ? a.fecha.getTime() : 0));
+                renderConversaciones(convs);
+                updateBadge(totalUnread);
+            }, err => {
+                console.warn('Error cargando conversaciones:', err);
+                renderConversaciones([]);
+                updateBadge(0);
+            });
+    }
+    function updateBadge(n) {
+        const badge = $('msg-badge');
+        if (!badge) return;
+        if (!n || n <= 0) { badge.style.display = 'none'; badge.textContent = '0'; }
+        else { badge.style.display = 'inline-flex'; badge.textContent = String(n > 99 ? '99+' : n); }
+    }
+
+    /* -------------------- Lista de conversaciones -------------------- */
+    function renderConversaciones(convs) {
+        const list = $('msg-list');
+        const empty = $('msg-empty');
+        if (!list) return;
+        list.innerHTML = '';
+        if (!convs.length) {
+            if (empty) empty.style.display = '';
+            return;
+        }
+        if (empty) empty.style.display = 'none';
+
+        convs.forEach(c => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'msg-row';
+            if (c.noLeidos > 0) btn.classList.add('msg-row--unread');
+
+            const av = document.createElement('div');
+            av.className = 'msg-row-avatar';
+            av.innerHTML = avatarHTML({ nombre: c.otherName, foto: c.otherFoto });
+            btn.appendChild(av);
+
+            const info = document.createElement('div');
+            info.className = 'msg-row-info';
+
+            const top = document.createElement('div');
+            top.className = 'msg-row-top';
+            const nameEl = document.createElement('span');
+            nameEl.className = 'msg-row-name';
+            nameEl.textContent = c.otherName;
+            top.appendChild(nameEl);
+            const timeEl = document.createElement('span');
+            timeEl.className = 'msg-row-time';
+            timeEl.textContent = timeAgo(c.fecha);
+            top.appendChild(timeEl);
+            info.appendChild(top);
+
+            const prev = document.createElement('div');
+            prev.className = 'msg-row-preview';
+            if (c.tieneCancion) {
+                const songTag = document.createElement('span');
+                songTag.className = 'msg-row-song-tag';
+                songTag.textContent = '♪ ';
+                prev.appendChild(songTag);
+            }
+            const txt = document.createElement('span');
+            txt.textContent = c.ultimoTexto || (c.tieneCancion ? 'Te compartió una canción' : '');
+            prev.appendChild(txt);
+            info.appendChild(prev);
+            btn.appendChild(info);
+
+            if (c.noLeidos > 0) {
+                const badge = document.createElement('span');
+                badge.className = 'msg-row-badge';
+                badge.textContent = String(c.noLeidos > 99 ? '99+' : c.noLeidos);
+                btn.appendChild(badge);
+            }
+
+            btn.addEventListener('click', () => {
+                openChat({ uid: c.otherUid, nombre: c.otherName, foto: c.otherFoto });
+            });
+            list.appendChild(btn);
+        });
+    }
+
+    /* -------------------- Chat -------------------- */
+    async function openChat(otherUser) {
+        if (!currentUser || !otherUser) return;
+        currentChat = otherUser;
+        const convId = makeConvId(currentUser.uid, otherUser.uid);
+
+        const av = $('chat-avatar');
+        if (av) av.innerHTML = avatarHTML(otherUser);
+        const un = $('chat-username');
+        if (un) un.textContent = otherUser.nombre || 'Usuario';
+
+        const msgs = $('chat-messages');
+        if (msgs) msgs.innerHTML = '';
+        lastRenderedIds = '';
+        renderAttachment();
+
+        openView('chat-view');
+        setTimeout(scrollChatToBottom, 80);
+
+        try { await ensureConversation(convId, otherUser); }
+        catch (e) { console.warn('No se pudo crear conversación:', e); }
+
+        if (unsubChatMessages) { unsubChatMessages(); unsubChatMessages = null; }
+        unsubChatMessages = firebase.firestore()
+            .collection('conversaciones').doc(convId)
+            .collection('mensajes')
+            .orderBy('fecha', 'asc')
+            .onSnapshot(snap => {
+                const arr = [];
+                snap.forEach(doc => {
+                    const d = doc.data() || {};
+                    arr.push({
+                        id: doc.id,
+                        de: d.de,
+                        texto: d.texto || '',
+                        cancion: d.cancion || null,
+                        fecha: d.fecha && typeof d.fecha.toDate === 'function' ? d.fecha.toDate() : null
+                    });
+                });
+                renderChatMessages(arr);
+                markConversationRead(convId);
+            }, err => { console.warn('Error cargando mensajes:', err); });
+    }
+
+    async function ensureConversation(convId, otherUser) {
+        const ref = firebase.firestore().collection('conversaciones').doc(convId);
+        const snap = await ref.get();
+        const info = {
+            [currentUser.uid]: {
+                nombre: currentUser.displayName || currentUser.email || 'Usuario',
+                foto: currentUser.photoURL || ''
+            },
+            [otherUser.uid]: {
+                nombre: otherUser.nombre || 'Usuario',
+                foto: otherUser.foto || ''
+            }
+        };
+        if (!snap.exists) {
+            await ref.set({
+                participantes: [currentUser.uid, otherUser.uid].sort(),
+                info,
+                noLeidos: { [currentUser.uid]: 0, [otherUser.uid]: 0 },
+                ultimoMensaje: null,
+                actualizado: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        } else {
+            const d = snap.data() || {};
+            const existingInfo = d.info || {};
+            const update = {};
+            Object.keys(info).forEach(uid => {
+                const oldInfo = existingInfo[uid] || {};
+                if (oldInfo.nombre !== info[uid].nombre || oldInfo.foto !== info[uid].foto) {
+                    update['info.' + uid] = info[uid];
+                }
+            });
+            if (Object.keys(update).length) await ref.update(update);
+        }
+    }
+
+    async function markConversationRead(convId) {
+        if (!currentUser) return;
+        try {
+            await firebase.firestore().collection('conversaciones').doc(convId).update({
+                ['noLeidos.' + currentUser.uid]: 0
+            });
+        } catch (e) {}
+    }
+
+    function renderChatMessages(messages) {
+        const container = $('chat-messages');
+        if (!container) return;
+        const idsKey = messages.map(m => m.id).join('|');
+        if (idsKey === lastRenderedIds) return;
+        lastRenderedIds = idsKey;
+
+        container.innerHTML = '';
+        messages.forEach(m => {
+            const isMine = m.de === currentUser.uid;
+            const row = document.createElement('div');
+            row.className = 'chat-row ' + (isMine ? 'chat-row--out' : 'chat-row--in');
+
+            const bubble = document.createElement('div');
+            bubble.className = 'chat-bubble ' + (isMine ? 'chat-bubble--out' : 'chat-bubble--in');
+
+            if (m.cancion && m.cancion.audioUrl) {
+                const song = document.createElement('button');
+                song.type = 'button';
+                song.className = 'chat-bubble-song';
+                const thumb = document.createElement('div');
+                thumb.className = 'chat-bubble-song-thumb';
+                if (m.cancion.portada) {
+                    const img = document.createElement('img');
+                    img.src = m.cancion.portada;
+                    img.alt = '';
+                    img.loading = 'lazy';
+                    thumb.appendChild(img);
+                }
+                song.appendChild(thumb);
+                const info = document.createElement('div');
+                info.className = 'chat-bubble-song-info';
+                const t = document.createElement('span');
+                t.className = 'chat-bubble-song-title';
+                t.textContent = m.cancion.titulo || 'Canción';
+                info.appendChild(t);
+                const s = document.createElement('span');
+                s.className = 'chat-bubble-song-sub';
+                s.textContent = (m.cancion.artista || 'Artista') + ' · Toca para reproducir';
+                info.appendChild(s);
+                song.appendChild(info);
+                song.addEventListener('click', () => playSharedSong(m.cancion));
+                bubble.appendChild(song);
+            }
+
+            if (m.texto) {
+                const txt = document.createElement('div');
+                txt.className = 'chat-bubble-text';
+                txt.textContent = m.texto;
+                bubble.appendChild(txt);
+            }
+
+            const time = document.createElement('div');
+            time.className = 'chat-bubble-time';
+            time.textContent = m.fecha ? m.fecha.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : '';
+            bubble.appendChild(time);
+
+            row.appendChild(bubble);
+            container.appendChild(row);
+        });
+        setTimeout(scrollChatToBottom, 40);
+    }
+
+    function scrollChatToBottom() {
+        const scroll = $('chat-scroll');
+        if (scroll) scroll.scrollTop = scroll.scrollHeight;
+    }
+
+    /* -------------------- Reproducir canción compartida -------------------- */
+    function playSharedSong(cancion) {
+        if (!cancion || !cancion.audioUrl) return;
+        const playlist = $('playlist');
+        if (!playlist) return;
+        const target = String(cancion.titulo || '').toLowerCase();
+        for (const it of playlist.querySelectorAll('.playlist-item')) {
+            const t = (it.querySelector('.item-title')?.textContent || '').trim().toLowerCase();
+            if (t && t === target) { it.click(); return; }
+        }
+        const div = document.createElement('div');
+        div.className = 'playlist-item';
+        div.dataset.src = cancion.audioUrl;
+        div.dataset.msgSong = '1';
+        div.dataset.title = cancion.titulo || '';
+        const cover = cancion.portada || 'https://via.placeholder.com/60/1a1a1a/666?text=%E2%99%AA';
+        div.innerHTML =
+            '<div class="thumbnail"><img src="' + escapeHtml(cover) + '" alt="Portada" loading="lazy"></div>' +
+            '<div class="item-info">' +
+                '<span class="item-title">' + escapeHtml(cancion.titulo || '') + '</span>' +
+                '<span class="item-subtitle">' + escapeHtml(cancion.artista || 'Artista') + '</span>' +
+            '</div>';
+        const homeView = playlist.querySelector('#home-view');
+        if (homeView) playlist.insertBefore(div, homeView.nextSibling);
+        else playlist.insertBefore(div, playlist.firstChild);
+        setTimeout(() => div.click(), 30);
+    }
+
+    /* -------------------- Enviar mensaje -------------------- */
+    async function sendMessage() {
+        if (!currentUser || !currentChat) return;
+        const input = $('chat-input');
+        const texto = (input ? input.value : '').trim();
+        const cancion = currentAttachment;
+        if (!texto && !cancion) return;
+
+        const convId = makeConvId(currentUser.uid, currentChat.uid);
+        if (input) input.value = '';
+        currentAttachment = null;
+        renderAttachment();
+
+        try { await ensureConversation(convId, currentChat); } catch (e) {}
+
+        const payload = {
+            de: currentUser.uid,
+            texto: texto,
+            cancion: cancion ? {
+                titulo: cancion.titulo,
+                artista: cancion.artista || '',
+                portada: cancion.portada || '',
+                audioUrl: cancion.audioUrl || ''
+            } : null,
+            fecha: firebase.firestore.FieldValue.serverTimestamp(),
+            leido: false
+        };
+
+        try {
+            const convRef = firebase.firestore().collection('conversaciones').doc(convId);
+            await convRef.collection('mensajes').add(payload);
+            await convRef.update({
+                ultimoMensaje: {
+                    texto: texto || (cancion ? '🎵 ' + (cancion.titulo || 'Canción') : ''),
+                    de: currentUser.uid,
+                    fecha: firebase.firestore.FieldValue.serverTimestamp(),
+                    tieneCancion: !!cancion
+                },
+                ['noLeidos.' + currentChat.uid]: firebase.firestore.FieldValue.increment(1),
+                ['noLeidos.' + currentUser.uid]: 0,
+                actualizado: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        } catch (e) { console.warn('Error enviando mensaje:', e); }
+    }
+
+    function renderAttachment() {
+        const wrap = $('chat-attachment');
+        if (!wrap) return;
+        if (!currentAttachment) { wrap.style.display = 'none'; wrap.innerHTML = ''; return; }
+        wrap.style.display = '';
+        wrap.innerHTML = '';
+        const thumb = document.createElement('div');
+        thumb.className = 'chat-attachment-thumb';
+        if (currentAttachment.portada) {
+            const img = document.createElement('img');
+            img.src = currentAttachment.portada;
+            img.alt = '';
+            thumb.appendChild(img);
+        }
+        wrap.appendChild(thumb);
+        const info = document.createElement('div');
+        info.className = 'chat-attachment-info';
+        const t = document.createElement('span');
+        t.className = 'chat-attachment-title';
+        t.textContent = currentAttachment.titulo || '';
+        info.appendChild(t);
+        const s = document.createElement('span');
+        s.className = 'chat-attachment-sub';
+        s.textContent = currentAttachment.artista || 'Artista';
+        info.appendChild(s);
+        wrap.appendChild(info);
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'chat-attachment-remove';
+        btn.setAttribute('aria-label', 'Quitar canción');
+        btn.innerHTML = '&times;';
+        btn.addEventListener('click', () => { currentAttachment = null; renderAttachment(); });
+        wrap.appendChild(btn);
+    }
+
+    /* -------------------- Vista nuevo mensaje -------------------- */
+    async function openNewMessageFlow() {
+        openView('newmsg-view');
+        const input = $('newmsg-input');
+        if (input) input.value = '';
+        const list = $('newmsg-list');
+        if (list) list.innerHTML = '<div class="newmsg-loading">Cargando usuarios…</div>';
+        try {
+            const users = await loadAllUsers();
+            renderNewMessageList(filterUsers(users, ''));
+        } catch (e) {
+            if (list) list.innerHTML = '<div class="newmsg-empty">No se pudieron cargar los usuarios</div>';
+        }
+    }
+
+    function renderNewMessageList(users) {
+        const list = $('newmsg-list');
+        if (!list) return;
+        list.innerHTML = '';
+        if (!users.length) {
+            const e = document.createElement('div');
+            e.className = 'newmsg-empty';
+            e.textContent = 'Sin resultados';
+            list.appendChild(e);
+            return;
+        }
+        users.forEach(u => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'newmsg-row';
+            const av = document.createElement('div');
+            av.className = 'newmsg-row-avatar';
+            av.innerHTML = avatarHTML(u);
+            btn.appendChild(av);
+            const info = document.createElement('div');
+            info.className = 'newmsg-row-info';
+            const n = document.createElement('span');
+            n.className = 'newmsg-row-name';
+            n.textContent = u.nombre || 'Usuario';
+            info.appendChild(n);
+            const e = document.createElement('span');
+            e.className = 'newmsg-row-email';
+            e.textContent = u.email || '';
+            info.appendChild(e);
+            btn.appendChild(info);
+            btn.addEventListener('click', () => {
+                openChat({ uid: u.uid, nombre: u.nombre, foto: u.foto });
+            });
+            list.appendChild(btn);
+        });
+    }
+
+    /* -------------------- Icono en fullscreen player -------------------- */
+    function injectFsMessageButton() {
+        const fsActions = document.querySelector('.fs-actions');
+        if (!fsActions) return false;
+        if (document.getElementById('fs-message-btn')) return true;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.id = 'fs-message-btn';
+        btn.className = 'fs-mode-btn';
+        btn.setAttribute('aria-label', 'Enviar por mensaje');
+        btn.innerHTML =
+            '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+                '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>' +
+            '</svg>' +
+            '<span class="fs-mode-label">Mensaje</span>';
+
+        const likeBtn = fsActions.querySelector('#fs-like');
+        if (likeBtn) fsActions.insertBefore(btn, likeBtn);
+        else fsActions.insertBefore(btn, fsActions.firstChild);
+
+        btn.addEventListener('click', () => {
+            const activeItem = document.querySelector('.playlist-item.active');
+            if (!activeItem) return;
+            const titleEl = activeItem.querySelector('.item-title');
+            const subEl   = activeItem.querySelector('.item-subtitle');
+            const imgEl   = activeItem.querySelector('.thumbnail img');
+            const song = {
+                titulo: (titleEl?.textContent || '').trim(),
+                artista: (subEl?.textContent || '').split('·')[0].trim(),
+                portada: imgEl?.src || '',
+                audioUrl: activeItem.dataset.src || ''
+            };
+            if (!song.titulo || !song.audioUrl) return;
+            currentAttachment = song;
+            const fsPlayer = document.getElementById('fs-player');
+            if (fsPlayer) {
+                fsPlayer.classList.remove('visible');
+                fsPlayer.setAttribute('aria-hidden', 'true');
+            }
+            openNewMessageFlow();
+        });
+        return true;
+    }
+
+    /* -------------------- Menú -------------------- */
+    function setupMenuLink() {
+        const link = $('mensajes-link');
+        if (!link || link.dataset.msgReady === '1') return;
+        link.dataset.msgReady = '1';
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            const sm = $('submenu');
+            const so = $('submenu-overlay');
+            if (sm) sm.classList.remove('visible');
+            if (so) so.classList.remove('visible');
+            openView('mensajes-view');
+        });
+    }
+
+    /* -------------------- Init -------------------- */
+    function init() {
+        if (typeof firebase === 'undefined' || !firebase.auth) {
+            setTimeout(init, 300);
+            return;
+        }
+        setupMenuLink();
+        watchOtherViews();
+
+        const msgBack = $('msg-back');
+        if (msgBack) msgBack.addEventListener('click', () => closeView('mensajes-view'));
+        const msgNew = $('msg-new-btn');
+        if (msgNew) msgNew.addEventListener('click', () => {
+            currentAttachment = null;
+            renderAttachment();
+            openNewMessageFlow();
+        });
+
+        const newmsgBack = $('newmsg-back');
+        if (newmsgBack) newmsgBack.addEventListener('click', () => {
+            currentAttachment = null;
+            renderAttachment();
+            closeView('newmsg-view');
+        });
+
+        const newmsgInput = $('newmsg-input');
+        if (newmsgInput) {
+            let deb = null;
+            newmsgInput.addEventListener('input', () => {
+                if (deb) clearTimeout(deb);
+                deb = setTimeout(async () => {
+                    try {
+                        const users = await loadAllUsers();
+                        renderNewMessageList(filterUsers(users, newmsgInput.value));
+                    } catch (e) {}
+                }, 100);
+            });
+        }
+
+        const chatBack = $('chat-back');
+        if (chatBack) chatBack.addEventListener('click', () => {
+            closeView('chat-view');
+            if (unsubChatMessages) { unsubChatMessages(); unsubChatMessages = null; }
+            currentChat = null;
+            currentAttachment = null;
+            renderAttachment();
+        });
+
+        const chatSend = $('chat-send');
+        if (chatSend) chatSend.addEventListener('click', sendMessage);
+        const chatInput = $('chat-input');
+        if (chatInput) {
+            chatInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') { e.preventDefault(); sendMessage(); }
+            });
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'Escape') return;
+            if ($('chat-view')?.classList.contains('visible')) {
+                closeView('chat-view');
+                if (unsubChatMessages) { unsubChatMessages(); unsubChatMessages = null; }
+                currentChat = null;
+                currentAttachment = null;
+                renderAttachment();
+            } else if ($('newmsg-view')?.classList.contains('visible')) {
+                closeView('newmsg-view');
+                currentAttachment = null;
+                renderAttachment();
+            } else if ($('mensajes-view')?.classList.contains('visible')) {
+                closeView('mensajes-view');
+            }
+        });
+
+        let attempts = 0;
+        (function retry() {
+            attempts++;
+            if (injectFsMessageButton()) return;
+            if (attempts < 40) setTimeout(retry, 250);
+        })();
+
+        firebase.auth().onAuthStateChanged(user => {
+            currentUser = user;
+            if (user) {
+                listenConversaciones();
+            } else {
+                if (unsubConversaciones) { unsubConversaciones(); unsubConversaciones = null; }
+                if (unsubChatMessages) { unsubChatMessages(); unsubChatMessages = null; }
+                renderConversaciones([]);
+                updateBadge(0);
+            }
+        });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+})();
