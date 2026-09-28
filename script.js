@@ -3664,14 +3664,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /* ============================================================
    22. VENTANAS EXCLUSIVAS
-   ------------------------------------------------------------
-   Solo una ventana principal puede estar abierta a la vez.
-   Cuando se abre una nueva (Playlist, Perfil de artista,
-   Álbum o Mi Playlist), cualquier otra se cierra sola.
-   - No interfiere con modales internos (share-modal,
-     mp-create-modal, mp-add-modal), que siguen apilándose
-     sobre su ventana padre.
-   - Respeta el reset de scroll de la sección 21.
    ============================================================ */
 (function () {
     'use strict';
@@ -3735,17 +3727,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /* ============================================================
    23. PLAYLISTS PÚBLICAS EN EL REPRODUCTOR
-   ------------------------------------------------------------
-   - Lee "mis_playlists" donde privada == false.
-   - Aparecen SOLO en el reproductor (home), nunca dentro de
-     "Mi Playlist" de otros usuarios (sección 20 sigue filtrando
-     por uid == usuario actual).
-   - El propietario conserva control total: al abrirla desde el
-     reproductor, isOwner === true → puede editar y compartir.
-   - Los demás usuarios solo pueden VER y REPRODUCIR: se les
-     oculta el botón "Compartir". El botón "Editar" ya se oculta
-     automáticamente desde la sección 18 cuando isOwner !== true.
-   - No modifica ninguna sección existente.
    ============================================================ */
 (function () {
     'use strict';
@@ -3754,7 +3735,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function $(id) { return document.getElementById(id); }
 
-    /* -------- Crea (si no existe) la sección de públicas en el home -------- */
     function ensurePublicSection() {
         let sec = $('sec-public');
         if (sec) return { sec, carousel: $('carousel-public') };
@@ -3762,7 +3742,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const homeView = $('home-view');
         if (!homeView) return null;
 
-        // Plantilla: copiamos estructura y clases de una sección existente para conservar el estilo
         const template =
             $('sec-listen-again') || $('sec-shared') ||
             $('sec-artists')      || $('sec-top')    ||
@@ -3773,7 +3752,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (template && template.className) sec.className = template.className;
         sec.style.display = 'none';
 
-        // Título
         const templateTitle = template
             ? template.querySelector('h1, h2, h3, [class*="section-title"], [class*="title"]')
             : null;
@@ -3783,14 +3761,12 @@ document.addEventListener('DOMContentLoaded', () => {
         title.textContent = 'Playlists públicas';
         sec.appendChild(title);
 
-        // Carrusel
         const templateCarousel = template ? template.querySelector('[id^="carousel-"]') : null;
         const carousel = document.createElement('div');
         carousel.id = 'carousel-public';
         if (templateCarousel && templateCarousel.className) carousel.className = templateCarousel.className;
         sec.appendChild(carousel);
 
-        // Insertar después de sec-shared si existe; si no, al final del home
         const sharedSec = $('sec-shared');
         if (sharedSec && sharedSec.parentNode === homeView) {
             homeView.insertBefore(sec, sharedSec.nextSibling);
@@ -3800,7 +3776,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return { sec, carousel };
     }
 
-    /* -------- Encuentra un item local en el reproductor por título -------- */
     function findLocalItemByTitle(title) {
         const pl = $('playlist');
         if (!pl) return null;
@@ -3813,7 +3788,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return null;
     }
 
-    /* -------- Abre una playlist pública en el detalle de playlist -------- */
     function openPublicPlaylistView(pl) {
         const currentUid = (firebase.auth().currentUser && firebase.auth().currentUser.uid) || '';
         const isOwner = pl.uid === currentUid;
@@ -3834,7 +3808,7 @@ document.addEventListener('DOMContentLoaded', () => {
             nombre: pl.nombre,
             canciones,
             isOwner,
-            esMiPlaylist: isOwner,   // permite que el dueño vea el toggle de visibilidad al compartir
+            esMiPlaylist: isOwner,
             privada: false,
             esPublica: true
         };
@@ -3843,7 +3817,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* -------- Renderiza el carrusel de playlists públicas -------- */
     function renderPublicPlaylists(playlists) {
         const els = ensurePublicSection();
         if (!els) return;
@@ -3864,7 +3837,6 @@ document.addEventListener('DOMContentLoaded', () => {
             card.className = 'home-card home-card--playlist';
             card.setAttribute('aria-label', pl.nombre || 'Playlist');
 
-            // Collage de portadas
             const thumb = document.createElement('div');
             thumb.className = 'home-card-thumb playlist-collage';
             const canciones = Array.isArray(pl.canciones) ? pl.canciones : [];
@@ -3885,13 +3857,11 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             card.appendChild(thumb);
 
-            // Título
             const t = document.createElement('span');
             t.className = 'home-card-title';
             t.textContent = pl.nombre || 'Playlist';
             card.appendChild(t);
 
-            // Subtítulo (indica si es del usuario o de otro)
             const s = document.createElement('span');
             s.className = 'home-card-sub';
             const n = canciones.length;
@@ -3908,7 +3878,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    /* -------- Listener en tiempo real de todas las playlists públicas -------- */
     function listenPublicPlaylists() {
         if (publicUnsubscribe) { publicUnsubscribe(); publicUnsubscribe = null; }
         publicUnsubscribe = firebase.firestore()
@@ -3933,9 +3902,6 @@ document.addEventListener('DOMContentLoaded', () => {
             });
     }
 
-    /* -------- Permisos: ocultar "Compartir" a quien no es propietario --------
-       Solo afecta a playlists marcadas como esPublica. Las compartidas
-       (sección 19) y las propias (sección 20) siguen funcionando igual. */
     function wrapPlaylistViewForPermissions() {
         if (typeof window.__openPlaylistView !== 'function') return;
         if (window.__openPlaylistView.__publicPermWrapped) return;
@@ -3956,7 +3922,6 @@ document.addEventListener('DOMContentLoaded', () => {
         window.__openPlaylistView = wrapped;
     }
 
-    /* -------- Init -------- */
     function init() {
         if (typeof firebase === 'undefined' || !firebase.auth) {
             setTimeout(init, 300);
@@ -3981,6 +3946,7 @@ document.addEventListener('DOMContentLoaded', () => {
         init();
     }
 })();
+
 /* ============================================================
    24. MENSAJES DIRECTOS
    ------------------------------------------------------------
@@ -4693,4 +4659,180 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
         init();
     }
+
+    // Exponer openChat para que otras secciones puedan abrir chats
+    window.__msgOpenChat = openChat;
+})();
+
+/* ============================================================
+   25. REFUERZO: Refresco directo de la lista de conversaciones
+   ------------------------------------------------------------
+   Al abrir "Mensajes", hace una consulta directa (get) a
+   Firestore y renderiza la lista, aunque el listener en tiempo
+   real de la sección 24 no se haya disparado todavía o haya
+   fallado silenciosamente por reglas de seguridad.
+   No modifica nada existente.
+   ============================================================ */
+(function () {
+    'use strict';
+    const $ = (id) => document.getElementById(id);
+
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[c]));
+    }
+    function ago(d) {
+        if (!d) return '';
+        const s = (Date.now() - d.getTime()) / 1000;
+        if (s < 60) return 'ahora';
+        if (s < 3600) return Math.floor(s / 60) + 'm';
+        if (s < 86400) return Math.floor(s / 3600) + 'h';
+        if (s < 604800) return Math.floor(s / 86400) + 'd';
+        return d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
+    }
+    function avatar(u) {
+        const n = (u && u.nombre) || 'U';
+        const i = n.trim()[0] ? n.trim()[0].toUpperCase() : '?';
+        if (u && u.foto) {
+            return '<img src="' + esc(u.foto) + '" alt="" onerror="this.style.display=\'none\';this.parentNode.textContent=\'' + i + '\';">';
+        }
+        return i;
+    }
+
+    async function refresh() {
+        const user = firebase.auth().currentUser;
+        if (!user) return;
+        try {
+            const snap = await firebase.firestore()
+                .collection('conversaciones')
+                .where('participantes', 'array-contains', user.uid)
+                .get();
+            console.log('🔄 [MSG-FIX] Conversaciones encontradas:', snap.size);
+
+            const list = $('msg-list');
+            const empty = $('msg-empty');
+            if (!list) return;
+            list.innerHTML = '';
+            if (snap.empty) {
+                if (empty) empty.style.display = '';
+                return;
+            }
+            if (empty) empty.style.display = 'none';
+
+            const convs = [];
+            let totalUnread = 0;
+            snap.forEach(doc => {
+                const d = doc.data() || {};
+                const otherUid = (d.participantes || []).find(u => u !== user.uid);
+                if (!otherUid) return;
+                const info = (d.info && d.info[otherUid]) || {};
+                const noLeidos = (d.noLeidos && d.noLeidos[user.uid]) || 0;
+                totalUnread += noLeidos;
+                const ult = d.ultimoMensaje || {};
+                convs.push({
+                    otherUid,
+                    otherName: info.nombre || 'Usuario',
+                    otherFoto: info.foto || '',
+                    ultimoTexto: ult.texto || '',
+                    tieneCancion: !!ult.tieneCancion,
+                    fecha: ult.fecha && typeof ult.fecha.toDate === 'function' ? ult.fecha.toDate() : null,
+                    noLeidos
+                });
+            });
+            convs.sort((a, b) => (b.fecha ? b.fecha.getTime() : 0) - (a.fecha ? a.fecha.getTime() : 0));
+
+            convs.forEach(c => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'msg-row';
+                if (c.noLeidos > 0) btn.classList.add('msg-row--unread');
+
+                const av = document.createElement('div');
+                av.className = 'msg-row-avatar';
+                av.innerHTML = avatar({ nombre: c.otherName, foto: c.otherFoto });
+                btn.appendChild(av);
+
+                const info = document.createElement('div');
+                info.className = 'msg-row-info';
+                const top = document.createElement('div');
+                top.className = 'msg-row-top';
+                const nm = document.createElement('span');
+                nm.className = 'msg-row-name';
+                nm.textContent = c.otherName;
+                top.appendChild(nm);
+                const tm = document.createElement('span');
+                tm.className = 'msg-row-time';
+                tm.textContent = ago(c.fecha);
+                top.appendChild(tm);
+                info.appendChild(top);
+                const pv = document.createElement('div');
+                pv.className = 'msg-row-preview';
+                if (c.tieneCancion) {
+                    const tag = document.createElement('span');
+                    tag.className = 'msg-row-song-tag';
+                    tag.textContent = '♪ ';
+                    pv.appendChild(tag);
+                }
+                const txt = document.createElement('span');
+                txt.textContent = c.ultimoTexto || (c.tieneCancion ? 'Te compartió una canción' : '');
+                pv.appendChild(txt);
+                info.appendChild(pv);
+                btn.appendChild(info);
+                if (c.noLeidos > 0) {
+                    const b = document.createElement('span');
+                    b.className = 'msg-row-badge';
+                    b.textContent = String(c.noLeidos > 99 ? '99+' : c.noLeidos);
+                    btn.appendChild(b);
+                }
+                btn.addEventListener('click', () => {
+                    if (typeof window.__msgOpenChat === 'function') {
+                        window.__msgOpenChat({ uid: c.otherUid, nombre: c.otherName, foto: c.otherFoto });
+                    }
+                });
+                list.appendChild(btn);
+            });
+
+            const badge = $('msg-badge');
+            if (badge) {
+                if (totalUnread > 0) {
+                    badge.style.display = 'inline-flex';
+                    badge.textContent = String(totalUnread > 99 ? '99+' : totalUnread);
+                } else {
+                    badge.style.display = 'none';
+                    badge.textContent = '0';
+                }
+            }
+        } catch (err) {
+            console.warn('⚠️ [MSG-FIX] Error:', err && err.code, err && err.message);
+            if (err && err.code === 'permission-denied') {
+                console.warn('👉 Revisa las reglas de Firestore para la colección "conversaciones". Debe permitir leer a los participantes.');
+            }
+        }
+    }
+
+    function init() {
+        if (typeof firebase === 'undefined' || !firebase.auth) { setTimeout(init, 300); return; }
+        const view = document.getElementById('mensajes-view');
+        if (!view || view.dataset.msgFix === '1') return;
+        view.dataset.msgFix = '1';
+
+        let last = 0;
+        const obs = new MutationObserver(muts => {
+            for (const m of muts) {
+                if (m.attributeName !== 'class') continue;
+                if (!view.classList.contains('visible')) continue;
+                const now = Date.now();
+                if (now - last < 700) break;
+                last = now;
+                console.log('👀 [MSG-FIX] Vista Mensajes abierta → refrescando lista');
+                refresh();
+                break;
+            }
+        });
+        obs.observe(view, { attributes: true, attributeFilter: ['class'] });
+    }
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+    else init();
 })();
