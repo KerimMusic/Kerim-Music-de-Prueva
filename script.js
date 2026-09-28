@@ -2429,6 +2429,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const pvEditBtn = document.getElementById('pv-edit');
         const pvCancelBtn = document.getElementById('pv-cancel');
         const pvSaveBtn = document.getElementById('pv-save');
+        const pvShareBtn = document.getElementById('pv-share');   // ⭐ NUEVO
 
         if (!viewEl || !pvList || !playlist) return;
 
@@ -2493,10 +2494,11 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        function updateEditButtonVisibility() {
-            if (!pvEditBtn) return;
-            const canEdit = !!(currentPlaylist && currentPlaylist.isOwner === true);
-            pvEditBtn.style.display = canEdit ? '' : 'none';
+        // ⭐ ACTUALIZADO: oculta Editar Y Compartir cuando no es dueño
+        function updateOwnerControlsVisibility() {
+            const isOwner = !!(currentPlaylist && currentPlaylist.isOwner === true);
+            if (pvEditBtn)  pvEditBtn.style.display  = isOwner ? '' : 'none';
+            if (pvShareBtn) pvShareBtn.style.display = isOwner ? '' : 'none';
         }
 
         function enterEditMode() {
@@ -2518,7 +2520,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (pvCancelBtn) pvCancelBtn.style.display = 'none';
             if (pvPlayAll) pvPlayAll.style.display = '';
             if (pvSaveBtn) pvSaveBtn.style.display = 'none';
-            updateEditButtonVisibility();
+            updateOwnerControlsVisibility();
             pvList.querySelectorAll('.pv-row-remove').forEach(el => el.remove());
             pvList.querySelectorAll('.pv-row.removed').forEach(el => {
                 el.classList.remove('removed');
@@ -2619,7 +2621,7 @@ document.addEventListener('DOMContentLoaded', () => {
             viewEl.classList.add('visible');
             viewEl.setAttribute('aria-hidden', 'false');
             if (pvScroll) pvScroll.scrollTop = 0;
-            updateEditButtonVisibility();
+            updateOwnerControlsVisibility();
             if (!pvList._omegaObserver) {
                 pvList._omegaObserver = new MutationObserver(refreshPlayingRows);
                 pvList._omegaObserver.observe(playlist, { subtree: true, attributes: true, attributeFilter: ['class'] });
@@ -2849,7 +2851,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!playlist || !Array.isArray(playlist.canciones) || !playlist.canciones.length) throw new Error('La playlist está vacía.');
         if (user.uid === targetUid) throw new Error('No puedes compartir contigo mismo.');
 
-        // ⭐ NUEVO: Bloquear compartir playlists privadas
+        // ⭐ Bloquear compartir playlists privadas
         if (playlist.privada === true) {
             throw new Error('No puedes compartir una playlist privada. Cámbiala a pública primero.');
         }
@@ -2951,7 +2953,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function openShareModal(playlist) {
-        // ⭐ NUEVO: impedir abrir el modal si la playlist es privada
+        // ⭐ Bloquear si la playlist es privada
         if (playlist && playlist.privada === true) {
             alert('No puedes compartir una playlist privada. Cámbiala a pública primero.');
             return;
@@ -3453,14 +3455,13 @@ document.addEventListener('DOMContentLoaded', () => {
         return { titulo, portada, subtitulo };
     }
 
-    // ⭐ ACTUALIZADO: al privatizar, elimina las copias compartidas
     async function togglePlaylistVisibility(plId, nuevoPrivada) {
         try {
             await firebase.firestore().collection(COLLECTION).doc(plId).update({ privada: !!nuevoPrivada });
 
-            // ⭐ NUEVO: si la playlist pasa a privada, eliminar todas las copias
-            // compartidas para que deje de estar disponible INMEDIATAMENTE
-            // para los demás usuarios (los que la tenían en "Compartidas contigo").
+            // Si la playlist pasa a privada, eliminar todas las copias
+            // compartidas para que deje de estar disponible inmediatamente
+            // para los demás usuarios.
             if (nuevoPrivada) {
                 try {
                     const user = firebase.auth().currentUser;
@@ -3475,7 +3476,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 } catch (e) { console.warn('Error eliminando compartidos al privatizar:', e); }
             }
 
-            // Actualizamos la caché local para reflejar el cambio inmediatamente
             const pl = miPlaylistsCache.find(p => p.id === plId);
             if (pl) {
                 pl.privada = !!nuevoPrivada;
@@ -3891,9 +3891,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (typeof window.__openPlaylistView === 'function') window.__openPlaylistView(plView);
     }
 
-    // ⭐ Escucha TODOS los documentos y filtra en el cliente
-    // Esto garantiza que si una playlist cambia de pública a privada (o viceversa),
-    // desaparezca o aparezca en tiempo real.
     function listenPublicPlaylists(user) {
         if (pubUnsubscribe) { pubUnsubscribe(); pubUnsubscribe = null; }
         if (!user) { publicPlaylistsCache = []; renderPublicPlaylists([]); return; }
@@ -3906,7 +3903,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 snap.forEach(doc => {
                     const d = doc.data() || {};
-                    // ⭐ FILTRO CLAVE: si es privada, no la mostramos en "Playlists públicas"
+                    // Si es privada, no la mostramos en "Playlists públicas"
                     if (d.privada === true) return;
                     // No mostrar las propias aquí (ya están en "Mi Playlist")
                     if (d.uid === user.uid) return;
