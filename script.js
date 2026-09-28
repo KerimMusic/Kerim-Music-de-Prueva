@@ -3159,7 +3159,8 @@ document.addEventListener('DOMContentLoaded', () => {
 })();
 
 /* ============================================================
-   19. COMPARTIR PLAYLIST ENTRE USUARIOS (BÚSQUEDA POR NOMBRE O CORREO)
+   19. COMPARTIR PLAYLIST ENTRE USUARIOS
+   (BÚSQUEDA POR NOMBRE O CORREO + SEGUIR COMPARTIENDO)
    ============================================================ */
 (function () {
     'use strict';
@@ -3169,6 +3170,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentPlaylistToShare = null;
     let currentTargetUser = null;
     let sharedUnsubscribe = null;
+    let contactosRecientesCache = null;
 
     const $ = (id) => document.getElementById(id);
 
@@ -3239,6 +3241,75 @@ document.addEventListener('DOMContentLoaded', () => {
         return usersLoadingPromise;
     }
 
+    /* ---------- CONTACTOS RECIENTES (SEGUIR COMPARTIENDO) ---------- */
+    async function cargarContactosRecientes() {
+        const user = firebase.auth().currentUser;
+        if (!user) return [];
+        if (contactosRecientesCache) return contactosRecientesCache;
+
+        try {
+            const docRef = firebase.firestore()
+                .collection('historial_usuarios')
+                .doc(user.uid);
+            const docSnap = await docRef.get();
+            const data = docSnap.exists ? (docSnap.data() || {}) : {};
+            const contactos = Array.isArray(data.contactos_compartidos)
+                ? data.contactos_compartidos
+                : [];
+
+            contactos.sort((a, b) => {
+                const fa = a.fecha && typeof a.fecha.toDate === 'function' ? a.fecha.toDate().getTime() : 0;
+                const fb = b.fecha && typeof b.fecha.toDate === 'function' ? b.fecha.toDate().getTime() : 0;
+                return fb - fa;
+            });
+
+            contactosRecientesCache = contactos.slice(0, 20);
+            return contactosRecientesCache;
+        } catch (e) {
+            console.warn('No se pudieron cargar los contactos recientes:', e);
+            contactosRecientesCache = [];
+            return [];
+        }
+    }
+
+    async function registrarContactoCompartido(targetUid, targetName, targetEmail, targetFoto) {
+        const user = firebase.auth().currentUser;
+        if (!user || !targetUid) return;
+
+        try {
+            const docRef = firebase.firestore()
+                .collection('historial_usuarios')
+                .doc(user.uid);
+
+            const docSnap = await docRef.get();
+            const data = docSnap.exists ? (docSnap.data() || {}) : {};
+            let contactos = Array.isArray(data.contactos_compartidos)
+                ? data.contactos_compartidos.slice()
+                : [];
+
+            contactos = contactos.filter(c => c && c.uid !== targetUid);
+            contactos.unshift({
+                uid: targetUid,
+                nombre: targetName || '',
+                email: (targetEmail || '').toLowerCase(),
+                foto: targetFoto || '',
+                fecha: firebase.firestore.FieldValue.serverTimestamp()
+            });
+
+            contactos = contactos.slice(0, 30);
+
+            if (docSnap.exists) {
+                await docRef.update({ contactos_compartidos: contactos });
+            } else {
+                await docRef.set({ contactos_compartidos: contactos }, { merge: true });
+            }
+
+            contactosRecientesCache = null;
+        } catch (e) {
+            console.warn('No se pudo guardar el contacto compartido:', e);
+        }
+    }
+
     /* ---------- BÚSQUEDA DIRECTA EN FIRESTORE (nombre + email) ---------- */
     async function buscarUsuariosEnFirestore(query) {
         const raw = String(query || '').trim();
@@ -3264,16 +3335,14 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        // 1) Email exacto (en minúsculas)
         try {
             const snapEmail = await col
                 .where('email', '==', raw.toLowerCase())
                 .limit(10)
                 .get();
             snapEmail.forEach(pushDoc);
-        } catch (e) { /* índice no disponible */ }
+        } catch (e) {}
 
-        // 2) Nombre con prefijo (case-sensitive en Firestore)
         try {
             const snapNombre = await col
                 .orderBy('nombre')
@@ -3282,9 +3351,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 .limit(20)
                 .get();
             snapNombre.forEach(pushDoc);
-        } catch (e) { /* índice no disponible */ }
+        } catch (e) {}
 
-        // 3) Fallback local sobre caché amplia (case/accent-insensitive, includes)
         try {
             const todos = await cargarUsuariosFirebase();
             todos.forEach(u => {
@@ -3300,7 +3368,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return Array.from(resultados.values()).slice(0, 40);
     }
 
-    /* ---------- FILTRO LOCAL RÁPIDO ---------- */
     function filtrarUsuarios(users, q) {
         const nq = normalizeUserStr(q);
         if (!nq) return users.slice(0, 40);
@@ -3311,7 +3378,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ).slice(0, 40);
     }
 
-    async function compartirPlaylistConUsuario(playlist, targetUid, targetName) {
+    async function compartirPlaylistConUsuario(playlist, targetUid, targetName, targetEmail, targetFoto) {
         const user = firebase.auth().currentUser;
         if (!user) throw new Error('Debes iniciar sesión.');
         if (!playlist || !Array.isArray(playlist.canciones) || !playlist.canciones.length) {
@@ -3345,10 +3412,56 @@ document.addEventListener('DOMContentLoaded', () => {
             fecha: firebase.firestore.FieldValue.serverTimestamp()
         });
 
+        await registrarContactoCompartido(targetUid, targetName, targetEmail, targetFoto);
+
         return true;
     }
 
-    /* ---------- RENDER DE RESULTADOS ---------- */
+    /* ---------- RENDER ---------- */
+    function buildUserRow(u, onPick, isReciente) {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'share-user-row';
+        if (isReciente) row.classList.add('share-user-row--recent');
+
+        const av = document.createElement('div');
+        av.className = 'share-user-avatar';
+        if (u.foto) {
+            const img = document.createElement('img');
+            img.src = u.foto;
+            img.alt = u.nombre;
+            av.appendChild(img);
+        } else {
+            av.textContent = (String(u.nombre).trim()[0] || '?').toUpperCase();
+        }
+        row.appendChild(av);
+
+        const info = document.createElement('div');
+        info.className = 'share-user-info';
+
+        const nameEl = document.createElement('span');
+        nameEl.className = 'share-user-name';
+        nameEl.textContent = u.nombre;
+        info.appendChild(nameEl);
+
+        const subEl = document.createElement('span');
+        subEl.className = 'share-user-sub';
+        subEl.textContent = isReciente
+            ? ('Seguir compartiendo · ' + (u.email || 'Usuario'))
+            : (u.email || 'Usuario de Kerim Music');
+        info.appendChild(subEl);
+
+        row.appendChild(info);
+
+        const action = document.createElement('span');
+        action.className = 'share-user-action';
+        action.textContent = isReciente ? 'Continuar' : 'Compartir';
+        row.appendChild(action);
+
+        row.addEventListener('click', () => onPick(u));
+        return row;
+    }
+
     function renderUserResults(users, container, onPick, query) {
         if (!container) return;
         container.innerHTML = '';
@@ -3373,51 +3486,57 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        filtered.forEach(u => {
-            const row = document.createElement('button');
-            row.type = 'button';
-            row.className = 'share-user-row';
+        filtered.forEach(u => container.appendChild(buildUserRow(u, onPick, false)));
+    }
 
-            const av = document.createElement('div');
-            av.className = 'share-user-avatar';
-            if (u.foto) {
-                const img = document.createElement('img');
-                img.src = u.foto;
-                img.alt = u.nombre;
-                av.appendChild(img);
-            } else {
-                av.textContent = (String(u.nombre).trim()[0] || '?').toUpperCase();
-            }
-            row.appendChild(av);
+    /* ---------- BLOQUE "SEGUIR COMPARTIENDO" ---------- */
+    async function renderSeguirCompartiendo(container, onPick) {
+        if (!container) return;
 
-            const info = document.createElement('div');
-            info.className = 'share-user-info';
+        const recientes = await cargarContactosRecientes();
+        const currentUid = firebase.auth().currentUser?.uid || '';
+        const validos = recientes.filter(c => c && c.uid && c.uid !== currentUid);
 
-            const nameEl = document.createElement('span');
-            nameEl.className = 'share-user-name';
-            nameEl.textContent = u.nombre;
-            info.appendChild(nameEl);
+        if (!validos.length) {
+            container.innerHTML = '';
+            container.style.display = 'none';
+            return;
+        }
 
-            const subEl = document.createElement('span');
-            subEl.className = 'share-user-sub';
-            subEl.textContent = u.email || 'Usuario de Kerim Music';
-            info.appendChild(subEl);
+        container.innerHTML = '';
+        container.style.display = '';
 
-            row.appendChild(info);
+        const header = document.createElement('div');
+        header.className = 'share-recent-header';
+        header.textContent = 'Seguir compartiendo';
+        container.appendChild(header);
 
-            row.addEventListener('click', () => onPick(u));
-            container.appendChild(row);
+        const list = document.createElement('div');
+        list.className = 'share-recent-list';
+
+        validos.slice(0, 5).forEach(c => {
+            const u = {
+                uid: c.uid,
+                nombre: c.nombre || 'Usuario',
+                email: (c.email || '').toLowerCase(),
+                foto: c.foto || ''
+            };
+            list.appendChild(buildUserRow(u, onPick, true));
         });
+
+        container.appendChild(list);
     }
 
     function openShareModal(playlist) {
         currentPlaylistToShare = playlist;
         currentTargetUser = null;
+        contactosRecientesCache = null;
 
         const modal = $('share-modal');
         const input = $('share-modal-input');
         const results = $('share-modal-results');
         const status = $('share-modal-status');
+        const recentBox = $('share-modal-recent');
         if (!modal) return;
 
         if (input) input.value = '';
@@ -3427,6 +3546,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         modal.classList.add('visible');
         modal.setAttribute('aria-hidden', 'false');
+
+        if (recentBox) {
+            renderSeguirCompartiendo(recentBox, onPickUser).catch(() => {});
+        }
 
         cargarUsuariosFirebase().then(users => {
             renderUserResults(filtrarUsuarios(users, ''), results, onPickUser, '');
@@ -3459,7 +3582,13 @@ document.addEventListener('DOMContentLoaded', () => {
         status.classList.remove('ok');
 
         try {
-            await compartirPlaylistConUsuario(currentPlaylistToShare, u.uid, u.nombre);
+            await compartirPlaylistConUsuario(
+                currentPlaylistToShare,
+                u.uid,
+                u.nombre,
+                u.email,
+                u.foto
+            );
             status.textContent = '✓ Playlist compartida con ' + u.nombre;
             status.classList.add('ok');
             setTimeout(closeShareModal, 1400);
@@ -3557,6 +3686,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const shareBtn   = $('pv-share');
         const input      = $('share-modal-input');
         const results    = $('share-modal-results');
+        const recentBox  = $('share-modal-recent');
         const closeBtn   = $('share-modal-close');
         const backdrop   = $('share-modal-backdrop');
 
@@ -3576,7 +3706,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
-        /* ---------- BÚSQUEDA EN VIVO (nombre + correo) ---------- */
+        /* ---------- BÚSQUEDA EN VIVO ---------- */
         let debounceTimer = null;
         let searchToken = 0;
 
@@ -3585,19 +3715,24 @@ document.addEventListener('DOMContentLoaded', () => {
                 const q = input.value.trim();
                 if (debounceTimer) clearTimeout(debounceTimer);
 
+                if (recentBox) {
+                    recentBox.style.display = q ? 'none' : '';
+                }
+
                 if (!q) {
+                    if (recentBox) {
+                        renderSeguirCompartiendo(recentBox, onPickUser).catch(() => {});
+                    }
                     cargarUsuariosFirebase().then(users => {
                         renderUserResults(filtrarUsuarios(users, ''), results, onPickUser, '');
                     }).catch(() => {});
                     return;
                 }
 
-                // Feedback inmediato con caché local
                 if (usersCache) {
                     renderUserResults(filtrarUsuarios(usersCache, q), results, onPickUser, q);
                 }
 
-                // Búsqueda real en Firestore
                 debounceTimer = setTimeout(async () => {
                     const myToken = ++searchToken;
                     try {
