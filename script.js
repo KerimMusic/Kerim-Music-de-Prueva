@@ -1,1440 +1,979 @@
-/* ============================================================
-   CONFIGURACIÓN DE FIREBASE
-   ============================================================ */
-const firebaseConfig = {
-    apiKey: "AIzaSyDMabE70hIApcNU5RY3_WEEIF-BWUzO0K4",
-    authDomain: "kerim-music-a9c46.firebaseapp.com",
-    projectId: "kerim-music-a9c46",
-    storageBucket: "kerim-music-a9c46.firebasestorage.app",
-    messagingSenderId: "470731440209",
-    appId: "1:470731440209:web:f6eba4784027a5d8c57870",
-    measurementId: "G-LBHTKL8KDK"
-};
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Reproductor de Música Kerim Music</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
 
-firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
-const auth = firebase.auth();
+    <!-- ==================== PANTALLA OBLIGATORIA DE LOGIN ==================== -->
+    <div class="auth-gate" id="auth-gate" aria-hidden="false">
+        <div class="auth-gate-inner">
+            <img class="auth-gate-logo"
+                 src="https://cdn.pixabay.com/animation/2023/02/21/12/15/12-15-04-910_512.gif"
+                 alt="Kerim Music">
+            <h1 class="auth-gate-title">Kerim Music</h1>
+            <p class="auth-gate-sub">Inicia sesión con tu cuenta de Google para continuar</p>
+            <button class="auth-google-btn" id="auth-google-btn" type="button">
+                <svg viewBox="0 0 48 48" width="22" height="22" aria-hidden="true">
+                    <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+                    <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+                    <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+                    <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+                </svg>
+                <span>Continuar con Google</span>
+            </button>
+            <p class="auth-gate-error" id="auth-gate-error"></p>
+            <p class="auth-gate-note">Debes iniciar sesión para usar la app</p>
+        </div>
+    </div>
 
-/* ============================================================
-   0. AUTENTICACIÓN OBLIGATORIA CON GOOGLE
-   ============================================================ */
-const googleProvider = new firebase.auth.GoogleAuthProvider();
-googleProvider.setCustomParameters({ prompt: 'select_account' });
+    <div class="app-container">
 
-function isWebView() {
-    const ua = navigator.userAgent || navigator.vendor || window.opera || '';
-    return (
-        /\bwv\b/.test(ua) ||
-        (/iPhone|iPod|iPad/.test(ua) && !/Safari/.test(ua)) ||
-        (typeof window.AndroidBridge !== 'undefined') ||
-        (/Version\/[\d.]+.*Chrome/.test(ua) && /; wv\)/.test(ua)) ||
-        (/FBAN|FBAV|Instagram|Line/.test(ua))
-    );
-}
+        <header class="top-bar">
+            <button class="menu-btn" id="menu-btn" aria-label="Abrir menú">
+                <svg viewBox="0 0 24 24" width="28" height="28">
+                    <line x1="3" y1="6"  x2="21" y2="6"  stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
+                    <line x1="3" y1="12" x2="21" y2="12" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
+                    <line x1="3" y1="18" x2="21" y2="18" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
+                </svg>
+            </button>
 
-const authGate      = document.getElementById('auth-gate');
-const authBtn       = document.getElementById('auth-google-btn');
-const authErrorEl   = document.getElementById('auth-gate-error');
-const appContainer  = document.querySelector('.app-container');
+            <div class="header-logo">
+                <img src="https://cdn.pixabay.com/animation/2023/02/21/12/15/12-15-04-910_512.gif"
+                     alt="kerimmusic" loading="lazy">
+            </div>
 
-function showAuthGate() {
-    if (authGate) { authGate.classList.remove('hidden'); authGate.setAttribute('aria-hidden', 'false'); }
-    // ✅ CORRECCIÓN: Ya NO bloqueamos el app-container ni el scroll del body.
-    //    Solo mostramos la pantalla de login por encima.
-    //    El bloqueo visual lo hace el propio overlay fixed.
-}
-function hideAuthGate() {
-    if (authGate) { authGate.classList.add('hidden'); authGate.setAttribute('aria-hidden', 'true'); }
-    if (appContainer) appContainer.classList.remove('auth-locked');
-    document.body.style.overflow = '';
-}
-function setAuthError(msg) { if (authErrorEl) authErrorEl.textContent = msg || ''; }
+            <div class="header-actions">
+                <button class="heart-search-btn" id="heart-search-btn" aria-label="Buscar Beat">
+                    <svg viewBox="0 0 24 24" width="32" height="32" fill="#ff2a2a">
+                        <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                    </svg>
+                </button>
 
-showAuthGate();
+                <button class="share-btn" id="share-btn" aria-label="Compartir">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="18" cy="5"  r="3" fill="#ffffff" stroke="none"/>
+                        <circle cx="6"  cy="12" r="3" fill="#ffffff" stroke="none"/>
+                        <circle cx="18" cy="19" r="3" fill="#ffffff" stroke="none"/>
+                        <line x1="8.59"  y1="13.51" x2="15.42" y2="17.49"/>
+                        <line x1="15.41" y1="6.51"  x2="8.59"  y2="10.49"/>
+                    </svg>
+                </button>
+            </div>
+        </header>
 
-auth.getRedirectResult()
-    .then((result) => { if (result && result.user) console.log('✅ Vuelto de redirect:', result.user.email); })
-    .catch((err) => {
-        console.error('Error en getRedirectResult:', err);
-        if (err && err.code) {
-            let msg = 'Error al iniciar sesión con Google.';
-            if (err.code === 'auth/unauthorized-domain') msg = 'Dominio no autorizado en Firebase.';
-            else if (err.code === 'auth/network-request-failed') msg = 'Sin conexión. Revisa tu internet.';
-            else if (err.code === 'auth/operation-not-allowed') msg = 'Google no está habilitado en Firebase.';
-            setAuthError(msg);
-        }
-    });
+        <div class="submenu-overlay" id="submenu-overlay"></div>
+        <nav class="submenu" id="submenu" aria-hidden="true">
+            <div class="submenu-header">
+                <span class="submenu-title">MENÚ</span>
+                <button class="close-submenu" id="close-submenu" aria-label="Cerrar menú">&times;</button>
+            </div>
 
-auth.onAuthStateChanged(async (user) => {
-    if (user) {
-        window.__currentUser = user;
-        console.log('✅ Sesión iniciada:', user.email, '| UID:', user.uid);
-        hideAuthGate();
+            <div class="submenu-user-section">
+                <span class="submenu-user-name" id="submenu-user-name">Cargando usuario...</span>
+                <span class="submenu-user-sub" id="submenu-user-sub">Perfil de usuario</span>
+            </div>
 
-        const userNameEl = document.getElementById('submenu-user-name');
-        const userSubEl  = document.getElementById('submenu-user-sub');
+            <ul class="submenu-list">
+                <li><a href="#" id="mi-playlist-link" class="submenu-link" type="button">Mi Playlist</a></li>
+                <li><a href="#" id="logout-link" class="submenu-link" type="button">Cerrar Sesion</a></li>
+            </ul>
+        </nav>
 
-        if (userNameEl) {
-            let displayName = user.displayName || user.email || user.uid;
-            let subText = user.email ? user.email : 'Perfil de usuario';
-            try {
-                const docRef = db.collection('historial_usuarios').doc(user.uid);
-                const docSnap = await docRef.get();
-                if (docSnap.exists) {
-                    const data = docSnap.data();
-                    if (data.nombre) displayName = data.nombre;
-                    else if (data.name) displayName = data.name;
-                    else if (data.displayName) displayName = data.displayName;
-                    if (data.rol) subText = data.rol;
-                }
-            } catch (e) { console.warn('No se pudo obtener el nombre desde Firestore:', e); }
-            userNameEl.textContent = displayName;
-            if (userSubEl) userSubEl.textContent = subText;
-        }
+        <div class="search-container" id="search-container">
+            <input type="text" class="search-input" id="search-input" placeholder="Buscar beat o artista...">
+        </div>
 
-        try {
-            const docRef = db.collection('historial_usuarios').doc(user.uid);
-            const docSnap = await docRef.get();
-            const baseData = {
-                nombre: user.displayName || (user.email ? user.email.split('@')[0] : '') || 'Usuario',
-                email:  (user.email || '').toLowerCase(),
-                foto:   user.photoURL || ''
-            };
-            if (!docSnap.exists) {
-                await docRef.set(baseData, { merge: true });
-                console.log('🆕 Perfil de usuario creado en historial_usuarios');
-            } else {
-                const existing = docSnap.data() || {};
-                const update = {};
-                if (!existing.nombre && baseData.nombre) update.nombre = baseData.nombre;
-                if (!existing.email  && baseData.email)  update.email  = baseData.email;
-                if (!existing.foto   && baseData.foto)   update.foto   = baseData.foto;
-                if (Object.keys(update).length) {
-                    await docRef.set(update, { merge: true });
-                    console.log('🔄 Perfil de usuario sincronizado:', update);
-                }
-            }
-        } catch (e) { console.warn('No se pudo sincronizar nombre/email en Firestore:', e); }
+        <div class="playlist" id="playlist">
 
-        await cargarOyentesDeTodas();
-        if (typeof window.__cargarHistorialUsuario === 'function') {
-            await window.__cargarHistorialUsuario();
-            if (typeof window.__buildListenAgain === 'function') window.__buildListenAgain();
-        }
-        if (typeof window.__cargarPlaylistsUsuario === 'function') {
-            await window.__cargarPlaylistsUsuario();
-            if (typeof window.__buildListenAgain === 'function') window.__buildListenAgain();
-        }
-    } else {
-        window.__currentUser = null;
-        console.log('🔒 Sin sesión. App bloqueada.');
-        showAuthGate();
-        const userNameEl = document.getElementById('submenu-user-name');
-        const userSubEl  = document.getElementById('submenu-user-sub');
-        if (userNameEl) userNameEl.textContent = 'UID del usuario';
-        if (userSubEl) userSubEl.textContent = '(A qui va el nombre de usuario)';
-    }
-});
+            <div class="home-view" id="home-view">
 
-if (authBtn) {
-    authBtn.addEventListener('click', async () => {
-        setAuthError('');
-        authBtn.disabled = true;
-        const originalHTML = authBtn.innerHTML;
-        authBtn.innerHTML = '<span>Conectando…</span>';
-        try {
-            if (isWebView()) await auth.signInWithRedirect(googleProvider);
-            else             await auth.signInWithPopup(googleProvider);
-        } catch (err) {
-            console.error('Error al iniciar sesión:', err);
-            let msg = 'No se pudo iniciar sesión. Intenta de nuevo.';
-            if (err && err.code === 'auth/popup-closed-by-user')        msg = 'Cancelaste el inicio de sesión.';
-            else if (err && err.code === 'auth/popup-blocked')           msg = 'Permite las ventanas emergentes para iniciar sesión.';
-            else if (err && err.code === 'auth/network-request-failed')  msg = 'Sin conexión. Revisa tu internet.';
-            else if (err && err.code === 'auth/unauthorized-domain')     msg = 'Dominio no autorizado en Firebase.';
-            setAuthError(msg);
-        } finally {
-            authBtn.disabled = false;
-            authBtn.innerHTML = originalHTML;
-        }
-    });
-}
+                <section class="home-section" id="sec-artists">
+                    <h2 class="home-section-title">¿Qué artista quieres escuchar?</h2>
+                    <div class="home-carousel" id="carousel-artists"></div>
+                </section>
 
-/* ============================================================
-   0.2. SISTEMA DE OYENTES ÚNICOS
-   ============================================================ */
-const DIAS_VENTANA = 28;
-let oyentesCache = {};
+                <section class="home-section" id="sec-listen-again">
+                    <h2 class="home-section-title">Volver a escuchar</h2>
+                    <div class="home-carousel" id="carousel-listen-again"></div>
+                </section>
 
-function esNuevoOyente(nombreCancion, uid) {
-    const data = oyentesCache[nombreCancion] || {};
-    const fecha = data[uid];
-    if (!fecha) return true;
-    const diffDias = (Date.now() - fecha.getTime()) / (1000 * 60 * 60 * 24);
-    return diffDias >= DIAS_VENTANA;
-}
+                <section class="home-section" id="sec-maybe">
+                    <h2 class="home-section-title">A lo mejor te guste</h2>
+                    <div class="home-carousel" id="carousel-maybe"></div>
+                </section>
 
-function contarOyentes(nombreCancion) {
-    const data = oyentesCache[nombreCancion] || {};
-    const ahora = Date.now();
-    const limite = ahora - DIAS_VENTANA * 24 * 60 * 60 * 1000;
-    let count = 0;
-    for (const uid in data) {
-        const fecha = data[uid];
-        if (fecha && fecha.getTime() >= limite) count++;
-    }
-    return count;
-}
+                <section class="home-section" id="sec-top">
+                    <h2 class="home-section-title">Lo más escuchado</h2>
+                    <div class="home-carousel" id="carousel-top"></div>
+                </section>
 
-async function registrarOyente(nombreCancion) {
-    const user = firebase.auth().currentUser;
-    if (!user) return;
-    const uid = user.uid;
-    if (!oyentesCache[nombreCancion]) oyentesCache[nombreCancion] = {};
-    oyentesCache[nombreCancion][uid] = new Date();
-    const item = buscarItemPorTitulo(nombreCancion);
-    if (item) pintarReproducciones(item, contarOyentes(nombreCancion));
-    try {
-        const docRef = db.collection('oyentes_canciones').doc(nombreCancion);
-        const docSnap = await docRef.get();
-        if (docSnap.exists) {
-            await docRef.update({ [`oyentes.${uid}`]: firebase.firestore.FieldValue.serverTimestamp() });
-        } else {
-            await docRef.set({ oyentes: { [uid]: firebase.firestore.FieldValue.serverTimestamp() } });
-        }
-    } catch (e) { console.error('Error al registrar oyente:', e); }
-}
+                <section class="home-section" id="sec-albums">
+                    <h2 class="home-section-title">Álbunes de artistas</h2>
+                    <div class="home-carousel" id="carousel-albums"></div>
+                </section>
 
-async function cargarOyentesCancion(nombreCancion) {
-    try {
-        const docRef = db.collection('oyentes_canciones').doc(nombreCancion);
-        const docSnap = await docRef.get();
-        if (docSnap.exists) {
-            const data = docSnap.data();
-            const oyentes = data.oyentes || {};
-            oyentesCache[nombreCancion] = {};
-            for (const uid in oyentes) {
-                const fecha = oyentes[uid];
-                if (fecha && typeof fecha.toDate === 'function') oyentesCache[nombreCancion][uid] = fecha.toDate();
-            }
-        } else { oyentesCache[nombreCancion] = {}; }
-    } catch (e) { oyentesCache[nombreCancion] = {}; }
-}
+                <section class="home-section" id="sec-shared" style="display:none;">
+                    <h2 class="home-section-title">Playlists compartidas contigo</h2>
+                    <div class="home-carousel" id="carousel-shared"></div>
+                </section>
 
-async function cargarOyentesDeTodas() {
-    const items = document.querySelectorAll('.playlist-item');
-    const promesas = [];
-    items.forEach(item => {
-        const titulo = item.querySelector('.item-title')?.textContent.trim() || '';
-        if (!titulo) return;
-        promesas.push(cargarOyentesCancion(titulo).then(() => {
-            pintarReproducciones(item, contarOyentes(titulo));
-        }));
-    });
-    await Promise.all(promesas);
-    console.log('🔥 Oyentes cargados para todas las canciones');
-}
+                <div class="home-all-header">
+                    <h2 class="home-section-title home-section-title--all">Todas las canciones</h2>
+                    <button class="show-all-btn" id="show-all-btn" type="button">
+                        Mostrar todas las canciones
+                    </button>
+                </div>
+            </div>
 
-function buscarItemPorTitulo(titulo) {
-    const items = document.querySelectorAll('.playlist-item');
-    for (const item of items) {
-        const t = item.querySelector('.item-title')?.textContent.trim() || '';
-        if (t === titulo) return item;
-    }
-    return null;
-}
+            <!-- ==================== Barrio Bajo ==================== -->
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/1yohh9j4442pchcu7k03w/Master_Se-te-sube-la-Nota-Pri-Ramirez.wav?rlkey=94t60a2ae0hg1rt701l94w8ho&st=kjqj3eez&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/zi53xkbpy3ltgf1ztzd62/Se-te-sube-la-nota.png?rlkey=530efmntba6x9g07gra0qm8dr&st=0guanbwd&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Se te sube la nota Barrio Bajo</span>
+                    <span class="item-subtitle">Barrio Bajo · Rap</span>
+                </div>
+            </div>
 
-/* ============================================================
-   0.3. HISTORIAL DE REPRODUCCIONES POR USUARIO
-   ============================================================ */
-const MAX_HISTORIAL = 50;
-let historialCache = [];
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/qfa9thly2lqyybvxfsrid/Master_Dile-Prii-Ramirez-Ofical.wav?rlkey=lh54mvnmyykc5eb785rx9s0s9&st=66egt3hp&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/qker6uqxmojvnvuuzgzob/Dile.jpg?rlkey=76hsqmpzj3r4ctpexesyehok5&st=offbzalp&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Dile Barrio Bajo</span>
+                    <span class="item-subtitle">Barrio Bajo · Rap</span>
+                </div>
+            </div>
 
-async function cargarHistorialUsuario() {
-    const user = firebase.auth().currentUser;
-    if (!user) { historialCache = []; return; }
-    try {
-        const docRef = db.collection('historial_usuarios').doc(user.uid);
-        const docSnap = await docRef.get();
-        if (docSnap.exists) {
-            const data = docSnap.data();
-            const canciones = Array.isArray(data.canciones) ? data.canciones : [];
-            historialCache = canciones
-                .map(c => ({
-                    titulo: c.titulo,
-                    fecha: (c.fecha && typeof c.fecha.toDate === 'function') ? c.fecha.toDate() : new Date(0)
-                }))
-                .filter(c => c.titulo)
-                .sort((a, b) => b.fecha - a.fecha)
-                .slice(0, MAX_HISTORIAL);
-        } else { historialCache = []; }
-    } catch (e) { historialCache = []; }
-}
+            <!-- ==================== Escribo ==================== -->
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/dxhc72dtjjadyzrwupddg/Cosas-de-la-vida-Escribo.wav?rlkey=li3bvmvax97t2f4ion1oiffw8&st=cfc98dg2&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/cc8365qf2ie3rjdlkwp0f/Escribo.jpg?rlkey=je5mgu7vxre0psjxaent3a1zd&st=n7jovfyn&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Cosas de la vida Escribo</span>
+                    <span class="item-subtitle">Escribo</span>
+                </div>
+            </div>
 
-async function guardarEnHistorial(titulo) {
-    const user = firebase.auth().currentUser;
-    if (!user || !titulo) return;
-    historialCache = historialCache.filter(c => c.titulo !== titulo);
-    historialCache.unshift({ titulo, fecha: new Date() });
-    if (historialCache.length > MAX_HISTORIAL) historialCache.length = MAX_HISTORIAL;
-    if (typeof window.__buildListenAgain === 'function') window.__buildListenAgain();
-    try {
-        const docRef = db.collection('historial_usuarios').doc(user.uid);
-        const docSnap = await docRef.get();
-        const nuevasCanciones = historialCache.map(c => ({
-            titulo: c.titulo,
-            fecha: firebase.firestore.Timestamp.fromDate(c.fecha)
-        }));
-        if (docSnap.exists) await docRef.update({ canciones: nuevasCanciones });
-        else await docRef.set({ canciones: nuevasCanciones });
-    } catch (e) { console.warn('Error al guardar historial:', e); }
-}
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/xojiflo0c5ydogct9j40v/Escribo.wav?rlkey=wmpwws77lgru2oniwrak9vv8r&st=9qkmtzic&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/cc8365qf2ie3rjdlkwp0f/Escribo.jpg?rlkey=je5mgu7vxre0psjxaent3a1zd&st=n7jovfyn&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Escribo Escribo</span>
+                    <span class="item-subtitle">Escribo</span>
+                </div>
+            </div>
 
-window.__cargarHistorialUsuario = cargarHistorialUsuario;
-window.__guardarEnHistorial = guardarEnHistorial;
-window.__getHistorialCache = () => historialCache;
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/7ydiw8abe4r4fxfiiz5ij/Pensando-Escribo.wav?rlkey=elx3ydjh5rkfz2qcqekbgc9yp&st=19spg4k2&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/cc8365qf2ie3rjdlkwp0f/Escribo.jpg?rlkey=je5mgu7vxre0psjxaent3a1zd&st=n7jovfyn&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Pensando Escribo</span>
+                    <span class="item-subtitle">Escribo</span>
+                </div>
+            </div>
 
-/* ============================================================
-   0.4. SISTEMA DE PLAYLISTS "TU PLAYLIST"
-   ============================================================ */
-const MAX_CANCIONES_POR_PLAYLIST = 10;
-const MAX_COMPLETADAS = 300;
-let completadasCache = [];
-let playlistsExclusionsCache = {};
+            <!-- ==================== Dany Zm ==================== -->
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/g8ojpqgcavyfp2fgwn2wg/Dany_Zm_Tu-eres-mia-Ofical.wav?rlkey=xiowtehy8h6fq38maadjid4bq&st=3hz6dasg&raw=1">
+                <div class="thumbnail">
+                    <img src="https://i.postimg.cc/wMCFZY9H/Picsart-26-02-15-14-39-19-042.jpg" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Dile que tu eres mia Dany Zm</span>
+                    <span class="item-subtitle">Dany Zm · Rap</span>
+                </div>
+            </div>
 
-async function cargarPlaylistsUsuario() {
-    const user = firebase.auth().currentUser;
-    if (!user) { completadasCache = []; playlistsExclusionsCache = {}; return; }
-    try {
-        const docRef = db.collection('historial_usuarios').doc(user.uid);
-        const docSnap = await docRef.get();
-        if (docSnap.exists) {
-            const data = docSnap.data();
-            const completadas = Array.isArray(data.canciones_completadas) ? data.canciones_completadas : [];
-            completadasCache = completadas
-                .map(c => ({
-                    titulo: c.titulo || '',
-                    fecha: (c.fecha && typeof c.fecha.toDate === 'function') ? c.fecha.toDate() : new Date(0)
-                }))
-                .filter(c => c.titulo)
-                .slice(-MAX_COMPLETADAS);
-            playlistsExclusionsCache = (data.playlists_edits && typeof data.playlists_edits === 'object')
-                ? data.playlists_edits : {};
-        } else {
-            completadasCache = [];
-            playlistsExclusionsCache = {};
-        }
-    } catch (e) {
-        completadasCache = [];
-        playlistsExclusionsCache = {};
-    }
-}
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/lbohzzgaf7xnw1v7o3ec9/ay-estare-2-dany-zm.mp3?rlkey=41qeo3w154ctk8gvlzl2aa0v1&st=ybnb2zya&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/xg2e8wg59t1tos2dhn5ji/img.png?rlkey=zl56z2a68tu96n0nxycrz485f&st=79kjdiww&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Hay estare Dany Zm</span>
+                    <span class="item-subtitle">Dany Zm · Rap</span>
+                    <span class="Album">Construyendo el barco</span>
+                </div>
+            </div>
 
-async function guardarCompletadasEnHistorial() {
-    const user = firebase.auth().currentUser;
-    if (!user) return;
-    try {
-        const docRef = db.collection('historial_usuarios').doc(user.uid);
-        const docSnap = await docRef.get();
-        const dataToSave = {
-            canciones_completadas: completadasCache.map(c => ({
-                titulo: c.titulo,
-                fecha: firebase.firestore.Timestamp.fromDate(c.fecha)
-            }))
-        };
-        if (docSnap.exists) await docRef.update(dataToSave);
-        else await docRef.set(dataToSave);
-    } catch (e) { console.warn('Error al guardar completadas:', e); }
-}
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/rq7dnfuqaywgjdo6dp9de/1-Modo-avion-Dany-Zm-El-rencuentro..flac?rlkey=xfv7h1xurdroh0ct3xu71ge9m&st=v1bfhinm&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/xg2e8wg59t1tos2dhn5ji/img.png?rlkey=zl56z2a68tu96n0nxycrz485f&st=79kjdiww&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Modo avion Dany Zm</span>
+                    <span class="item-subtitle">Dany Zm · Rap</span>
+                    <span class="Album">Construyendo el barco</span>
+                </div>
+            </div>
 
-async function guardarEnPlaylist(titulo) {
-    const user = firebase.auth().currentUser;
-    if (!user || !titulo) return;
-    completadasCache = completadasCache.filter(c => c.titulo !== titulo);
-    completadasCache.push({ titulo, fecha: new Date() });
-    if (completadasCache.length > MAX_COMPLETADAS) completadasCache = completadasCache.slice(-MAX_COMPLETADAS);
-    await guardarCompletadasEnHistorial();
-    if (typeof window.__buildListenAgain === 'function') window.__buildListenAgain();
-}
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/ctedqktecjqbqvd2t5uct/bailado-3-dany-zm.mp3?rlkey=l1zrwqrevorjbxjq3u7gi4k3t&st=3kh4wkgz&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/xg2e8wg59t1tos2dhn5ji/img.png?rlkey=zl56z2a68tu96n0nxycrz485f&st=79kjdiww&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Bailalo Dany Zm</span>
+                    <span class="item-subtitle">Dany Zm · Rap</span>
+                    <span class="Album">Construyendo el barco</span>
+                </div>
+            </div>
 
-function computePlaylistsFromCompletadas() {
-    const playlists = [];
-    const total = completadasCache.length;
-    for (let i = 0; i < total; i += MAX_CANCIONES_POR_PLAYLIST) {
-        const chunk = completadasCache.slice(i, i + MAX_CANCIONES_POR_PLAYLIST);
-        if (!chunk.length) continue;
-        const idx = Math.floor(i / MAX_CANCIONES_POR_PLAYLIST) + 1;
-        const plId = 'pl_' + idx;
-        const exclusions = playlistsExclusionsCache[plId] || {};
-        const excluidas = Array.isArray(exclusions.excluidas) ? exclusions.excluidas : [];
-        const cancionesFiltradas = chunk.filter(c => !excluidas.includes(c.titulo));
-        if (!cancionesFiltradas.length) continue;
-        playlists.push({
-            id: plId,
-            nombre: 'Tu Playlist #' + idx,
-            fecha: chunk[0].fecha,
-            canciones: cancionesFiltradas,
-            isOwner: true
-        });
-    }
-    return playlists;
-}
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/v4remtzyol50e00rvhpen/beyby-4dany-zm.mp3?rlkey=y803hhbgxghxrlgsvpe9w16i9&st=p6m3gs7z&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/xg2e8wg59t1tos2dhn5ji/img.png?rlkey=zl56z2a68tu96n0nxycrz485f&st=79kjdiww&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Beyby Dany Zm</span>
+                    <span class="item-subtitle">Dany Zm · Rap</span>
+                    <span class="Album">Construyendo el barco</span>
+                </div>
+            </div>
 
-window.__cargarPlaylistsUsuario = cargarPlaylistsUsuario;
-window.__guardarEnPlaylist     = guardarEnPlaylist;
-window.__getPlaylistsCache     = computePlaylistsFromCompletadas;
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/l4d8dvoahieq4yqf536ol/CORITO-SANO-DANY-ZM-VA-YEZKOR-CRUZ-SAIN-NT-VERSION-T.E.C.mp3?rlkey=wsj8578k3e14hqr74npb3krjb&st=pdov6vmy&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/xg2e8wg59t1tos2dhn5ji/img.png?rlkey=zl56z2a68tu96n0nxycrz485f&st=79kjdiww&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Corito sano Dany Zm ft va ft Yerzkor cruz ft Sain Nt</span>
+                    <span class="item-subtitle">Dany Zm · Rap</span>
+                    <span class="Album">Construyendo el barco</span>
+                </div>
+            </div>
 
-window.__guardarEdicionPlaylist = async function (playlist, excluidas) {
-    const user = firebase.auth().currentUser;
-    if (!user || !playlist || !Array.isArray(excluidas)) return;
-    if (!playlistsExclusionsCache[playlist.id]) playlistsExclusionsCache[playlist.id] = {};
-    const previas = Array.isArray(playlistsExclusionsCache[playlist.id].excluidas)
-        ? playlistsExclusionsCache[playlist.id].excluidas : [];
-    playlistsExclusionsCache[playlist.id].excluidas = Array.from(new Set([...previas, ...excluidas]));
-    try {
-        const docRef = db.collection('historial_usuarios').doc(user.uid);
-        await docRef.set({ playlists_edits: playlistsExclusionsCache }, { merge: true });
-    } catch (e) { throw e; }
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/han7yoy13ncejnz4exj3r/dalex-especial-cover-dany-zm.mp3?rlkey=8pchaqdtz2iq854i8zrhxfriw&st=var5yqcp&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/xg2e8wg59t1tos2dhn5ji/img.png?rlkey=zl56z2a68tu96n0nxycrz485f&st=79kjdiww&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Especial Dany Zm</span>
+                    <span class="item-subtitle">Dany Zm · Rap</span>
+                    <span class="Album">Construyendo el barco</span>
+                </div>
+            </div>
 
-    try {
-        const cancionesFiltradas = playlist.canciones.filter(c => !excluidas.includes(c.titulo));
-        const plRoot = document.getElementById('playlist');
-        function findItem(titulo) {
-            if (!plRoot) return null;
-            const n = String(titulo || '').toLowerCase().trim();
-            if (!n) return null;
-            for (const it of plRoot.querySelectorAll('.playlist-item')) {
-                const t = (it.querySelector('.item-title')?.textContent || '').trim().toLowerCase();
-                if (t === n) return it;
-            }
-            return null;
-        }
-        const cancionesSync = cancionesFiltradas.map(c => {
-            const it = findItem(c.titulo);
-            return {
-                titulo: c.titulo,
-                portada: (it && it.querySelector('.thumbnail img')?.src) || c.portada || '',
-                subtitulo: (it && it.querySelector('.item-subtitle')?.textContent.trim()) || c.subtitulo || ''
-            };
-        });
-        let portada = '';
-        for (const c of cancionesSync) { if (c.portada) { portada = c.portada; break; } }
-        const snap = await db.collection('playlists_compartidas')
-            .where('de', '==', user.uid)
-            .where('playlistId', '==', playlist.id)
-            .get();
-        if (!snap.empty) {
-            await Promise.all(snap.docs.map(d => d.ref.update({ canciones: cancionesSync, portada })));
-        }
-    } catch (e) { console.warn('Error sincronizando compartidas:', e); }
-};
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/ees3i5mgfc50lwtg59hgw/Dany-Zm-Tu-tiempo-se-acavo.mp3?rlkey=kijhvu3rsv6j3zri6dh20wowf&st=3k6i51wu&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/xg2e8wg59t1tos2dhn5ji/img.png?rlkey=zl56z2a68tu96n0nxycrz485f&st=79kjdiww&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Tu tiempo se acabo Dany Zm</span>
+                    <span class="item-subtitle">Dany Zm · Rap</span>
+                    <span class="Album">Construyendo el barco</span>
+                </div>
+            </div>
 
-/* ============================================================
-   1. DATOS GLOBALES Y UTILIDADES
-   ============================================================ */
-let firebaseDocsCache = [];
-window.__showAllSongs = false;
-window.__omegaShuffleOn = true;
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/7qvtyhs6smsgnu56z9ch7/en-gano-6-dany-zm.mp3?rlkey=lzu6kbgqicirph9sp4ndhyq90&st=gu0hpw1p&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/xg2e8wg59t1tos2dhn5ji/img.png?rlkey=zl56z2a68tu96n0nxycrz485f&st=79kjdiww&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Engaño Dany Zm</span>
+                    <span class="item-subtitle">Dany Zm · Rap</span>
+                    <span class="Album">Construyendo el barco</span>
+                </div>
+            </div>
 
-function normalizeStr(str) {
-    return String(str || '')
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-z0-9]/g, '');
-}
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/6588ikrqstte1wzjkreja/hasta-cuando-1-dany-zm.mp3?rlkey=uqpq1cpmnj1e5pnd5ndxwpb47&st=tgxuj89m&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/xg2e8wg59t1tos2dhn5ji/img.png?rlkey=zl56z2a68tu96n0nxycrz485f&st=79kjdiww&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Hasta cuando Dany Zm</span>
+                    <span class="item-subtitle">Dany Zm · Rap</span>
+                    <span class="Album">Construyendo el barco</span>
+                </div>
+            </div>
 
-function findFirebaseDoc(songTitle) {
-    if (!songTitle || !firebaseDocsCache.length) return null;
-    const nTitle = normalizeStr(songTitle);
-    if (!nTitle) return null;
-    for (const doc of firebaseDocsCache) if (normalizeStr(doc.id) === nTitle) return doc;
-    for (const doc of firebaseDocsCache) {
-        const nId = normalizeStr(doc.id);
-        if (nId && (nId.includes(nTitle) || nTitle.includes(nId))) return doc;
-    }
-    const prefix = nTitle.substring(0, Math.min(nTitle.length, 6));
-    if (prefix.length >= 4) {
-        for (const doc of firebaseDocsCache) if (normalizeStr(doc.id).startsWith(prefix)) return doc;
-    }
-    return null;
-}
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/fo85o8m1etbo68m9a46xq/lluvia-8-dany-zm.mp3?rlkey=ywh0y4ezduhd3q7bjvh5orki1&st=n3ykoz9q&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/xg2e8wg59t1tos2dhn5ji/img.png?rlkey=zl56z2a68tu96n0nxycrz485f&st=79kjdiww&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Lluvia Dany Zm</span>
+                    <span class="item-subtitle">Dany Zm · Rap</span>
+                    <span class="Album">Construyendo el barco</span>
+                </div>
+            </div>
 
-async function cargarDocsDeFirebase() {
-    try {
-        const snap = await db.collection('Radio_Muisc').get();
-        firebaseDocsCache = snap.docs.map(d => ({ id: d.id, ref: d.ref, data: d.data() || {} }));
-    } catch (e) { console.warn('⚠️ No se pudieron cargar docs:', e); }
-}
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/ybuowdfnam5frrjksy570/me-dejo-solo-5-dany-zm.mp3?rlkey=9oiwuxep5v6se4r7af6qlwhb2&st=zbzpdjp2&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/xg2e8wg59t1tos2dhn5ji/img.png?rlkey=zl56z2a68tu96n0nxycrz485f&st=79kjdiww&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Me dejo solo Dany Zm</span>
+                    <span class="item-subtitle">Dany Zm · Rap</span>
+                    <span class="Album">Construyendo el barco</span>
+                </div>
+            </div>
 
-function pintarReproducciones(item, count) {
-    if (!item) return;
-    const info = item.querySelector('.item-info');
-    if (!info) return;
-    let badge = info.querySelector('.item-plays');
-    if (!badge) {
-        badge = document.createElement('span');
-        badge.className = 'item-plays';
-        info.appendChild(badge);
-    }
-    badge.textContent = `👥 ${count} oyente${count === 1 ? '' : 's'}`;
-}
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/xmca1v67r0foa02ah0ix5/nuestro-cuento-7-dany-zm.mp3?rlkey=4wdtldt4ch8usesgbsqdkl0o1&st=4xdrusp8&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/xg2e8wg59t1tos2dhn5ji/img.png?rlkey=zl56z2a68tu96n0nxycrz485f&st=79kjdiww&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Nuestro cuento Dany Zm</span>
+                    <span class="item-subtitle">Dany Zm · Rap</span>
+                    <span class="Album">Construyendo el barco</span>
+                </div>
+            </div>
 
-window.__artistFilter = null;
-window.__artistFilterName = '';
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/5dlej4wkll16uxyz3knwf/vuelve-9-dany-zm.mp3?rlkey=1mw4i576qw1q6xn4wofshg3gz&st=tbpp90qm&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/xg2e8wg59t1tos2dhn5ji/img.png?rlkey=zl56z2a68tu96n0nxycrz485f&st=79kjdiww&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Vuelve Dany Zm</span>
+                    <span class="item-subtitle">Dany Zm · Rap</span>
+                    <span class="Album">Construyendo el barco</span>
+                </div>
+            </div>
 
-function clearArtistFilter() {
-    window.__artistFilter = null;
-    window.__artistFilterName = '';
-    document.dispatchEvent(new CustomEvent('omega:artistmode', { detail: { active: false } }));
-}
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/pw73qa4qv84nnxh1t8qez/Te-estra-o-La-S-Y-D.flac?rlkey=8soehefmsezdpm3rjzxvkazbh&st=x0hjaq9k&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/10taifx84l0e4h2y9l2nx/Te-estra-o-tanto.png?rlkey=kp4gp2kp8rhbzsdobyl5tfng6&st=vrnzzymz&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Te extraño tanto Dany Zm</span>
+                    <span class="item-subtitle">Dany Zm ft Sain Nt · Rap</span>
+                </div>
+            </div>
 
-function setArtistFilter(items, name) {
-    if (!items || !items.length) return;
-    window.__artistFilter = items.slice();
-    window.__artistFilterName = name || '';
-    document.dispatchEvent(new CustomEvent('omega:artistmode', { detail: { active: true, name: name || '' } }));
-}
+            <!-- ==================== El placoso de la L ==================== -->
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/u81ryisgb72g89ya0md8l/No-Te-Importo-EPDL.wav?rlkey=le8nk4ap3uzoo7uv8yn4yig46&st=ksvr1ckd&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/otojz7yc0de3xqyb9t6yh/783588703_1047085541468353_6915517615099943137_n.jpg?rlkey=paxdkveuyztjmzbusfupn7sge&st=xx7xwgzw&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">No Te Importo EPDL</span>
+                    <span class="item-subtitle">El placoso de la L · Rap</span>
+                    <span class="Album">Lo que me todo vivir</span>
+                </div>
+            </div>
 
-/* ============================================================
-   2. ANUNCIOS
-   ============================================================ */
-const ADS = [
-  { id: 'ad9', url: 'https://www.dropbox.com/scl/fi/l41bs2ooxh6ccnewgnvd1/1785466259517.png?rlkey=czf0bcn58v0irh5qdfeg9tnef&st=pbd0d7v5&raw=1', title: 'Anuncio 9', category: 'ANUNCIO', music: 'https://www.dropbox.com/scl/fi/9tsc6vvge3ukcao3w8hiy/elimina-basura-spotyfi.mp3?rlkey=pogumn7wjmhepbtocb16km25w&st=3oh3m9tu&raw=1', isAd: true },
-  { id: 'ad8', url: 'https://www.dropbox.com/scl/fi/zstw4ykjmjh3ljzejuwk5/Anuncio.png?rlkey=pumuamhvcw40nas5biyyrizvo&st=ku13lu66&raw=1', title: 'Anuncio 8', category: 'ANUNCIO', music: 'https://www.dropbox.com/scl/fi/63czt3npjdkz54trajxdf/Presentacion-de-isco-Dany-Zm.wav?rlkey=q7caesruijhiuiil7map3oecn&st=326tvf8c&raw=1', isAd: true },
-  { id: 'ad7', url: 'https://www.dropbox.com/scl/fi/zstw4ykjmjh3ljzejuwk5/Anuncio.png?rlkey=pumuamhvcw40nas5biyyrizvo&st=ku13lu66&raw=1', title: 'Anuncio 7', category: 'ANUNCIO', music: 'https://www.dropbox.com/scl/fi/ymz00x4bk0arik8vapgnd/11-de-abril-de-2026.mp3?rlkey=hafgkwkgt6tgyrryodqz2c6fy&st=p5vsj82t&raw=1', isAd: true },
-  { id: 'ad6b', url: 'https://www.dropbox.com/scl/fi/7myjpayd9cocf2of9srrj/Cris-Znchez.jpg?rlkey=eqarykexb089abzkacqgbarsl&st=l7cxp9cf&raw=1', title: 'Anuncio Cris', category: 'ANUNCIO', music: 'https://www.dropbox.com/scl/fi/w8ynapsg34o119wnye6el/Auncio-cris-sanches_.mp3?rlkey=pr73mrdydh12tzu1jyreb4pqo&st=u5ewfxwg&raw=1', isAd: true },
-  { id: 'ad1', url: 'https://www.dropbox.com/scl/fi/zstw4ykjmjh3ljzejuwk5/Anuncio.png?rlkey=pumuamhvcw40nas5biyyrizvo&st=ku13lu66&raw=1', title: 'Anuncio 1', category: 'ANUNCIO', music: 'https://www.dropbox.com/scl/fi/z3fbqqzthhvvqt9275lc7/2-tema-grabados_1783188240865.mp3?rlkey=7v6ha18uxps052z43rty0d5jr&st=sam7gv97&raw=1', isAd: true },
-  { id: 'ad2', url: 'https://www.dropbox.com/scl/fi/zstw4ykjmjh3ljzejuwk5/Anuncio.png?rlkey=pumuamhvcw40nas5biyyrizvo&st=ku13lu66&raw=1', title: 'Anuncio 2', category: 'ANUNCIO', music: 'https://www.dropbox.com/scl/fi/xgl19r2bd49n5cdup93f4/Escucha-sin-anusios_1783188103278.mp3?rlkey=00usrx9c68td9pkqw6o2x1qct&st=4ck7wlz8&raw=1', isAd: true },
-  { id: 'ad3', url: '', title: 'Anuncio 3', category: 'ANUNCIO', music: '', video: 'https://www.dropbox.com/scl/fi/5hvqucrjyjotpjge1wpei/AQPEGQdoqPKVT4eHsCxScmq2Pgjwlze7l6aPYix_phWROLbabx1WiKmXH3GA8eDVa8AyecSArdrF9I_wbvUT5XaZ9cJVWSAHpGXci6nOD_T-Eg.mp4?rlkey=29tg1m9o3zgvlrgz1bskg7dzj&st=pmeqma9m&raw=1', isAd: true },
-  { id: 'ad6', url: '', title: 'Anuncio 6', category: 'ANUNCIO', music: '', video: 'https://www.dropbox.com/scl/fi/n4nhc00dzenwsoj0t0mud/El-placoso-de-la-L.mp4?rlkey=tde69aczhy3rhxit16xyu3ewx&st=sf47qwl2&raw=1', isAd: true },
-  { id: 'ad4', url: 'https://www.dropbox.com/scl/fi/zstw4ykjmjh3ljzejuwk5/Anuncio.png?rlkey=pumuamhvcw40nas5biyyrizvo&st=ku13lu66&raw=1', title: 'Anuncio 4', category: 'ANUNCIO', music: 'https://www.dropbox.com/scl/fi/vl4d6mwau9frvxmjm6wwn/Baner.mp3?rlkey=z8jezojlzlyt0i3qp16jrvid9&st=tdb7ne0h&raw=1', isAd: true }
-];
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/xqbo86t3l06pc3xiaekwg/Una-Estrella-M-s-EPDL.wav?rlkey=2dbgpfeogsbwtci26frbvau7p&st=yj9504uy&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/otojz7yc0de3xqyb9t6yh/783588703_1047085541468353_6915517615099943137_n.jpg?rlkey=paxdkveuyztjmzbusfupn7sge&st=xx7xwgzw&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Una Estrella Más EPDL</span>
+                    <span class="item-subtitle">El placoso de la L · Rap</span>
+                    <span class="Album">Lo que me todo vivir</span>
+                </div>
+            </div>
 
-/* ============================================================
-   3. REPRODUCTOR PRINCIPAL
-   ============================================================ */
-document.addEventListener('DOMContentLoaded', () => {
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/zmcybg4pe5jdot0nlj1hw/Quemen-El-Toque-EPDL.wav?rlkey=8ea9fwhcc8ydxdpv0cj5v0xvx&st=584gqe3m&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/otojz7yc0de3xqyb9t6yh/783588703_1047085541468353_6915517615099943137_n.jpg?rlkey=paxdkveuyztjmzbusfupn7sge&st=xx7xwgzw&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Quemen El Toque EPDL</span>
+                    <span class="item-subtitle">El placoso de la L · Rap</span>
+                    <span class="Album">Lo que me todo vivir</span>
+                </div>
+            </div>
 
-    const playButton     = document.getElementById('play-button');
-    const playIcon       = document.getElementById('play-icon');
-    const audioPlayer    = document.getElementById('audio-player');
-    const progressBar    = document.getElementById('progress-bar');
-    const currentTimeEl  = document.getElementById('current-time');
-    const durationEl     = document.getElementById('duration');
-    const playerTitle    = document.getElementById('player-title');
-    const playerCover    = document.getElementById('player-cover');
-    const player         = document.getElementById('player');
-    const playlist       = document.getElementById('playlist');
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/rr0m9gvd0wpdhcvrsjvh8/Mi-Viejo-Me-Dijo-EPDL.wav?rlkey=4lx2qb0thgoxcum0t6z1ud7yh&st=wdn7so5r&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/otojz7yc0de3xqyb9t6yh/783588703_1047085541468353_6915517615099943137_n.jpg?rlkey=paxdkveuyztjmzbusfupn7sge&st=xx7xwgzw&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Mi Viejo Me Dijo EPDL</span>
+                    <span class="item-subtitle">El placoso de la L · Rap</span>
+                    <span class="Album">Lo que me todo vivir</span>
+                </div>
+            </div>
 
-    if (!audioPlayer || !playlist) return;
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/addl4wsvy6ez49r30pwwz/Master_L-Klan-Oficial-Loco-Video-Oficial.wav?rlkey=ptxn39acppgeekjfg6x9qtmi3&st=62dp1u6y&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/otojz7yc0de3xqyb9t6yh/783588703_1047085541468353_6915517615099943137_n.jpg?rlkey=paxdkveuyztjmzbusfupn7sge&st=xx7xwgzw&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">LOCO EPDL</span>
+                    <span class="item-subtitle">El placoso de la L · Rap</span>
+                    <span class="Album">Lo que me todo vivir</span>
+                </div>
+            </div>
 
-    let currentItem = null;
-    let isSkipping  = false;
+            <!-- ==================== Aizber ==================== -->
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/0y977tgyjp66og2ze36uh/SIgoVivoIazberMp3.wav?rlkey=6vdswfh8f3wtqa66seeugc480&st=rj9g6llz&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/9xqi6k1g5cnbior62dh0l/800x800-7986476-B8AD12F4-560F-4E85-8EE3DD6C45025D0E-0-565367-Picsart260207195632530.jpg?rlkey=zjttay9r0myk8r0h1x2074pnj&st=rqbn5ts8&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Sigo Vivo Aicber</span>
+                    <span class="item-subtitle">Aicber · Rap</span>
+                </div>
+            </div>
 
-    const ICON_PLAY  = '<polygon points="5,3 19,12 5,21" fill="#ffffff" />';
-    const ICON_PAUSE = '<rect x="6" y="4" width="4" height="16" fill="#ffffff" />' +
-                       '<rect x="14" y="4" width="4" height="16" fill="#ffffff" />';
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/bozqu6d4xdeydcx7dl03i/Recuedos-Aizber-Kerim-Music.mp3?rlkey=t8npubztez45kt79vbt3fidst&st=dbx2f1a4&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/kk1f1fdpsgx7noxb5lly9/800x800-7986476-70C18BD7-1A24-4B1E-9D524972181DB7D1-0-663215-FBIMG17490012695773000x3000.jpg?rlkey=0exgl54ffel1k27ncua1j7kd2&st=xwg464eg&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Recuerdos Aicber</span>
+                    <span class="item-subtitle">Aicber · Rap</span>
+                </div>
+            </div>
 
-    function haptic(ms) {
-        if (navigator.vibrate) { try { navigator.vibrate(ms || 12); } catch (_) {} }
-    }
+            <!-- ==================== Emsek ==================== -->
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/thmc7o0uftl3hhvig4lc6/Entre_tus_Redes_-msek__HM___462__Casero_Records_MP3_256kbps_128k.mp3?rlkey=6raowpgc6b5j5a0h21qyo6p34&st=5jws1foy&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/hu6726a9yx9z9c5w2ns0w/Emsek.jpg?rlkey=llo70vmyjg4u9jfhnq6g9tvr8&st=dqvk5v66&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Entre tus redes Esmek</span>
+                    <span class="item-subtitle">Emsek · Rap</span>
+                    <span class="Album">Volumen 1</span>
+                </div>
+            </div>
 
-    function attachRipple(el, options) {
-        if (!el || el.dataset.rippleReady === '1') return;
-        el.dataset.rippleReady = '1';
-        if (getComputedStyle(el).position === 'static') el.style.position = 'relative';
-        el.classList.add('ripple-host');
-        el.addEventListener('pointerdown', (e) => {
-            const rect = el.getBoundingClientRect();
-            const size = Math.max(rect.width, rect.height);
-            const x = (e.clientX || rect.left + rect.width / 2) - rect.left;
-            const y = (e.clientY || rect.top + rect.height / 2) - rect.top;
-            const ripple = document.createElement('span');
-            ripple.className = 'ripple';
-            ripple.style.width = ripple.style.height = size + 'px';
-            ripple.style.left = (x - size / 2) + 'px';
-            ripple.style.top  = (y - size / 2) + 'px';
-            el.appendChild(ripple);
-            ripple.addEventListener('animationend', () => ripple.remove());
-        });
-        el.addEventListener('pointerdown', () => haptic(options && options.haptic), { passive: true });
-    }
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/jk2c7g0fixoaqv5e5ajri/El-fin-de-hiastoria-EMSEK.wav?rlkey=kxgq808oded0cdhcd6woh3tdz&st=vkmutc4j&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/hu6726a9yx9z9c5w2ns0w/Emsek.jpg?rlkey=llo70vmyjg4u9jfhnq6g9tvr8&st=dqvk5v66&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">El fin de la historia Esmek</span>
+                    <span class="item-subtitle">Emsek · Rap</span>
+                    <span class="Album">Volumen 1</span>
+                </div>
+            </div>
 
-    ['.menu-btn', '.heart-search-btn', '.share-btn', '.close-submenu', '.submenu-link', '.play-button'].forEach(selector => {
-        document.querySelectorAll(selector).forEach(el => attachRipple(el));
-    });
-    document.querySelectorAll('.playlist-item').forEach(el => {
-        attachRipple(el, { haptic: 0 });
-        el.style.setProperty('--ripple-color', 'rgba(255, 255, 255, 0.10)');
-    });
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/veoiwn4fh0ikcb6rqn39y/Emsek-len-busca-de-labictoria.wav?rlkey=40y7btf8uvd4bxxpk4uaogiwv&st=fhihmz7c&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/hu6726a9yx9z9c5w2ns0w/Emsek.jpg?rlkey=llo70vmyjg4u9jfhnq6g9tvr8&st=dqvk5v66&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">En busca de la victoria Esmek</span>
+                    <span class="item-subtitle">Emsek · Rap</span>
+                    <span class="Album">Volumen 1</span>
+                </div>
+            </div>
 
-    function formatTime(seconds) {
-        if (!isFinite(seconds) || seconds < 0) return '0:00';
-        const minutes = Math.floor(seconds / 60);
-        const secs = Math.floor(seconds % 60);
-        return `${minutes}:${secs < 10 ? '0' : ''}${secs}`;
-    }
-    function updateProgress(percent) {
-        if (!progressBar) return;
-        const value = Math.min(100, Math.max(0, percent));
-        progressBar.style.setProperty('--progress', `${value}%`);
-        progressBar.setAttribute('aria-valuenow', Math.round(value));
-    }
-    function updateIcon(playing) {
-        if (!playIcon || !playButton) return;
-        playIcon.innerHTML = playing ? ICON_PAUSE : ICON_PLAY;
-        playIcon.style.marginLeft = playing ? '0' : '3px';
-        playButton.setAttribute('aria-label', playing ? 'Pausar' : 'Reproducir');
-    }
-    function getAllItems() { return Array.from(playlist.querySelectorAll('.playlist-item')); }
-    function isShuffleOn() { return window.__omegaShuffleOn !== false; }
-    function getItemTitle(item) {
-        if (!item) return '';
-        return item.querySelector('.item-title')?.textContent.trim() || item.dataset.title?.trim() || '';
-    }
-    function getItemCover(item) {
-        if (!item) return '';
-        const img = item.querySelector('.thumbnail img');
-        if (img && img.getAttribute('src')) return img.src;
-        return item.dataset.cover || '';
-    }
-    function getCandidateItems() {
-        const all = getAllItems();
-        if (window.__artistFilter && window.__artistFilter.length) {
-            const filtered = all.filter(i => window.__artistFilter.includes(i));
-            if (filtered.length) return filtered;
-        }
-        return all;
-    }
-    function loadItem(item, autoplay = true) {
-        if (!item) return;
-        const src = item.dataset.src;
-        const cover = getItemCover(item);
-        const title = getItemTitle(item);
-        if (!src) { handleLoadError(item); return; }
-        getAllItems().forEach(i => i.classList.remove('active'));
-        item.classList.add('active');
-        currentItem = item;
-        if (playerCover) {
-            if (cover) playerCover.src = cover;
-            else playerCover.removeAttribute('src');
-        }
-        if (playerTitle) playerTitle.textContent = title;
-        if (player) player.classList.add('active');
-        audioPlayer.src = src;
-        audioPlayer.currentTime = 0;
-        updateProgress(0);
-        if (currentTimeEl) currentTimeEl.textContent = '0:00';
-        if (durationEl) durationEl.textContent = '0:00';
-        if (autoplay) audioPlayer.play().catch(err => console.warn('Auto-play falló:', err));
-    }
-    function handleLoadError() {
-        if (isSkipping) return;
-        isSkipping = true;
-        updateIcon(false); updateProgress(0);
-        if (currentTimeEl) currentTimeEl.textContent = '0:00';
-        if (durationEl) durationEl.textContent = '0:00';
-        setTimeout(() => { isSkipping = false; playRandomItem(); }, 300);
-    }
-    audioPlayer.addEventListener('error', () => handleLoadError());
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/rv1nm22lnovi1phko6ufn/Emsek-No-fue-lo-mismo.wav?rlkey=ojx6h1hpudu8q9v4h0b5ncm77&st=fawt5ksq&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/hu6726a9yx9z9c5w2ns0w/Emsek.jpg?rlkey=llo70vmyjg4u9jfhnq6g9tvr8&st=dqvk5v66&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">No fue los mismo Esmek</span>
+                    <span class="item-subtitle">Emsek · Rap</span>
+                    <span class="Album">Volumen 1</span>
+                </div>
+            </div>
 
-    function playRandomItem() {
-        const items = getCandidateItems();
-        if (!items.length) return;
-        if (!isShuffleOn()) {
-            let startIdx = 0;
-            if (currentItem) {
-                const idx = items.indexOf(currentItem);
-                if (idx !== -1) startIdx = (idx + 1) % items.length;
-            }
-            loadItem(items[startIdx], true);
-            return;
-        }
-        let candidates = items;
-        if (items.length > 1 && currentItem && items.includes(currentItem)) {
-            candidates = items.filter(i => i !== currentItem);
-        }
-        if (!candidates.length) candidates = items;
-        const randomItem = candidates[Math.floor(Math.random() * candidates.length)];
-        loadItem(randomItem, true);
-    }
-    function goNextItem() {
-        const items = getCandidateItems();
-        if (!items.length) return;
-        if (isShuffleOn()) { playRandomItem(); return; }
-        let idx = items.indexOf(currentItem);
-        if (idx === -1) idx = 0;
-        loadItem(items[(idx + 1) % items.length], true);
-    }
-    function goPrevItem() {
-        const items = getCandidateItems();
-        if (!items.length) return;
-        if (isShuffleOn()) { playRandomItem(); return; }
-        let idx = items.indexOf(currentItem);
-        if (idx === -1) idx = 0;
-        loadItem(items[(idx - 1 + items.length) % items.length], true);
-    }
-    document.addEventListener('omega:next', () => goNextItem());
-    document.addEventListener('omega:prev', () => goPrevItem());
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/4q3fc1b7dcbm3s0irdriy/Emsek-tus-errores.wav?rlkey=dn1bgzk4im7jwxo5p46osot4h&st=bs9g15gb&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/hu6726a9yx9z9c5w2ns0w/Emsek.jpg?rlkey=llo70vmyjg4u9jfhnq6g9tvr8&st=dqvk5v66&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Tus Errores Esmek</span>
+                    <span class="item-subtitle">Emsek · Rap</span>
+                    <span class="Album">Volumen 1</span>
+                </div>
+            </div>
 
-    playButton.addEventListener('click', () => {
-        if (!currentItem) { playRandomItem(); return; }
-        if (audioPlayer.paused) audioPlayer.play().catch(err => console.error('Error:', err));
-        else audioPlayer.pause();
-    });
-    audioPlayer.addEventListener('play', () => updateIcon(true));
-    audioPlayer.addEventListener('pause', () => updateIcon(false));
-    audioPlayer.addEventListener('loadedmetadata', () => {
-        if (durationEl) durationEl.textContent = formatTime(audioPlayer.duration);
-    });
-    audioPlayer.addEventListener('timeupdate', () => {
-        if (currentTimeEl) currentTimeEl.textContent = formatTime(audioPlayer.currentTime);
-        if (audioPlayer.duration > 0) updateProgress((audioPlayer.currentTime / audioPlayer.duration) * 100);
-    });
-    audioPlayer.addEventListener('ended', async (e) => {
-        if (e.defaultPrevented) return;
-        const duration = audioPlayer.duration;
-        const played = audioPlayer.currentTime;
-        const completed = !!duration && isFinite(duration) && played >= (duration - 1.5);
-        updateIcon(false); updateProgress(0);
-        if (currentTimeEl) currentTimeEl.textContent = '0:00';
-        if (completed && currentItem) {
-            const titulo = getItemTitle(currentItem);
-            const user = firebase.auth().currentUser;
-            if (titulo && user && esNuevoOyente(titulo, user.uid)) await registrarOyente(titulo);
-            if (titulo && user && typeof window.__guardarEnPlaylist === 'function') await window.__guardarEnPlaylist(titulo);
-        }
-        playRandomItem();
-    });
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/scvt36sujqhsk7abj4q9g/Los-tiempos-cambian-Emsek-ft-Charl-s-weed.wav?rlkey=hbvmut3vj4wyx166y6nv53vi9&st=7ytsyfvs&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/hu6726a9yx9z9c5w2ns0w/Emsek.jpg?rlkey=llo70vmyjg4u9jfhnq6g9tvr8&st=dqvk5v66&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Los tiempos cambian Esmek</span>
+                    <span class="item-subtitle">Emsek Ft Charles wed · Rap</span>
+                    <span class="Album">Volumen 1</span>
+                </div>
+            </div>
 
-    progressBar && progressBar.addEventListener('click', (e) => {
-        if (!audioPlayer.duration) return;
-        const rect = progressBar.getBoundingClientRect();
-        const ratio = (e.clientX - rect.left) / rect.width;
-        audioPlayer.currentTime = Math.min(1, Math.max(0, ratio)) * audioPlayer.duration;
-    });
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/vyrkq3cz1d32v6cbrml99/Mi-mussa-Emsek-HFcompany-Estudios.wav?rlkey=8mzfyjhjbqasi7cvcynku8e29&st=f6rkh9hu&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/hu6726a9yx9z9c5w2ns0w/Emsek.jpg?rlkey=llo70vmyjg4u9jfhnq6g9tvr8&st=dqvk5v66&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Musa Esmek</span>
+                    <span class="item-subtitle">Emsek · Rap</span>
+                    <span class="Album">Volumen 1</span>
+                </div>
+            </div>
 
-    playlist.addEventListener('click', (e) => {
-        const item = e.target.closest('.playlist-item');
-        if (!item) return;
-        if (window.__artistFilter && window.__artistFilter.length) {
-            if (!window.__artistFilter.includes(item)) clearArtistFilter();
-        }
-        loadItem(item, true);
-    });
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/0b08k7lmf6bi3unghwi0o/Nada-es-secillo-Oswaldo.wav?rlkey=00zjb5omwsyc7lpa4epk2dxzx&st=owffemlr&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/hu6726a9yx9z9c5w2ns0w/Emsek.jpg?rlkey=llo70vmyjg4u9jfhnq6g9tvr8&st=dqvk5v66&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Nada es sencillo Esmek</span>
+                    <span class="item-subtitle">Emsek · Rap</span>
+                    <span class="Album">Volumen 1</span>
+                </div>
+            </div>
 
-    /* BUSCADOR */
-    const heartSearchBtn  = document.getElementById('heart-search-btn');
-    const searchContainer = document.getElementById('search-container');
-    const searchInput     = document.getElementById('search-input');
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/09x3ro2pgjk5uytus7qnf/perdoname-emsek-video-oficial.mp3?rlkey=w5wnge74deqrg9j5cugdgso93&st=l9jqz3s2&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/hu6726a9yx9z9c5w2ns0w/Emsek.jpg?rlkey=llo70vmyjg4u9jfhnq6g9tvr8&st=dqvk5v66&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Perdoname Esmek</span>
+                    <span class="item-subtitle">Emsek · Rap</span>
+                    <span class="Album">Volumen 1</span>
+                </div>
+            </div>
 
-    function applySearchVisibility() {
-        const q = (searchInput?.value || '').toLowerCase().trim();
-        const items = document.querySelectorAll('.playlist-item');
-        items.forEach(item => {
-            if (!q) { item.style.display = window.__showAllSongs ? 'flex' : 'none'; return; }
-            const title = item.querySelector('.item-title')?.textContent.toLowerCase() || '';
-            const subtitle = item.querySelector('.item-subtitle')?.textContent.toLowerCase() || '';
-            item.style.display = (title.includes(q) || subtitle.includes(q)) ? 'flex' : 'none';
-        });
-    }
-    window.__applySearchVisibility = applySearchVisibility;
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/8rxh1zmz1jnbw3jnyw30u/Todo-se-Acabo-Emsek.wav?rlkey=gdjt2d5ixehg02f66zrmn2oo4&st=11wubvyf&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/hu6726a9yx9z9c5w2ns0w/Emsek.jpg?rlkey=llo70vmyjg4u9jfhnq6g9tvr8&st=dqvk5v66&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Todo acabo Esmek</span>
+                    <span class="item-subtitle">Emsek · Rap</span>
+                    <span class="Album">Volumen 1</span>
+                </div>
+            </div>
 
-    if (heartSearchBtn && searchContainer && searchInput) {
-        heartSearchBtn.addEventListener('click', () => {
-            searchContainer.classList.toggle('visible');
-            if (searchContainer.classList.contains('visible')) searchInput.focus();
-            else { searchInput.value = ''; searchInput.dispatchEvent(new Event('input')); }
-        });
-        searchInput.addEventListener('input', applySearchVisibility);
-    }
+            <!-- ==================== J Vazquez ==================== -->
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/kurcwgvu4c0813rskvtg6/Beyby-J-Vazquez.flac?rlkey=hi0ficbezkryiigcmqt8nfrrr&st=anpkz9kv&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/kfrpspuowtzrkjvwe2kxa/800x800-7986476-EBBCC76E-8564-423A-9B173657F2C27F7C-0-563472-Picsart250629201208586.jpg?rlkey=qglu4yfiepshx5p119dk647du&st=84qnuspr&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">BABY J Vazquez</span>
+                    <span class="item-subtitle">J Vazquez · Reggeton</span>
+                    <span class="Album">Reggeton</span>
+                </div>
+            </div>
 
-    /* COMPARTIR */
-    const shareBtn = document.getElementById('share-btn');
-    const SHARE_URL = 'https://kerimmusic.github.io/DescargarAppOmegaBeats/';
-    if (shareBtn) {
-        shareBtn.addEventListener('click', () => {
-            const currentTitle = currentItem ? getItemTitle(currentItem) : document.title;
-            const shareData = {
-                title: 'Omega Beats',
-                text: currentTitle ? `Escucha este beat: ${currentTitle}` : 'Escucha Omega Beats',
-                url: SHARE_URL
-            };
-            if (navigator.share) navigator.share(shareData).catch((error) => console.log('Error:', error));
-            else {
-                const textToCopy = `${shareData.text}\n${SHARE_URL}`;
-                navigator.clipboard.writeText(textToCopy).then(() => alert('¡Enlace copiado!'))
-                    .catch(err => alert('No se pudo compartir. Copia: ' + SHARE_URL));
-            }
-        });
-    }
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/97yj1flb0bgaaedaxr9h1/Te_estoy_Llamando_lista.wav?rlkey=cn3oppwsfjv617hhcuy2rcga4&st=715yp09y&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/kgnxbl0mdp3q2uivbi4et/800x800-7986476-0F948044-9801-4FC9-8EFF36DDC1873148-0-3542185-Teestoyllamando.jpg?rlkey=jki22g8n7mq0b7ufv138n4wsn&st=10uw8nqx&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Te estoy llamando J Vazquez</span>
+                    <span class="item-subtitle">J Vazquez · Reggeton</span>
+                    <span class="Album">Reggeton</span>
+                </div>
+            </div>
 
-    /* MENÚ */
-    const menuBtn         = document.getElementById('menu-btn');
-    const submenu         = document.getElementById('submenu');
-    const submenuOverlay  = document.getElementById('submenu-overlay');
-    const closeSubmenuBtn = document.getElementById('close-submenu');
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/7gcv8k4ke1mglv3jkya1k/El-Chiris.wav?rlkey=hpgsr66ebcy6tyl6ounf7ii81&st=jxoazn66&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/w51t3llqpavnpmxxgus83/el-chiris.png?rlkey=leru6o7n7omsn9b455yqcrf4g&st=zv4scg8y&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">El chiris J Vazquez</span>
+                    <span class="item-subtitle">J Vazquez · Reggeton</span>
+                    <span class="Album">Reggeton</span>
+                </div>
+            </div>
 
-    function openSubmenu() {
-        if (!submenu || !submenuOverlay) return;
-        submenu.classList.add('visible');
-        submenuOverlay.classList.add('visible');
-        submenu.setAttribute('aria-hidden', 'false');
-    }
-    function closeSubmenu() {
-        if (!submenu || !submenuOverlay) return;
-        submenu.classList.remove('visible');
-        submenuOverlay.classList.remove('visible');
-        submenu.setAttribute('aria-hidden', 'true');
-    }
-    if (menuBtn) menuBtn.addEventListener('click', openSubmenu);
-    if (closeSubmenuBtn) closeSubmenuBtn.addEventListener('click', closeSubmenu);
-    if (submenuOverlay) submenuOverlay.addEventListener('click', closeSubmenu);
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/5mnj6mb2evikxph4wlbyq/j-vazquez-FOTO.wav?rlkey=s1q4uliexbe4bvrtcdrxzm1b2&st=8tu1szip&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/7pxyk1hvrgtdl9fy94alm/J-Vazqeuz-Album-2022.jpg?rlkey=sfb91d32144hgoijxhf0eqbhz&st=k9w3fdxx&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Foto J Vazquez</span>
+                    <span class="item-subtitle">J Vazquez · Reggeton</span>
+                    <span class="Album">Reggeton</span>
+                </div>
+            </div>
 
-    document.querySelectorAll('.submenu-link').forEach(link => {
-        link.addEventListener('click', (e) => {
-            if (link.id === 'logout-link') return;
-            if (link.id === 'mi-playlist-link') return;
-            closeSubmenu();
-        });
-    });
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSubmenu(); });
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/dwovntv7djswyqmguk8yd/j-vazquez-aventura-ft-cie-campos-video-liryc.mp3?rlkey=3durnbujd9955pikh47jgyjob&st=xc0vklla&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/7pxyk1hvrgtdl9fy94alm/J-Vazqeuz-Album-2022.jpg?rlkey=sfb91d32144hgoijxhf0eqbhz&st=u0jdv66d&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Una Aventura J Vazquez ft Cie campos</span>
+                    <span class="item-subtitle">J Vazquez · Reggeton</span>
+                    <span class="Album">Reggeton 1</span>
+                </div>
+            </div>
 
-    /* FULLSCREEN PLAYER */
-    if (!player || !playerCover || !playerTitle || !playButton) return;
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/5ojo4u3dak6gytmkcy605/j-vazquez-me-vuelve-loco-fusa-company.mp3?rlkey=ickcmbzdf3wi1k012e0mygo8e&st=7virpnfk&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/7pxyk1hvrgtdl9fy94alm/J-Vazqeuz-Album-2022.jpg?rlkey=sfb91d32144hgoijxhf0eqbhz&st=u0jdv66d&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Me vuelve loco J Vazquez</span>
+                    <span class="item-subtitle">J Vazquez · Reggeton</span>
+                    <span class="Album">Reggeton 1</span>
+                </div>
+            </div>
 
-    const fsHTML = `
-        <div class="fs-player" id="fs-player" aria-hidden="true">
-            <div class="fs-bg" id="fs-bg"></div>
-            <div class="fs-top-bar">
-                <button class="fs-close" id="fs-close" aria-label="Cerrar">
-                    <svg viewBox="0 0 24 24" width="22" height="22" fill="none"
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/fi7vh0aizey6iod26en48/Obsecion-j-vazquez.wav?rlkey=ch8el1ronylotfeqyv6romnur&st=xumfzh4n&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/7pxyk1hvrgtdl9fy94alm/J-Vazqeuz-Album-2022.jpg?rlkey=sfb91d32144hgoijxhf0eqbhz&st=u0jdv66d&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Obsesion J Vazquez</span>
+                    <span class="item-subtitle">J Vazquez · Reggeton</span>
+                    <span class="Album">Reggeton 1</span>
+                </div>
+            </div>
+
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/pc1usnse2fyvesvyppsy6/Que-esta-pasando-J-Vazquez.wav?rlkey=x342bg6l9htpo1p7zckkg6583&st=qqyg4qq7&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/7pxyk1hvrgtdl9fy94alm/J-Vazqeuz-Album-2022.jpg?rlkey=sfb91d32144hgoijxhf0eqbhz&st=u0jdv66d&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Que esta pasando J Vazquez</span>
+                    <span class="item-subtitle">J Vazquez · Reggeton</span>
+                    <span class="Album">Reggeton 1</span>
+                </div>
+            </div>
+
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/00twno5l0kdb08ue26non/Tiempo-Cie-campos-ft-J-Vazquez-Kerim-Music-LKN-Records..wav?rlkey=1ryk8nwj93j0nk9pt8pv6t9uv&st=co15tivd&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/7pxyk1hvrgtdl9fy94alm/J-Vazqeuz-Album-2022.jpg?rlkey=sfb91d32144hgoijxhf0eqbhz&st=u0jdv66d&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Tiempo J Vazquez</span>
+                    <span class="item-subtitle">J Vazquez · Reggeton</span>
+                    <span class="Album">Reggeton 1</span>
+                </div>
+            </div>
+
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/me17xjy18fcpljgr2d3hi/volver-j-vazquez-video-oficial.mp3?rlkey=3h5tiyv9u527pywplvv7sz9x5&st=ftb2yj3b&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/7pxyk1hvrgtdl9fy94alm/J-Vazqeuz-Album-2022.jpg?rlkey=sfb91d32144hgoijxhf0eqbhz&st=u0jdv66d&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">Volver J Vazquez</span>
+                    <span class="item-subtitle">J Vazquez · Reggeton</span>
+                    <span class="Album">Reggeton 1</span>
+                </div>
+            </div>
+
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/1h7xgsfdukb0fwz6068bo/Pegaoo-J-Vazquez.wav?rlkey=y2hri9cuhlpmyv21y9br7l5t9&st=cl9lqa7v&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/ofp26lu2vtmkahpv27261/Pegaoo-J-Vazquez.jpg?rlkey=88v0x6qpgrxmpkdvi2bnkl1lq&st=y4r50695&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">pegaoo! J Vazquez</span>
+                    <span class="item-subtitle">J Vazquez · Reggeton</span>
+                    <span class="Album">Reggeton 1</span>
+                </div>
+            </div>
+
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/3gnc6sadywpb24ps9z4k9/No-eres-juego-de-nintendo-J-bazquez.wav?rlkey=79nintn3bhle2lyye1nb249e6&st=tf6f6kaj&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.dropbox.com/scl/fi/7pxyk1hvrgtdl9fy94alm/J-Vazqeuz-Album-2022.jpg?rlkey=sfb91d32144hgoijxhf0eqbhz&st=u0jdv66d&raw=1" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">No eres juego de nintendo J Vazquez</span>
+                    <span class="item-subtitle">J Vazquez · Reggeton</span>
+                    <span class="Album">Reggeton 1</span>
+                </div>
+            </div>
+
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/igoyb7x8feuz6otf67ddt/JBazques14deFrebreroOficial.wav?rlkey=vbgyvxlgyk5t1pl6kojif7w65&st=x1vzpuib&raw=1">
+                <div class="thumbnail">
+                    <img src="https://i.postimg.cc/XNP1xdB2/IMG-20260207-WA0000.jpg" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">14 de febrero J Vazquez</span>
+                    <span class="item-subtitle">J Vazquez · Reggeton</span>
+                    <span class="Album">Reggeton 1</span>
+                </div>
+            </div>
+
+            <!-- ==================== Danuel s ==================== -->
+            <div class="playlist-item"
+                 data-src="https://www.dropbox.com/scl/fi/fvmn4j26twgsls5qruhx7/en-la-intimidad-l-daniels.mp3?rlkey=zkj3ddoqmpczehqxzx707saol&st=9v36eejh&raw=1">
+                <div class="thumbnail">
+                    <img src="https://www.univision.com/_next/image?url=https%3A%2F%2Fst1.uvnimg.com%2F6d%2F2e%2F14017db64ad78524d9345c1b8476%2FREVIVAL%252520INTERSCOPE%252520RECORDS.jpg&w=550&q=75" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">En la intimidad</span>
+                    <span class="item-subtitle">Daniels</span>
+                </div>
+            </div>
+
+        </div>
+
+        <div class="player" id="player">
+
+            <div class="player-thumbnail" id="player-thumbnail">
+                <img id="player-cover" alt="Portada">
+            </div>
+
+            <div class="player-center">
+                <div class="player-title" id="player-title">Titulo del Beats</div>
+                <div class="progress-bar" id="progress-bar" role="slider"
+                     aria-label="Progreso" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                    <div class="progress-thumb" id="progress-thumb"></div>
+                </div>
+                <div class="time-labels">
+                    <span id="current-time">0:00</span>
+                    <span id="duration">0:00</span>
+                </div>
+            </div>
+
+            <button class="play-button" id="play-button" type="button" aria-label="Reproducir">
+                <svg id="play-icon" viewBox="0 0 24 24" width="22" height="22">
+                    <polygon points="5,3 19,12 5,21" fill="#ffffff" />
+                </svg>
+            </button>
+        </div>
+
+        <div class="artist-profile" id="artist-profile" aria-hidden="true">
+            <div class="ap-header">
+                <span class="ap-header-title">PERFIL DE ARTISTA</span>
+                <button class="ap-close" id="ap-close" type="button" aria-label="Cerrar perfil">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
                          stroke="#ffffff" stroke-width="2.4" stroke-linecap="round">
                         <line x1="6" y1="6"  x2="18" y2="18"/>
                         <line x1="18" y1="6" x2="6"  y2="18"/>
                     </svg>
                 </button>
             </div>
-            <div class="fs-content" id="fs-content">
-                <div class="fs-vinyl-wrap" id="fs-vinyl-wrap">
-                    <div class="fs-vinyl" id="fs-vinyl">
-                        <img class="fs-cover" id="fs-cover" alt="Portada">
-                    </div>
-                    <span class="fs-spindle"></span>
+
+            <div class="ap-scroll" id="ap-scroll">
+                <div class="ap-hero" id="ap-hero">
+                    <img class="ap-hero-img" id="ap-hero-img" alt="Portada del artista" loading="lazy">
+                    <div class="ap-hero-shade"></div>
+                    <h1 class="ap-artist-name" id="ap-artist-name">Artista</h1>
                 </div>
-                <h2 class="fs-title" id="fs-title">Título del Beat</h2>
-                <div class="fs-actions">
-                    <button class="fs-like" id="fs-like" type="button" aria-label="Me gusta">
-                        <svg viewBox="0 0 24 24" aria-hidden="true">
-                            <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>
-                        </svg>
-                        <span>Me Gusta</span>
-                    </button>
+
+                <div class="ap-stats">
+                    <div class="ap-total">
+                        <span class="ap-total-label">Total de Reproducciones:</span>
+                        <span class="ap-total-value" id="ap-total-plays">0</span>
+                    </div>
+                    <button class="ap-listen-btn" id="ap-listen-btn" type="button">Escuchar mi música</button>
+                </div>
+
+                <div class="ap-grid" id="ap-grid"></div>
+            </div>
+        </div>
+
+        <div class="album-view" id="album-view" aria-hidden="true">
+
+            <div class="av-header">
+                <button class="av-back" id="av-back" type="button" aria-label="Volver">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none"
+                         stroke="#ffffff" stroke-width="2.4" stroke-linecap="round"
+                         stroke-linejoin="round">
+                        <polyline points="15 18 9 12 15 6"/>
+                    </svg>
+                </button>
+
+                <h1 class="av-title" id="av-title">Álbum</h1>
+
+                <button class="av-toggle" id="av-toggle" type="button">Modo de lista</button>
+            </div>
+
+            <div class="av-scroll" id="av-scroll">
+                <div class="av-carousel" id="av-carousel"></div>
+                <div class="av-list" id="av-list"></div>
+            </div>
+
+            <div class="av-footer">
+                <button class="av-play-all" id="av-play-all" type="button">
+                    Escuchar todo el álbum
+                </button>
+            </div>
+        </div>
+
+        <!-- ==================== VISTA DE "TU PLAYLIST" ==================== -->
+        <div class="playlist-view" id="playlist-view" aria-hidden="true">
+            <div class="pv-header">
+                <button class="pv-back" id="pv-back" type="button" aria-label="Volver">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none"
+                         stroke="#ffffff" stroke-width="2.4" stroke-linecap="round"
+                         stroke-linejoin="round">
+                        <polyline points="15 18 9 12 15 6"/>
+                    </svg>
+                </button>
+                <h1 class="pv-title" id="pv-title">Tu Playlist</h1>
+
+                <button class="pv-edit" id="pv-edit" type="button" aria-label="Editar playlist" style="display:none;">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
+                         stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 20h9"/>
+                        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                    </svg>
+                    <span>Editar<br>playlist</span>
+                </button>
+
+                <button class="pv-share" id="pv-share" type="button" aria-label="Compartir playlist">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
+                         stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="18" cy="5"  r="3" fill="#ffffff" stroke="none"/>
+                        <circle cx="6"  cy="12" r="3" fill="#ffffff" stroke="none"/>
+                        <circle cx="18" cy="19" r="3" fill="#ffffff" stroke="none"/>
+                        <line x1="8.59"  y1="13.51" x2="15.42" y2="17.49"/>
+                        <line x1="15.41" y1="6.51"  x2="8.59"  y2="10.49"/>
+                    </svg>
+                    <span>Compartir<br>playlist</span>
+                </button>
+            </div>
+
+            <div class="pv-scroll" id="pv-scroll">
+                <div class="pv-cover-wrap">
+                    <img class="pv-cover" id="pv-cover-img" alt="Portada de la playlist" loading="lazy">
+                    <span class="pv-count" id="pv-count">0 canciones</span>
+                </div>
+                <div class="pv-list" id="pv-list"></div>
+            </div>
+
+            <div class="pv-footer">
+                <button class="pv-cancel" id="pv-cancel" type="button" style="display:none;">
+                    Cancelar
+                </button>
+                <button class="pv-play-all" id="pv-play-all" type="button">
+                    Escuchar esta playlist
+                </button>
+                <button class="pv-save" id="pv-save" type="button" style="display:none;">
+                    Guardar cambios
+                </button>
+            </div>
+        </div>
+
+        <!-- ==================== VISTA "MI PLAYLIST" ==================== -->
+        <div class="mi-playlist-view" id="mi-playlist-view" aria-hidden="true">
+            <div class="mp-header">
+                <button class="mp-back" id="mp-back" type="button" aria-label="Volver">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none"
+                         stroke="#ffffff" stroke-width="2.4" stroke-linecap="round"
+                         stroke-linejoin="round">
+                        <polyline points="15 18 9 12 15 6"/>
+                    </svg>
+                </button>
+                <h1 class="mp-title">Mi Playlist</h1>
+                <button class="mp-create" id="mp-create" type="button">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
+                         stroke="#ffffff" stroke-width="2.6" stroke-linecap="round">
+                        <line x1="12" y1="5" x2="12" y2="19"/>
+                        <line x1="5" y1="12" x2="19" y2="12"/>
+                    </svg>
+                    <span>Crear +</span>
+                </button>
+            </div>
+            <div class="mp-scroll" id="mp-scroll">
+                <div class="mp-grid" id="mp-grid"></div>
+                <div class="mp-empty" id="mp-empty" style="display:none;">
+                    <div class="mp-empty-title">Aún no tienes playlists</div>
+                    <div class="mp-empty-sub">Toca "Crear +" para crear tu primera playlist</div>
                 </div>
             </div>
         </div>
-    `;
-    document.body.insertAdjacentHTML('beforeend', fsHTML);
 
-    const fsPlayer = document.getElementById('fs-player');
-    const fsBg = document.getElementById('fs-bg');
-    const fsContent = document.getElementById('fs-content');
-    const fsVinyl = document.getElementById('fs-vinyl');
-    const fsCover = document.getElementById('fs-cover');
-    const fsTitle = document.getElementById('fs-title');
-    const fsClose = document.getElementById('fs-close');
+    </div>
 
-    let lastCoverSrc = '';
-    function syncFromMini() {
-        const newCover = playerCover.getAttribute('src') || '';
-        const newTitle = (playerTitle.textContent || '').trim() || 'Título del Beat';
-        if (newCover && newCover !== lastCoverSrc) {
-            fsCover.src = newCover;
-            fsBg.style.backgroundImage = `url("${newCover}")`;
-            lastCoverSrc = newCover;
-        } else if (!newCover) {
-            fsCover.removeAttribute('src');
-            fsBg.style.backgroundImage = '';
-            lastCoverSrc = '';
-        }
-        fsTitle.textContent = newTitle;
-    }
-    const syncObserver = new MutationObserver(() => syncFromMini());
-    syncObserver.observe(playerCover, { attributes: true, attributeFilter: ['src'] });
-    syncObserver.observe(playerTitle, { childList: true, characterData: true, subtree: true });
+    <!-- ==================== Modal Crear Playlist ==================== -->
+    <div class="mp-modal" id="mp-create-modal" aria-hidden="true">
+        <div class="mp-modal-backdrop" id="mp-create-backdrop"></div>
+        <div class="mp-modal-box" role="dialog" aria-modal="true" aria-labelledby="mp-create-title">
+            <div class="mp-modal-header">
+                <h2 class="mp-modal-title" id="mp-create-title">Nueva Playlist</h2>
+                <button class="mp-modal-close" id="mp-create-close" type="button" aria-label="Cerrar">&times;</button>
+            </div>
+            <input type="text" class="mp-modal-input" id="mp-create-input"
+                   placeholder="Nombre de la playlist..." maxlength="60" autocomplete="off">
+            <div class="mp-modal-toggle-row">
+                <span class="mp-modal-toggle-label">Hacerla privada</span>
+                <label class="mp-switch">
+                    <input type="checkbox" id="mp-create-private">
+                    <span class="mp-switch-slider"></span>
+                </label>
+            </div>
+            <p class="mp-modal-status" id="mp-create-status"></p>
+            <div class="mp-modal-actions">
+                <button class="mp-modal-btn mp-modal-btn-cancel" id="mp-create-cancel" type="button">Cancelar</button>
+                <button class="mp-modal-btn mp-modal-btn-confirm" id="mp-create-confirm" type="button">Crear</button>
+            </div>
+        </div>
+    </div>
 
-    function updateVinylState() {
-        if (audioPlayer.paused) fsVinyl.classList.remove('playing');
-        else fsVinyl.classList.add('playing');
-    }
-    audioPlayer.addEventListener('play', updateVinylState);
-    audioPlayer.addEventListener('pause', updateVinylState);
-    audioPlayer.addEventListener('ended', updateVinylState);
+    <!-- ==================== Modal Añadir a Playlist ==================== -->
+    <div class="mp-modal" id="mp-add-modal" aria-hidden="true">
+        <div class="mp-modal-backdrop" id="mp-add-backdrop"></div>
+        <div class="mp-modal-box" role="dialog" aria-modal="true" aria-labelledby="mp-add-title">
+            <div class="mp-modal-header">
+                <h2 class="mp-modal-title" id="mp-add-title">Añadir a Playlist</h2>
+                <button class="mp-modal-close" id="mp-add-close" type="button" aria-label="Cerrar">&times;</button>
+            </div>
+            <div class="mp-add-list" id="mp-add-list"></div>
+            <p class="mp-modal-status" id="mp-add-status"></p>
+        </div>
+    </div>
 
-    function openFullscreen() {
-        if (!playlist.querySelector('.playlist-item.active')) playButton.click();
-        syncFromMini();
-        setTimeout(syncFromMini, 120);
-        setTimeout(syncFromMini, 400);
-        fsPlayer.classList.add('visible');
-        fsPlayer.setAttribute('aria-hidden', 'false');
-        updateVinylState();
-    }
-    function closeFullscreen() {
-        fsPlayer.classList.remove('visible');
-        fsPlayer.setAttribute('aria-hidden', 'true');
-    }
-    fsClose && fsClose.addEventListener('click', closeFullscreen);
+    <audio id="audio-player" preload="metadata"></audio>
 
-    function attachGesture(el, onGesture) {
-        el.addEventListener('pointerdown', (e) => {
-            if (e.pointerType === 'mouse' && e.button !== 0) return;
-            if (e.target.closest('button')) return;
-            const sx = e.clientX, sy = e.clientY, st = Date.now();
-            const target = e.target;
-            const pid = e.pointerId;
-            function onUp(e2) {
-                if (e2.pointerId !== pid) return;
-                document.removeEventListener('pointerup', onUp);
-                document.removeEventListener('pointercancel', onCancel);
-                onGesture({ dx: e2.clientX - sx, dy: e2.clientY - sy, dt: Date.now() - st, target });
-            }
-            function onCancel(e2) {
-                if (e2.pointerId !== pid) return;
-                document.removeEventListener('pointerup', onUp);
-                document.removeEventListener('pointercancel', onCancel);
-            }
-            document.addEventListener('pointerup', onUp);
-            document.addEventListener('pointercancel', onCancel);
-        });
-    }
+    <!-- Modal para compartir playlist -->
+    <div class="share-modal" id="share-modal" aria-hidden="true">
+        <div class="share-modal-backdrop" id="share-modal-backdrop"></div>
+        <div class="share-modal-box" role="dialog" aria-modal="true" aria-labelledby="share-modal-title">
+            <div class="share-modal-header">
+                <h2 class="share-modal-title" id="share-modal-title">Compartir playlist</h2>
+                <button class="share-modal-close" id="share-modal-close" type="button"
+                        aria-label="Cerrar">&times;</button>
+            </div>
+            <input type="text" class="share-modal-input" id="share-modal-input"
+                   placeholder="Buscar usuario por nombre o correo..." autocomplete="off">
 
-    attachGesture(player, ({ dx, dy, dt, target }) => {
-        const absX = Math.abs(dx), absY = Math.abs(dy);
-        const onProgress = target && target.closest && target.closest('#progress-bar');
-        if (!onProgress && dt < 400 && absX < 12 && absY < 12) { openFullscreen(); return; }
-        if (dt > 800) return;
-        if (absY > 40 && absY > absX * 1.2 && dy < 0) openFullscreen();
-    });
+            <div id="share-modal-recent"></div>
 
-    attachGesture(fsPlayer, ({ dx, dy, dt, target }) => {
-        const absX = Math.abs(dx), absY = Math.abs(dy);
-        const onVinyl = target && target.closest && target.closest('.fs-vinyl-wrap');
-        if (onVinyl && dt < 400 && absX < 12 && absY < 12) { playButton.click(); return; }
-        if (dt > 1200) return;
-        if (absY > 50 && absY > absX * 1.3) {
-            if (dy < 0) goNextItem();
-            else goPrevItem();
-        }
-    });
+            <div class="share-modal-results" id="share-modal-results"></div>
+            <p class="share-modal-status" id="share-modal-status"></p>
+        </div>
+    </div>
 
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && fsPlayer.classList.contains('visible')) closeFullscreen();
-    });
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 
-    (function initFsTitleArtistLink() {
-        if (!fsTitle || !playlist) return;
-        fsTitle.style.cursor = 'pointer';
-        fsTitle.style.pointerEvents = 'auto';
-        fsTitle.setAttribute('role', 'button');
-        fsTitle.setAttribute('tabindex', '0');
-        const COLLAB_SPLIT = /\s+(?:ft\.?|feat\.?|featuring|con|&)\s+/i;
-        function getArtistFromActiveItem() {
-            const activeItem = playlist.querySelector('.playlist-item.active');
-            if (!activeItem) return '';
-            const sub = activeItem.querySelector('.item-subtitle')?.textContent || '';
-            const idx = sub.indexOf('·');
-            const namePart = (idx === -1 ? sub : sub.slice(0, idx)).trim();
-            if (!namePart) return '';
-            const first = (namePart.split(COLLAB_SPLIT)[0] || namePart).trim();
-            return first || namePart;
-        }
-        function openArtistFromTitle() {
-            const artistName = getArtistFromActiveItem();
-            if (!artistName) return;
-            if (typeof window.__openArtistProfile !== 'function') return;
-            closeFullscreen();
-            setTimeout(() => window.__openArtistProfile(artistName), 80);
-        }
-        fsTitle.addEventListener('click', openArtistFromTitle);
-        fsTitle.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openArtistFromTitle(); }
-        });
-    })();
-
-    (async () => {
-        await cargarDocsDeFirebase();
-        if (firebase.auth().currentUser) {
-            await cargarOyentesDeTodas();
-            if (typeof window.__cargarHistorialUsuario === 'function') {
-                await window.__cargarHistorialUsuario();
-                if (typeof window.__buildListenAgain === 'function') window.__buildListenAgain();
-            }
-            if (typeof window.__cargarPlaylistsUsuario === 'function') {
-                await window.__cargarPlaylistsUsuario();
-                if (typeof window.__buildListenAgain === 'function') window.__buildListenAgain();
-            }
-        }
-        if (typeof window.__applySearchVisibility === 'function') window.__applySearchVisibility();
-    })();
-});
-
-/* ============================================================
-   4. GESTOR DE ANUNCIOS
-   ============================================================ */
-(function () {
-    'use strict';
-    function init() {
-        var audioPlayer = document.getElementById('audio-player');
-        if (!audioPlayer) return;
-        if (typeof ADS === 'undefined' || !Array.isArray(ADS) || !ADS.length) return;
-
-        var BEATS_PER_AD = 6;
-        var SKIP_DELAY = 5;
-        var beatPlayCount = 0;
-        var lastSrc = '';
-        var isAdPlaying = false;
-        var adIndex = 0;
-        var adOnComplete = null;
-        var currentAdMedia = null;
-        var countdownInterval = null;
-        var adTimeout = null;
-        var originalPlay = audioPlayer.play.bind(audioPlayer);
-
-        var overlay = document.createElement('div');
-        overlay.id = 'ad-overlay';
-        overlay.setAttribute('aria-hidden', 'true');
-        overlay.innerHTML =
-            '<div class="ad-inner">' +
-                '<div class="ad-label">ANUNCIO</div>' +
-                '<div class="ad-media"></div>' +
-                '<button class="ad-skip" type="button" disabled>' +
-                    'Saltar anuncio (<span class="ad-countdown">' + SKIP_DELAY + '</span>)' +
-                '</button>' +
-            '</div>';
-        document.body.appendChild(overlay);
-
-        var adMedia = overlay.querySelector('.ad-media');
-        var adSkip = overlay.querySelector('.ad-skip');
-
-        audioPlayer.play = function () {
-            if (isAdPlaying) return Promise.resolve();
-            var src = audioPlayer.src;
-            var isNewBeat = src && src !== lastSrc;
-            if (isNewBeat) {
-                lastSrc = src;
-                if (beatPlayCount >= BEATS_PER_AD) {
-                    beatPlayCount = 0;
-                    showAd(function () { originalPlay().catch(function () {}); });
-                    return Promise.resolve();
-                }
-                beatPlayCount++;
-            }
-            return originalPlay();
-        };
-
-        function showAd(onComplete) {
-            if (isAdPlaying) return;
-            isAdPlaying = true;
-            adOnComplete = onComplete || null;
-            try { audioPlayer.pause(); } catch (_) {}
-            var ad = ADS[adIndex % ADS.length];
-            adIndex = (adIndex + 1) % ADS.length;
-            adMedia.innerHTML = '';
-            if (currentAdMedia) {
-                try { currentAdMedia.pause(); currentAdMedia.removeAttribute('src'); currentAdMedia.load(); } catch (_) {}
-                currentAdMedia = null;
-            }
-            var mediaEl = null;
-            if (ad.video) {
-                mediaEl = document.createElement('video');
-                mediaEl.src = ad.video;
-                mediaEl.playsInline = true;
-                mediaEl.setAttribute('playsinline', '');
-                mediaEl.setAttribute('webkit-playsinline', '');
-                mediaEl.preload = 'auto';
-                mediaEl.controls = false;
-                adMedia.appendChild(mediaEl);
-            } else {
-                if (ad.url) {
-                    var img = document.createElement('img');
-                    img.src = ad.url; img.alt = ad.title || 'Anuncio'; img.className = 'ad-cover';
-                    adMedia.appendChild(img);
-                }
-                if (ad.music) {
-                    mediaEl = document.createElement('audio');
-                    mediaEl.src = ad.music; mediaEl.preload = 'auto';
-                    adMedia.appendChild(mediaEl);
-                }
-            }
-            currentAdMedia = mediaEl;
-            overlay.classList.add('visible');
-            overlay.setAttribute('aria-hidden', 'false');
-
-            var remaining = SKIP_DELAY;
-            adSkip.disabled = true;
-            adSkip.innerHTML = 'Saltar anuncio (<span class="ad-countdown">' + remaining + '</span>)';
-
-            if (countdownInterval) clearInterval(countdownInterval);
-            countdownInterval = setInterval(function () {
-                remaining--;
-                var el = adSkip.querySelector('.ad-countdown');
-                if (el) el.textContent = Math.max(0, remaining);
-                if (remaining <= 0) {
-                    clearInterval(countdownInterval);
-                    countdownInterval = null;
-                    adSkip.disabled = false;
-                    adSkip.textContent = 'Saltar anuncio ✕';
-                }
-            }, 1000);
-
-            if (mediaEl) {
-                mediaEl.addEventListener('ended', endAd, { once: true });
-                mediaEl.addEventListener('error', function () { adTimeout = setTimeout(endAd, 900); }, { once: true });
-                var p = mediaEl.play();
-                if (p && p.catch) {
-                    p.catch(function () {
-                        mediaEl.muted = true;
-                        var p2 = mediaEl.play();
-                        if (p2 && p2.catch) p2.catch(function () { adTimeout = setTimeout(endAd, 4000); });
-                    });
-                }
-            } else {
-                adTimeout = setTimeout(endAd, SKIP_DELAY * 1000);
-            }
-        }
-
-        function endAd() {
-            if (!isAdPlaying) return;
-            isAdPlaying = false;
-            if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
-            if (adTimeout) { clearTimeout(adTimeout); adTimeout = null; }
-            if (currentAdMedia) {
-                try { currentAdMedia.pause(); currentAdMedia.removeAttribute('src'); currentAdMedia.load(); } catch (_) {}
-                currentAdMedia = null;
-            }
-            adMedia.innerHTML = '';
-            overlay.classList.remove('visible');
-            overlay.setAttribute('aria-hidden', 'true');
-            adSkip.disabled = true;
-            adSkip.innerHTML = 'Saltar anuncio (<span class="ad-countdown">' + SKIP_DELAY + '</span>)';
-            var cb = adOnComplete;
-            adOnComplete = null;
-            if (cb) { try { cb(); } catch (e) { console.warn(e); } }
-        }
-
-        adSkip.addEventListener('click', function () {
-            if (adSkip.disabled) return;
-            if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} }
-            endAd();
-        });
-    }
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
-    else init();
-})();
-
-/* ============================================================
-   5. PERFIL DEL ARTISTA
-   ============================================================ */
-(function () {
-    'use strict';
-    function initArtistProfile() {
-        const profileEl = document.getElementById('artist-profile');
-        const apScroll = document.getElementById('ap-scroll');
-        const apHeroImg = document.getElementById('ap-hero-img');
-        const apArtist = document.getElementById('ap-artist-name');
-        const apTotal = document.getElementById('ap-total-plays');
-        const apGrid = document.getElementById('ap-grid');
-        const apClose = document.getElementById('ap-close');
-        const apListen = document.getElementById('ap-listen-btn');
-        const playlist = document.getElementById('playlist');
-        if (!profileEl || !apGrid || !playlist || typeof normalizeStr !== 'function') return;
-
-        let currentArtist = null;
-        let refreshTimer = null;
-        let gridObserver = null;
-        const COLLAB_SPLIT = /\s+(?:ft\.?|feat\.?|featuring|con|&)\s+/i;
-
-        function getArtistsFromItem(item) {
-            const sub = item.querySelector('.item-subtitle')?.textContent || '';
-            const idx = sub.indexOf('·');
-            const namePart = (idx === -1 ? sub : sub.slice(0, idx)).trim();
-            if (!namePart) return [];
-            const parts = namePart.split(COLLAB_SPLIT).map(s => s.trim()).filter(Boolean);
-            return parts.length ? parts : [namePart];
-        }
-        function getArtistItems(artistName) {
-            const target = normalizeStr(artistName);
-            if (!target) return [];
-            return Array.from(playlist.querySelectorAll('.playlist-item')).filter(item =>
-                getArtistsFromItem(item).some(n => normalizeStr(n) === target)
-            );
-        }
-        function computeTotalPlays(items) {
-            let total = 0;
-            items.forEach(item => {
-                const title = item.querySelector('.item-title')?.textContent.trim() || '';
-                total += contarOyentes(title);
-            });
-            return total;
-        }
-        function formatNumber(n) {
-            try { return (n || 0).toLocaleString('es-MX'); } catch (_) { return String(n || 0); }
-        }
-        function updatePlayingCard() {
-            const active = playlist.querySelector('.playlist-item.active');
-            const activeTitle = active ? (active.querySelector('.item-title')?.textContent.trim() || '') : '';
-            apGrid.querySelectorAll('.ap-card').forEach(card => {
-                if (activeTitle && card.dataset.title === activeTitle) card.classList.add('playing');
-                else card.classList.remove('playing');
-            });
-        }
-        function activateArtistMode(artistName) {
-            const list = getArtistItems(artistName);
-            if (!list.length) return null;
-            if (typeof setArtistFilter === 'function') setArtistFilter(list, artistName);
-            else { window.__artistFilter = list.slice(); window.__artistFilterName = artistName; }
-            return list;
-        }
-        function renderProfile(artistName) {
-            currentArtist = artistName;
-            const items = getArtistItems(artistName);
-            if (!items.length) return;
-            apArtist.textContent = artistName;
-            const covers = items.map(i => i.querySelector('.thumbnail img')?.src).filter(Boolean);
-            if (covers.length) {
-                const chosen = covers[Math.floor(Math.random() * covers.length)];
-                apHeroImg.classList.remove('loaded');
-                apHeroImg.src = chosen;
-                if (apHeroImg.complete) apHeroImg.classList.add('loaded');
-                else apHeroImg.onload = () => apHeroImg.classList.add('loaded');
-            } else {
-                apHeroImg.removeAttribute('src');
-                apHeroImg.classList.remove('loaded');
-            }
-            apTotal.textContent = formatNumber(computeTotalPlays(items));
-            apGrid.innerHTML = '';
-            items.forEach(item => {
-                const cover = item.querySelector('.thumbnail img')?.src || '';
-                const title = item.querySelector('.item-title')?.textContent.trim() || '';
-                const card = document.createElement('button');
-                card.type = 'button';
-                card.className = 'ap-card';
-                card.dataset.title = title;
-                card.setAttribute('aria-label', title);
-                if (cover) {
-                    const img = document.createElement('img');
-                    img.src = cover; img.alt = title; img.loading = 'lazy';
-                    card.appendChild(img);
-                }
-                const t = document.createElement('span');
-                t.className = 'ap-card-title';
-                t.textContent = title;
-                card.appendChild(t);
-                card.addEventListener('click', () => {
-                    activateArtistMode(artistName);
-                    item.click();
-                    setTimeout(updatePlayingCard, 60);
-                });
-                apGrid.appendChild(card);
-            });
-            apListen.onclick = () => {
-                const list = activateArtistMode(artistName);
-                if (!list || !list.length) return;
-                list[Math.floor(Math.random() * list.length)].click();
-                setTimeout(updatePlayingCard, 60);
-            };
-            if (refreshTimer) clearInterval(refreshTimer);
-            refreshTimer = setInterval(() => {
-                if (!profileEl.classList.contains('visible') || !currentArtist) return;
-                const cur = getArtistItems(currentArtist);
-                apTotal.textContent = formatNumber(computeTotalPlays(cur));
-            }, 1500);
-            if (gridObserver) gridObserver.disconnect();
-            gridObserver = new MutationObserver(() => updatePlayingCard());
-            gridObserver.observe(playlist, { subtree: true, attributes: true, attributeFilter: ['class'] });
-            if (apScroll) apScroll.scrollTop = 0;
-            updatePlayingCard();
-        }
-        function openProfile(artistName) {
-            renderProfile(artistName);
-            profileEl.classList.add('visible');
-            profileEl.setAttribute('aria-hidden', 'false');
-        }
-        function closeProfile() {
-            profileEl.classList.remove('visible');
-            profileEl.setAttribute('aria-hidden', 'true');
-            currentArtist = null;
-            if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
-            if (gridObserver) { gridObserver.disconnect(); gridObserver = null; }
-        }
-        if (apClose) apClose.addEventListener('click', closeProfile);
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && profileEl.classList.contains('visible')) closeProfile();
-        });
-        window.__openArtistProfile = openProfile;
-    }
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initArtistProfile);
-    else initArtistProfile();
-})();
-
-/* ============================================================
-   6. REPETIR + ALEATORIO
-   ============================================================ */
-(function () {
-    'use strict';
-    const REPEAT_KEY = 'omega_repeat_mode_v1';
-    const SHUFFLE_KEY = 'omega_shuffle_v1';
-    let repeatMode = 'off';
-    let shuffleOn = true;
-    try {
-        const r = localStorage.getItem(REPEAT_KEY);
-        if (r === 'off' || r === 'all' || r === 'one') repeatMode = r;
-        const s = localStorage.getItem(SHUFFLE_KEY);
-        if (s === '0') shuffleOn = false;
-        else if (s === '1') shuffleOn = true;
-    } catch (_) {}
-    window.__omegaShuffleOn = shuffleOn;
-
-    function persist() {
-        try {
-            localStorage.setItem(REPEAT_KEY, repeatMode);
-            localStorage.setItem(SHUFFLE_KEY, shuffleOn ? '1' : '0');
-        } catch (_) {}
-    }
-    const ICON_REPEAT = `
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-            <polyline points="17 1 21 5 17 9"/>
-            <path d="M3 11V9a4 4 0 0 1 4-4h14"/>
-            <polyline points="7 23 3 19 7 15"/>
-            <path d="M21 13v2a4 4 0 0 1-4 4H3"/>
-            <text class="fs-repeat-one-mark" x="12" y="15.3" text-anchor="middle">1</text>
-        </svg>`;
-    const ICON_SHUFFLE = `
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-            <polyline points="16 3 21 3 21 8"/>
-            <line x1="4" y1="20" x2="21" y2="3"/>
-            <polyline points="21 16 21 21 16 21"/>
-            <line x1="15" y1="15" x2="21" y2="21"/>
-            <line x1="4" y1="4" x2="9" y2="9"/>
-        </svg>`;
-    let repeatBtn = null, shuffleBtn = null;
-
-    function haptic() { if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} } }
-    function toast(msg) {
-        let el = document.getElementById('omega-toast');
-        if (!el) {
-            el = document.createElement('div');
-            el.id = 'omega-toast';
-            el.setAttribute('role', 'status');
-            el.setAttribute('aria-live', 'polite');
-            document.body.appendChild(el);
-        }
-        el.textContent = msg;
-        el.classList.remove('visible');
-        void el.offsetWidth;
-        el.classList.add('visible');
-        clearTimeout(el._omegaModeTimer);
-        el._omegaModeTimer = setTimeout(() => el.classList.remove('visible'), 1600);
-    }
-    function updateRepeatUI() {
-        if (!repeatBtn) return;
-        repeatBtn.classList.toggle('active', repeatMode !== 'off');
-        repeatBtn.classList.toggle('mode-one', repeatMode === 'one');
-        const aria = repeatMode === 'one' ? 'Repetir 1 canción' : repeatMode === 'all' ? 'Repetir todo' : 'Repetir desactivado';
-        repeatBtn.setAttribute('aria-label', aria);
-        repeatBtn.setAttribute('title', aria);
-    }
-    function updateShuffleUI() {
-        if (!shuffleBtn) return;
-        shuffleBtn.classList.toggle('active', shuffleOn);
-        const aria = shuffleOn ? 'Aleatorio activado' : 'Aleatorio desactivado';
-        shuffleBtn.setAttribute('aria-label', aria);
-        shuffleBtn.setAttribute('title', aria);
-        window.__omegaShuffleOn = shuffleOn;
-    }
-    function applyRepeatToAudio() {
-        const audio = document.getElementById('audio-player');
-        if (!audio) return;
-        try { audio.loop = false; } catch (_) {}
-    }
-    function onEndedCapture(e) {
-        const audio = document.getElementById('audio-player');
-        if (!audio || e.target !== audio) return;
-        try {
-            const activeItem = document.querySelector('.playlist-item.active');
-            if (activeItem) {
-                const titulo = activeItem.querySelector('.item-title')?.textContent.trim() || '';
-                const user = (typeof firebase !== 'undefined' && firebase.auth) ? firebase.auth().currentUser : null;
-                if (titulo && user && typeof esNuevoOyente === 'function' && typeof registrarOyente === 'function' && esNuevoOyente(titulo, user.uid)) registrarOyente(titulo);
-                if (titulo && user && typeof window.__guardarEnPlaylist === 'function') window.__guardarEnPlaylist(titulo);
-            }
-        } catch (err) { console.warn('Error registrando oyente:', err); }
-        if (repeatMode === 'one') {
-            e.stopImmediatePropagation();
-            e.stopPropagation();
-            try { audio.currentTime = 0; } catch (_) {}
-            const p = audio.play();
-            if (p && p.catch) p.catch(() => {});
-            return;
-        }
-        if (repeatMode === 'all') {
-            e.stopImmediatePropagation();
-            e.stopPropagation();
-            document.dispatchEvent(new CustomEvent('omega:next'));
-            return;
-        }
-    }
-    let started = false;
-    function init() {
-        const fsActions = document.querySelector('.fs-actions');
-        if (!fsActions) return false;
-        if (!document.getElementById('fs-repeat')) {
-            repeatBtn = document.createElement('button');
-            repeatBtn.id = 'fs-repeat';
-            repeatBtn.type = 'button';
-            repeatBtn.className = 'fs-mode-btn';
-            repeatBtn.innerHTML = ICON_REPEAT;
-            fsActions.insertBefore(repeatBtn, fsActions.firstChild);
-        } else {
-            repeatBtn = document.getElementById('fs-repeat');
-        }
-        if (!document.getElementById('fs-shuffle')) {
-            shuffleBtn = document.createElement('button');
-            shuffleBtn.id = 'fs-shuffle';
-            shuffleBtn.type = 'button';
-            shuffleBtn.className = 'fs-mode-btn';
-            shuffleBtn.innerHTML = ICON_SHUFFLE;
-            fsActions.insertBefore(shuffleBtn, repeatBtn.nextSibling);
-        } else {
-            shuffleBtn = document.getElementById('fs-shuffle');
-        }
-        applyRepeatToAudio();
-        updateRepeatUI();
-        updateShuffleUI();
-
-        repeatBtn.addEventListener('click', () => {
-            haptic();
-            if (repeatMode === 'off') repeatMode = 'all';
-            else if (repeatMode === 'all') repeatMode = 'one';
-            else repeatMode = 'off';
-            persist(); updateRepeatUI();
-            toast(repeatMode === 'one' ? 'Repetir: 1 canción' : repeatMode === 'all' ? 'Repetir: todo' : 'Repetir: desactivado');
-        });
-        shuffleBtn.addEventListener('click', () => {
-            haptic();
-            shuffleOn = !shuffleOn;
-            persist(); updateShuffleUI();
-            toast(shuffleOn ? 'Aleatorio: activado' : 'Aleatorio: desactivado');
-        });
-        document.addEventListener('ended', onEndedCapture, true);
-        return true;
-    }
-    let tries = 0;
-    const iv = setInterval(() => {
-        if (init() || ++tries > 40) clearInterval(iv);
-    }, 250);
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => { if (init()) clearInterval(iv); });
-    else { if (init()) clearInterval(iv); }
-})();
+<script src="script.js"></script>
+</body>
+</html>
