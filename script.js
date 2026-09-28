@@ -377,9 +377,12 @@ const MAX_COMPLETADAS = 300;
 
 let completadasCache = [];
 
+// ✨ NUEVO: cache de exclusiones (canciones quitadas por el dueño)
+let playlistsExclusionsCache = {};
+
 async function cargarPlaylistsUsuario() {
     const user = firebase.auth().currentUser;
-    if (!user) { completadasCache = []; return; }
+    if (!user) { completadasCache = []; playlistsExclusionsCache = {}; return; }
 
     try {
         const docRef = db.collection('historial_usuarios').doc(user.uid);
@@ -397,13 +400,20 @@ async function cargarPlaylistsUsuario() {
                 }))
                 .filter(c => c.titulo)
                 .slice(-MAX_COMPLETADAS);
+
+            // ✨ NUEVO: cargar exclusiones por playlist
+            playlistsExclusionsCache = (data.playlists_edits && typeof data.playlists_edits === 'object')
+                ? data.playlists_edits
+                : {};
         } else {
             completadasCache = [];
+            playlistsExclusionsCache = {};
         }
         console.log(`📼 Canciones completadas cargadas del historial: ${completadasCache.length}`);
     } catch (e) {
         console.warn('Error al cargar canciones completadas:', e);
         completadasCache = [];
+        playlistsExclusionsCache = {};
     }
 }
 
@@ -459,11 +469,21 @@ function computePlaylistsFromCompletadas() {
         if (!chunk.length) continue;
 
         const idx = Math.floor(i / MAX_CANCIONES_POR_PLAYLIST) + 1;
+        const plId = 'pl_' + idx;
+
+        // ✨ NUEVO: aplicar exclusiones guardadas por el dueño
+        const exclusions = playlistsExclusionsCache[plId] || {};
+        const excluidas = Array.isArray(exclusions.excluidas) ? exclusions.excluidas : [];
+        const cancionesFiltradas = chunk.filter(c => !excluidas.includes(c.titulo));
+
+        if (!cancionesFiltradas.length) continue;
+
         playlists.push({
-            id: 'pl_' + idx,
+            id: plId,
             nombre: 'Tu Playlist #' + idx,
             fecha: chunk[0].fecha,
-            canciones: chunk.slice()
+            canciones: cancionesFiltradas,
+            isOwner: true   // ✨ NUEVO: marca de propietario
         });
     }
 
@@ -473,6 +493,77 @@ function computePlaylistsFromCompletadas() {
 window.__cargarPlaylistsUsuario = cargarPlaylistsUsuario;
 window.__guardarEnPlaylist     = guardarEnPlaylist;
 window.__getPlaylistsCache     = computePlaylistsFromCompletadas;
+
+// ✨ NUEVO: guarda ediciones + sincroniza playlists compartidas
+window.__guardarEdicionPlaylist = async function (playlist, excluidas) {
+    const user = firebase.auth().currentUser;
+    if (!user || !playlist || !Array.isArray(excluidas)) return;
+
+    // 1. Actualizar cache local de exclusiones
+    if (!playlistsExclusionsCache[playlist.id]) playlistsExclusionsCache[playlist.id] = {};
+    const previas = Array.isArray(playlistsExclusionsCache[playlist.id].excluidas)
+        ? playlistsExclusionsCache[playlist.id].excluidas
+        : [];
+    playlistsExclusionsCache[playlist.id].excluidas =
+        Array.from(new Set([...previas, ...excluidas]));
+
+    // 2. Persistir en el doc del usuario
+    try {
+        const docRef = db.collection('historial_usuarios').doc(user.uid);
+        await docRef.set({ playlists_edits: playlistsExclusionsCache }, { merge: true });
+    } catch (e) {
+        console.warn('Error guardando ediciones de playlist:', e);
+        throw e;
+    }
+
+    // 3. Sincronizar con playlists_compartidas (para los receptores)
+    try {
+        const cancionesFiltradas = playlist.canciones.filter(
+            c => !excluidas.includes(c.titulo)
+        );
+
+        const plRoot = document.getElementById('playlist');
+        function findItem(titulo) {
+            if (!plRoot) return null;
+            const n = String(titulo || '').toLowerCase().trim();
+            if (!n) return null;
+            for (const it of plRoot.querySelectorAll('.playlist-item')) {
+                const t = (it.querySelector('.item-title')?.textContent || '').trim().toLowerCase();
+                if (t === n) return it;
+            }
+            return null;
+        }
+
+        const cancionesSync = cancionesFiltradas.map(c => {
+            const it = findItem(c.titulo);
+            return {
+                titulo: c.titulo,
+                portada: (it && it.querySelector('.thumbnail img')?.src) || c.portada || '',
+                subtitulo: (it && it.querySelector('.item-subtitle')?.textContent.trim())
+                            || c.subtitulo || ''
+            };
+        });
+
+        let portada = '';
+        for (const c of cancionesSync) {
+            if (c.portada) { portada = c.portada; break; }
+        }
+
+        const snap = await db.collection('playlists_compartidas')
+            .where('de', '==', user.uid)
+            .where('playlistId', '==', playlist.id)
+            .get();
+
+        if (!snap.empty) {
+            await Promise.all(snap.docs.map(d =>
+                d.ref.update({ canciones: cancionesSync, portada })
+            ));
+            console.log(`🔄 Playlist compartida sincronizada (${snap.size} doc(s))`);
+        }
+    } catch (e) {
+        console.warn('Error sincronizando playlists compartidas:', e);
+    }
+};
 
 /* ============================================================
    1. DATOS GLOBALES Y UTILIDADES
@@ -2987,7 +3078,7 @@ document.addEventListener('DOMContentLoaded', () => {
 })();
 
 /* ============================================================
-   18. VISTA DE "TU PLAYLIST" (detalle + escuchar)
+   18. VISTA DE "TU PLAYLIST" (detalle + escuchar + EDITAR)
    ============================================================ */
 (function () {
     'use strict';
@@ -3003,9 +3094,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const pvPlayAll = document.getElementById('pv-play-all');
         const playlist  = document.getElementById('playlist');
 
+        // ✨ NUEVOS ELEMENTOS
+        const pvEditBtn   = document.getElementById('pv-edit');
+        const pvCancelBtn = document.getElementById('pv-cancel');
+        const pvSaveBtn   = document.getElementById('pv-save');
+
         if (!viewEl || !pvList || !playlist) return;
 
         let currentPlaylist = null;
+        let editMode        = false;
+        const editRemoved   = new Set();
 
         function findItemByTitle(title) {
             const n = normalizeStr(title);
@@ -3059,7 +3157,12 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             row.appendChild(info);
-            row.addEventListener('click', () => item.click());
+
+            // Si estamos en modo edición, bloquea el play
+            row.addEventListener('click', () => {
+                if (editMode) return;
+                item.click();
+            });
             return row;
         }
 
@@ -3077,7 +3180,133 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
+        function updateEditButtonVisibility() {
+            if (!pvEditBtn) return;
+            const canEdit = !!(currentPlaylist && currentPlaylist.isOwner === true);
+            pvEditBtn.style.display = canEdit ? '' : 'none';
+        }
+
+        function enterEditMode() {
+            if (!currentPlaylist || !currentPlaylist.isOwner) return;
+            editMode = true;
+            editRemoved.clear();
+            viewEl.classList.add('edit-mode');
+            if (pvEditBtn)   pvEditBtn.style.display = 'none';
+            if (pvCancelBtn) pvCancelBtn.style.display = '';
+            if (pvPlayAll)   pvPlayAll.style.display = 'none';
+            if (pvSaveBtn)   pvSaveBtn.style.display = '';
+            addRemoveButtons();
+        }
+
+        function exitEditMode() {
+            editMode = false;
+            editRemoved.clear();
+            viewEl.classList.remove('edit-mode');
+            if (pvCancelBtn) pvCancelBtn.style.display = 'none';
+            if (pvPlayAll)   pvPlayAll.style.display = '';
+            if (pvSaveBtn)   pvSaveBtn.style.display = 'none';
+            updateEditButtonVisibility();
+            pvList.querySelectorAll('.pv-row-remove').forEach(el => el.remove());
+            pvList.querySelectorAll('.pv-row.removed').forEach(el => {
+                el.classList.remove('removed');
+                el.style.display = '';
+            });
+        }
+
+        function addRemoveButtons() {
+            pvList.querySelectorAll('.pv-row').forEach(row => {
+                if (row.querySelector('.pv-row-remove')) return;
+                if (row.style.display === 'none') return;
+
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'pv-row-remove';
+                btn.setAttribute('aria-label', 'Quitar canción');
+                btn.innerHTML = '&times;';
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} }
+                    const title = row.dataset.title;
+                    if (title) editRemoved.add(title);
+                    row.classList.add('removed');
+                    row.style.display = 'none';
+                });
+                row.appendChild(btn);
+            });
+        }
+
+        function refreshRowsAfterSave() {
+            if (!currentPlaylist) return;
+            pvList.innerHTML = '';
+            currentPlaylist.canciones.forEach(c => {
+                const item = findItemByTitle(c.titulo);
+                if (!item) return;
+                pvList.appendChild(buildRow(item, c.titulo));
+            });
+            const n = currentPlaylist.canciones.length;
+            if (pvCount) pvCount.textContent = n + ' ' + (n === 1 ? 'canción' : 'canciones');
+            let coverSet = false;
+            for (const c of currentPlaylist.canciones) {
+                const it = findItemByTitle(c.titulo);
+                if (it) {
+                    const cv = getItemCover(it);
+                    if (cv) { pvCover.src = cv; coverSet = true; break; }
+                }
+            }
+            if (!coverSet) pvCover.removeAttribute('src');
+            refreshPlayingRows();
+        }
+
+        async function saveEditChanges() {
+            if (!currentPlaylist || !currentPlaylist.isOwner) return;
+
+            if (!editRemoved.size) { exitEditMode(); return; }
+
+            if (pvSaveBtn) {
+                pvSaveBtn.disabled = true;
+                pvSaveBtn.textContent = 'Guardando…';
+            }
+
+            try {
+                const excluidas = Array.from(editRemoved);
+
+                if (typeof window.__guardarEdicionPlaylist === 'function') {
+                    await window.__guardarEdicionPlaylist(currentPlaylist, excluidas);
+                }
+
+                currentPlaylist.canciones = currentPlaylist.canciones
+                    .filter(c => !editRemoved.has(c.titulo));
+
+                exitEditMode();
+
+                if (!currentPlaylist.canciones.length) {
+                    closeView();
+                    if (typeof window.__buildListenAgain === 'function') {
+                        try { window.__buildListenAgain(); } catch (_) {}
+                    }
+                    return;
+                }
+
+                refreshRowsAfterSave();
+
+                if (typeof window.__buildListenAgain === 'function') {
+                    try { window.__buildListenAgain(); } catch (_) {}
+                }
+            } catch (e) {
+                console.warn('Error guardando cambios:', e);
+                alert('No se pudieron guardar los cambios. Intenta de nuevo.');
+            } finally {
+                if (pvSaveBtn) {
+                    pvSaveBtn.disabled = false;
+                    pvSaveBtn.textContent = 'Guardar cambios';
+                }
+            }
+        }
+
         function openView(pl) {
+            if (editMode) exitEditMode();
+
             currentPlaylist = pl;
             pvTitle.textContent = pl.nombre || 'Tu Playlist';
 
@@ -3105,6 +3334,8 @@ document.addEventListener('DOMContentLoaded', () => {
             viewEl.setAttribute('aria-hidden', 'false');
             if (pvScroll) pvScroll.scrollTop = 0;
 
+            updateEditButtonVisibility();
+
             if (!pvList._omegaObserver) {
                 pvList._omegaObserver = new MutationObserver(refreshPlayingRows);
                 pvList._omegaObserver.observe(playlist, {
@@ -3115,6 +3346,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         function closeView() {
+            if (editMode) exitEditMode();
             viewEl.classList.remove('visible');
             viewEl.setAttribute('aria-hidden', 'true');
             currentPlaylist = null;
@@ -3123,11 +3355,15 @@ document.addEventListener('DOMContentLoaded', () => {
         if (pvBack) pvBack.addEventListener('click', closeView);
 
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && viewEl.classList.contains('visible')) closeView();
+            if (e.key === 'Escape' && viewEl.classList.contains('visible')) {
+                if (editMode) exitEditMode();
+                else closeView();
+            }
         });
 
         if (pvPlayAll) {
             pvPlayAll.addEventListener('click', () => {
+                if (editMode) return;
                 if (!currentPlaylist || !currentPlaylist.canciones.length) return;
 
                 const items = currentPlaylist.canciones
@@ -3148,6 +3384,10 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
+        if (pvEditBtn)   pvEditBtn.addEventListener('click', enterEditMode);
+        if (pvCancelBtn) pvCancelBtn.addEventListener('click', exitEditMode);
+        if (pvSaveBtn)   pvSaveBtn.addEventListener('click', saveEditChanges);
+
         window.__openPlaylistView = openView;
     }
 
@@ -3160,7 +3400,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /* ============================================================
    19. COMPARTIR PLAYLIST ENTRE USUARIOS
-   (BÚSQUEDA POR NOMBRE O CORREO + SEGUIR / DEJAR DE COMPARTIR)
    ============================================================ */
 (function () {
     'use strict';
@@ -3172,7 +3411,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let sharedUnsubscribe = null;
     let contactosRecientesCache = null;
 
-    // Cache: { [targetUid]: true } → indica si ya compartimos la playlist actual con ese usuario
     let yaCompartidosCache = new Set();
 
     const $ = (id) => document.getElementById(id);
@@ -3204,7 +3442,6 @@ document.addEventListener('DOMContentLoaded', () => {
             .trim();
     }
 
-    /* ---------- CARGA DE USUARIOS ---------- */
     async function cargarUsuariosFirebase() {
         if (usersCache) return usersCache;
         if (usersLoadingPromise) return usersLoadingPromise;
@@ -3243,7 +3480,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return usersLoadingPromise;
     }
 
-    /* ---------- CONTACTOS RECIENTES ---------- */
     async function cargarContactosRecientes() {
         const user = firebase.auth().currentUser;
         if (!user) return [];
@@ -3312,7 +3548,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ---------- COMPARTIDOS DE LA PLAYLIST ACTUAL ---------- */
     async function cargarCompartidosDePlaylist(playlist) {
         yaCompartidosCache = new Set();
         const user = firebase.auth().currentUser;
@@ -3384,7 +3619,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return true;
     }
 
-    /* ---------- BÚSQUEDA DE USUARIOS ---------- */
     async function buscarUsuariosEnFirestore(query) {
         const raw = String(query || '').trim();
         const q   = normalizeUserStr(raw);
@@ -3492,9 +3726,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return true;
     }
 
-    /* ---------- RENDER DE FILAS ---------- */
     function buildUserRow(u, onPick, mode) {
-        // mode: 'search' | 'recent' | 'already'
         const row = document.createElement('button');
         row.type = 'button';
         row.className = 'share-user-row';
@@ -3585,7 +3817,6 @@ document.addEventListener('DOMContentLoaded', () => {
         resto.forEach(u => container.appendChild(buildUserRow(u, onPick, 'search')));
     }
 
-    /* ---------- BLOQUE "SEGUIR COMPARTIENDO" ---------- */
     async function renderSeguirCompartiendo(container, onPick) {
         if (!container) return;
 
@@ -3624,7 +3855,6 @@ document.addEventListener('DOMContentLoaded', () => {
         container.appendChild(list);
     }
 
-    /* ---------- MODAL ---------- */
     async function openShareModal(playlist) {
         currentPlaylistToShare = playlist;
         currentTargetUser = null;
@@ -3681,7 +3911,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const yaCompartida = yaCompartidosCache.has(u.uid);
 
         if (yaCompartida) {
-            // DEJAR DE COMPARTIR
             status.textContent = 'Dejando de compartir con ' + u.nombre + '…';
             status.classList.remove('ok');
             try {
@@ -3711,7 +3940,6 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // COMPARTIR
         status.textContent = 'Compartiendo con ' + u.nombre + '…';
         status.classList.remove('ok');
 
@@ -3810,7 +4038,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         nombre: d.nombre || 'Playlist compartida',
                         portada: d.portada || '',
                         deNombre: d.deNombre || '',
-                        canciones: Array.isArray(d.canciones) ? d.canciones.slice() : []
+                        canciones: Array.isArray(d.canciones) ? d.canciones.slice() : [],
+                        isOwner: false   // ✨ NUEVO: los receptores nunca son dueños
                     });
                 });
                 list.sort((a, b) => String(a.nombre).localeCompare(String(b.nombre)));
@@ -3855,7 +4084,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
-        /* ---------- BÚSQUEDA EN VIVO ---------- */
         let debounceTimer = null;
         let searchToken = 0;
 
