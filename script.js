@@ -4836,3 +4836,208 @@ document.addEventListener('DOMContentLoaded', () => {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
     else init();
 })();
+/* ============================================================
+   26. NOTIFICACIONES DE MENSAJES (badge + historial persistente)
+   ------------------------------------------------------------
+   Refuerza lo existente SIN modificar nada:
+   - Contador de no leídos junto a "Mensajes" en el menú.
+   - Se actualiza en tiempo real con Firestore.
+   - Desaparece cuando no hay mensajes pendientes.
+   - Marca la conversación abierta como leída al recibir
+     mensajes nuevos (aunque el chat ya esté abierto).
+   - Refresca el contador al volver a la app.
+   - Refresca al abrir la vista "Mensajes".
+   ============================================================ */
+(function () {
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let unsubBadge    = null;   // listener en tiempo real
+    let currentUid    = null;   // uid del usuario actual
+    let lastUnread    = 0;      // último total calculado
+    let badgeDebounce = null;
+
+    /* ---------- Pintar el badge ---------- */
+    function paintBadge(total) {
+        const badge = $('msg-badge');
+        if (!badge) return;
+        const n = Math.max(0, Number(total) || 0);
+
+        if (n === 0) {
+            badge.style.display = 'none';
+            badge.textContent   = '0';
+        } else {
+            badge.style.display = 'inline-flex';
+            badge.textContent   = n > 99 ? '99+' : String(n);
+        }
+
+        // Refuerzo visual: si cambia de >0 a 0, animar brevemente
+        if (lastUnread > 0 && n === 0) {
+            badge.style.display = 'none';
+        }
+        lastUnread = n;
+    }
+
+    /* ---------- Consulta puntual (fallback) ---------- */
+    async function computeAndPaintBadge() {
+        if (!currentUid) { paintBadge(0); return; }
+        try {
+            const snap = await firebase.firestore()
+                .collection('conversaciones')
+                .where('participantes', 'array-contains', currentUid)
+                .get();
+            let total = 0;
+            snap.forEach(doc => {
+                const d = doc.data() || {};
+                total += (d.noLeidos && d.noLeidos[currentUid]) || 0;
+            });
+            paintBadge(total);
+        } catch (e) {
+            console.warn('[MSG-NOTIF] Fallback error:', e && e.code);
+        }
+    }
+
+    /* ---------- Listener en tiempo real ---------- */
+    function listenBadge() {
+        if (unsubBadge) { unsubBadge(); unsubBadge = null; }
+        if (!currentUid) { paintBadge(0); return; }
+
+        unsubBadge = firebase.firestore()
+            .collection('conversaciones')
+            .where('participantes', 'array-contains', currentUid)
+            .onSnapshot(snap => {
+                let total = 0;
+                snap.forEach(doc => {
+                    const d = doc.data() || {};
+                    total += (d.noLeidos && d.noLeidos[currentUid]) || 0;
+                });
+                paintBadge(total);
+
+                // Si el usuario tiene un chat abierto, marcarlo leído
+                if (total > 0) markOpenConversationRead();
+            }, err => {
+                console.warn('[MSG-NOTIF] Listener falló:', err && err.code);
+                computeAndPaintBadge();
+            });
+    }
+
+    /* ---------- Marcar como leída la conversación abierta ---------- */
+    async function markOpenConversationRead() {
+        const chatView = $('chat-view');
+        if (!chatView || !chatView.classList.contains('visible')) return;
+        if (!currentUid) return;
+
+        const usernameEl = $('chat-username');
+        if (!usernameEl) return;
+        const activeName = (usernameEl.textContent || '').trim().toLowerCase();
+        if (!activeName) return;
+
+        try {
+            const snap = await firebase.firestore()
+                .collection('conversaciones')
+                .where('participantes', 'array-contains', currentUid)
+                .get();
+
+            const tasks = [];
+            snap.forEach(doc => {
+                const d = doc.data() || {};
+                const otherUid = (d.participantes || []).find(u => u !== currentUid);
+                if (!otherUid) return;
+                const info = (d.info && d.info[otherUid]) || {};
+                const name = (info.nombre || '').trim().toLowerCase();
+                const noLeidos = (d.noLeidos && d.noLeidos[currentUid]) || 0;
+                if (name === activeName && noLeidos > 0) {
+                    tasks.push(
+                        doc.ref.update({ ['noLeidos.' + currentUid]: 0 })
+                            .catch(() => {})
+                    );
+                }
+            });
+
+            if (tasks.length) {
+                await Promise.all(tasks);
+                // El listener de tiempo real actualizará el badge automáticamente
+            }
+        } catch (e) {
+            // silencioso
+        }
+    }
+
+    /* ---------- Observadores de vistas ---------- */
+    function watchViews() {
+        // Al abrir "chat-view": marcar leído tras un instante
+        const chatView = $('chat-view');
+        if (chatView && chatView.dataset.badgeWatch !== '1') {
+            chatView.dataset.badgeWatch = '1';
+            const obs = new MutationObserver(() => {
+                if (chatView.classList.contains('visible')) {
+                    clearTimeout(badgeDebounce);
+                    badgeDebounce = setTimeout(markOpenConversationRead, 250);
+                }
+            });
+            obs.observe(chatView, { attributes: true, attributeFilter: ['class'] });
+        }
+
+        // Al abrir "mensajes-view": recomputar el badge
+        const mensajesView = $('mensajes-view');
+        if (mensajesView && mensajesView.dataset.badgeWatch !== '1') {
+            mensajesView.dataset.badgeWatch = '1';
+            const obs = new MutationObserver(() => {
+                if (mensajesView.classList.contains('visible')) {
+                    computeAndPaintBadge();
+                }
+            });
+            obs.observe(mensajesView, { attributes: true, attributeFilter: ['class'] });
+        }
+
+        // Al abrir el menú hamburguesa: recomputar (por si acaso)
+        const submenu = $('submenu');
+        if (submenu && submenu.dataset.badgeWatch !== '1') {
+            submenu.dataset.badgeWatch = '1';
+            const obs = new MutationObserver(() => {
+                if (submenu.classList.contains('visible')) {
+                    computeAndPaintBadge();
+                }
+            });
+            obs.observe(submenu, { attributes: true, attributeFilter: ['class'] });
+        }
+    }
+
+    /* ---------- Init ---------- */
+    function init() {
+        if (typeof firebase === 'undefined' || !firebase.auth) {
+            setTimeout(init, 300);
+            return;
+        }
+
+        firebase.auth().onAuthStateChanged(user => {
+            currentUid = user ? user.uid : null;
+            if (user) {
+                listenBadge();          // tiempo real
+                computeAndPaintBadge(); // inmediato (por si el listener tarda)
+            } else {
+                if (unsubBadge) { unsubBadge(); unsubBadge = null; }
+                paintBadge(0);
+            }
+        });
+
+        // Refrescar al volver a la app
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                computeAndPaintBadge();
+            }
+        });
+
+        // Refrescar también al recuperar foco
+        window.addEventListener('focus', () => computeAndPaintBadge());
+
+        watchViews();
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+})();
