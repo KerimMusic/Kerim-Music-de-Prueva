@@ -3148,7 +3148,7 @@ document.addEventListener('DOMContentLoaded', () => {
 })();
 
 /* ============================================================
-   20. ✨ NUEVO: MI PLAYLIST (crear, listar, público/privado)
+   20. MI PLAYLIST (crear, listar, público/privado, añadir)
    ============================================================ */
 (function () {
     'use strict';
@@ -3171,7 +3171,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return null;
     }
 
-    /* ---------- RENDER LISTA ---------- */
     function renderMiPlaylists() {
         const grid = $('mp-grid');
         const empty = $('mp-empty');
@@ -3240,7 +3239,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    /* ---------- ABRIR PLAYLIST ---------- */
     function openMiPlaylist(pl) {
         const canciones = (Array.isArray(pl.canciones) ? pl.canciones : []).map(c => {
             const local = findLocalItem(c.titulo);
@@ -3261,7 +3259,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (typeof window.__openPlaylistView === 'function') window.__openPlaylistView(plView);
     }
 
-    /* ---------- CARGAR MIS PLAYLISTS ---------- */
     function loadMisPlaylists() {
         const user = firebase.auth().currentUser;
         if (miUnsubscribe) { miUnsubscribe(); miUnsubscribe = null; }
@@ -3283,7 +3280,6 @@ document.addEventListener('DOMContentLoaded', () => {
             });
     }
 
-    /* ---------- VISTA ---------- */
     function openMiPlaylistView() {
         const view = $('mi-playlist-view');
         if (!view) return;
@@ -3298,7 +3294,6 @@ document.addEventListener('DOMContentLoaded', () => {
         view.setAttribute('aria-hidden', 'true');
     }
 
-    /* ---------- CREAR PLAYLIST ---------- */
     function openCreateModal() {
         const modal = $('mp-create-modal');
         const input = $('mp-create-input');
@@ -3351,7 +3346,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ---------- AÑADIR CANCIÓN ---------- */
     function openAddToPlaylistModal(songData) {
         currentSongToAdd = songData;
         const modal = $('mp-add-modal');
@@ -3435,7 +3429,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ---------- CANCIÓN ACTUAL ---------- */
     function getCurrentSongData() {
         const titleEl = $('player-title');
         const coverEl = $('player-cover');
@@ -3448,14 +3441,12 @@ document.addEventListener('DOMContentLoaded', () => {
         return { titulo, portada, subtitulo };
     }
 
-    /* ---------- PÚBLICO / PRIVADO ---------- */
     async function togglePlaylistVisibility(plId, nuevoPrivada) {
         try {
             await firebase.firestore().collection(COLLECTION).doc(plId).update({ privada: !!nuevoPrivada });
         } catch (e) { console.warn('Error actualizando visibilidad:', e); }
     }
 
-    /* ---------- TOGGLE VISIBILIDAD EN MODAL COMPARTIR ---------- */
     function injectShareVisibilityToggle() {
         const modal = $('share-modal');
         const box = modal?.querySelector('.share-modal-box');
@@ -3502,7 +3493,6 @@ document.addEventListener('DOMContentLoaded', () => {
         else box.appendChild(wrap);
     }
 
-    /* ---------- INIT ---------- */
     function init() {
         const miLink = $('mi-playlist-link');
         const mpBack = $('mp-back');
@@ -3540,7 +3530,6 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        // "Me gusta" del reproductor fullscreen → abrir modal de añadir
         document.addEventListener('click', (e) => {
             const likeBtn = e.target.closest('#fs-like');
             if (!likeBtn) return;
@@ -3551,7 +3540,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }, 150);
         });
 
-        // Detectar apertura del modal de compartir para inyectar visibilidad
         const shareModal = $('share-modal');
         if (shareModal) {
             const obs = new MutationObserver(() => {
@@ -3576,74 +3564,90 @@ document.addEventListener('DOMContentLoaded', () => {
 })();
 
 /* ============================================================
-   21. ✨ RESET AUTOMÁTICO DE SCROLL AL ABRIR VENTANAS
-   ============================================================
-   Asegura que cada vista nueva aparezca SIEMPRE desde arriba,
-   sin conservar la posición de scroll previa.
-   No modifica ninguna función existente.
+   21. RESET DE SCROLL: cada ventana abre desde arriba
    ============================================================ */
 (function () {
     'use strict';
 
-    const VIEW_SCROLL_MAP = [
-        { view: 'playlist-view',    scroll: 'pv-scroll' },
-        { view: 'mi-playlist-view', scroll: 'mp-scroll' },
-        { view: 'album-view',       scroll: 'av-scroll' },
-        { view: 'artist-profile',   scroll: 'ap-scroll' }
-    ];
+    const SCROLLABLE_SELECTORS = [
+        '.pv-scroll',
+        '.ap-scroll',
+        '.av-scroll',
+        '.mp-scroll',
+        '.playlist',
+        '.share-modal-results',
+        '.mp-add-list',
+        '.search-results'
+    ].join(',');
 
-    const MODAL_SCROLL_MAP = [
-        { modal: 'share-modal',  scroll: 'share-modal-results' },
-        { modal: 'mp-add-modal', scroll: 'mp-add-list' }
-    ];
-
-    function resetScrollFor(scrollId, extraEl) {
-        const scroller = document.getElementById(scrollId);
-        if (scroller) {
-            scroller.scrollTop = 0;
-            scroller.scrollLeft = 0;
-        }
-        if (extraEl) {
-            extraEl.scrollTop = 0;
-            extraEl.scrollLeft = 0;
-        }
+    function resetAllScrolls(root) {
+        if (!root) return;
+        const targets = new Set([root]);
+        if (root.matches && root.matches(SCROLLABLE_SELECTORS)) targets.add(root);
+        root.querySelectorAll(SCROLLABLE_SELECTORS).forEach(el => targets.add(el));
+        targets.forEach(el => {
+            try {
+                el.scrollTop = 0;
+                if (typeof el.scrollTo === 'function') el.scrollTo(0, 0);
+            } catch (_) {}
+        });
     }
 
-    function observeView(viewId, scrollId) {
-        const view = document.getElementById(viewId);
-        if (!view || view.dataset.scrollResetObserved === '1') return;
-        view.dataset.scrollResetObserved = '1';
-
-        const obs = new MutationObserver(() => {
-            if (view.classList.contains('visible')) {
-                resetScrollFor(scrollId, view);
-                requestAnimationFrame(() => resetScrollFor(scrollId, view));
-                setTimeout(() => resetScrollFor(scrollId, view), 60);
-                setTimeout(() => resetScrollFor(scrollId, view), 240);
-            }
-        });
-        obs.observe(view, { attributes: true, attributeFilter: ['class'] });
+    function forceReset(root) {
+        resetAllScrolls(root);
+        if (window.requestAnimationFrame) {
+            requestAnimationFrame(() => resetAllScrolls(root));
+        }
+        setTimeout(() => resetAllScrolls(root), 60);
+        setTimeout(() => resetAllScrolls(root), 180);
+        setTimeout(() => resetAllScrolls(root), 420);
     }
 
-    function observeModal(modalId, scrollId) {
-        const modal = document.getElementById(modalId);
-        if (!modal || modal.dataset.scrollResetObserved === '1') return;
-        modal.dataset.scrollResetObserved = '1';
+    function observeView(el) {
+        if (!el || el.dataset.scrollResetReady === '1') return;
+        el.dataset.scrollResetReady = '1';
 
-        const obs = new MutationObserver(() => {
-            if (modal.classList.contains('visible')) {
-                resetScrollFor(scrollId);
-                requestAnimationFrame(() => resetScrollFor(scrollId));
-                setTimeout(() => resetScrollFor(scrollId), 60);
+        const obs = new MutationObserver((mutations) => {
+            for (const m of mutations) {
+                if (m.attributeName !== 'class') continue;
+                if (!el.classList.contains('visible')) continue;
+                forceReset(el);
+                break;
             }
         });
-        obs.observe(modal, { attributes: true, attributeFilter: ['class'] });
+        obs.observe(el, { attributes: true, attributeFilter: ['class'] });
+
+        if (el.classList.contains('visible')) forceReset(el);
     }
 
     function init() {
-        VIEW_SCROLL_MAP.forEach(({ view, scroll }) => observeView(view, scroll));
-        MODAL_SCROLL_MAP.forEach(({ modal, scroll }) => observeModal(modal, scroll));
-        console.log('✅ Reset de scroll activo para ventanas y modales');
+        const ids = [
+            'playlist-view',
+            'artist-profile',
+            'album-view',
+            'mi-playlist-view',
+            'share-modal',
+            'mp-create-modal',
+            'mp-add-modal'
+        ];
+        ids.forEach(id => observeView(document.getElementById(id)));
+
+        const closeButtons = [
+            'pv-back', 'ap-close', 'av-back', 'mp-back',
+            'share-modal-close', 'mp-create-close', 'mp-add-close'
+        ];
+        closeButtons.forEach(id => {
+            const btn = document.getElementById(id);
+            if (!btn || btn.dataset.scrollResetReady === '1') return;
+            btn.dataset.scrollResetReady = '1';
+            btn.addEventListener('click', () => {
+                const parent = btn.closest(
+                    '.playlist-view, .artist-profile, .album-view, .mi-playlist-view, ' +
+                    '.share-modal, .mp-modal'
+                );
+                if (parent) resetAllScrolls(parent);
+            }, true);
+        });
     }
 
     if (document.readyState === 'loading') {
@@ -3651,4 +3655,9 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
         init();
     }
+
+    window.__resetViewScroll = function (sel) {
+        const el = typeof sel === 'string' ? document.querySelector(sel) : sel;
+        if (el) forceReset(el);
+    };
 })();
