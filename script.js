@@ -4847,6 +4847,8 @@ document.addEventListener('DOMContentLoaded', () => {
      mensajes nuevos (aunque el chat ya esté abierto).
    - Refresca el contador al volver a la app.
    - Refresca al abrir la vista "Mensajes".
+   - 👇 MODIFICADO: Ahora dispara notificación nativa a Android
+     cuando llega un mensaje nuevo mientras la app está abierta.
    ============================================================ */
 (function () {
     'use strict';
@@ -4908,10 +4910,51 @@ document.addEventListener('DOMContentLoaded', () => {
             .where('participantes', 'array-contains', currentUid)
             .onSnapshot(snap => {
                 let total = 0;
+                let lastMsgInfo = null;
+
                 snap.forEach(doc => {
                     const d = doc.data() || {};
-                    total += (d.noLeidos && d.noLeidos[currentUid]) || 0;
+                    const unread = (d.noLeidos && d.noLeidos[currentUid]) || 0;
+                    total += unread;
+                    
+                    // Extraer información del último mensaje para la notificación
+                    if (unread > 0) {
+                        const otherUid = (d.participantes || []).find(u => u !== currentUid);
+                        const info = (d.info && d.info[otherUid]) || {};
+                        const ult = d.ultimoMensaje || {};
+                        lastMsgInfo = {
+                            nombre: info.nombre || 'Usuario',
+                            texto: ult.texto || (ult.tieneCancion ? 'Te compartió una canción' : 'Nuevo mensaje')
+                        };
+                    }
                 });
+
+                // 👇 INICIO DE LA MODIFICACIÓN: Disparar notificación a Android
+                if (total > lastUnread && lastUnread > 0 && lastMsgInfo) {
+                    // Verificar si el usuario ya está viendo el chat de esa persona
+                    const chatView = $('chat-view');
+                    const usernameEl = $('chat-username');
+                    let isChatOpen = false;
+                    
+                    if (chatView && chatView.classList.contains('visible') && usernameEl) {
+                        const activeName = (usernameEl.textContent || '').trim().toLowerCase();
+                        if (activeName && lastMsgInfo.nombre.toLowerCase() === activeName) {
+                            isChatOpen = true; // Ya está en el chat, no notificar
+                        }
+                    }
+
+                    if (!isChatOpen) {
+                        // Intentar con NativeBridge (el que configuramos) o AndroidBridge (el que ya tenías)
+                        var bridge = window.NativeBridge || window.AndroidBridge;
+                        if (bridge && typeof bridge.avisarMensajeNuevo === 'function') {
+                            try {
+                                bridge.avisarMensajeNuevo(lastMsgInfo.nombre, lastMsgInfo.texto);
+                            } catch(e) { console.warn('Error enviando notificación nativa:', e); }
+                        }
+                    }
+                }
+                // 👆 FIN DE LA MODIFICACIÓN
+
                 paintBadge(total);
 
                 // Si el usuario tiene un chat abierto, marcarlo leído
@@ -5687,4 +5730,35 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
         init();
     }
+})();
+/* ============================================================
+   28. TOKEN FCM → Guardar en Firestore
+   ============================================================ */
+(function () {
+    'use strict';
+
+    window.recibirTokenFCM = async function (token) {
+        if (!token) return;
+        const user = firebase.auth().currentUser;
+        if (!user) {
+            window.__pendingFCMToken = token;
+            return;
+        }
+        try {
+            await firebase.firestore()
+                .collection('historial_usuarios')
+                .doc(user.uid)
+                .set({ fcmToken: token }, { merge: true });
+            console.log('✅ Token FCM guardado en Firestore');
+        } catch (e) {
+            console.warn('⚠️ No se pudo guardar el token FCM:', e);
+        }
+    };
+
+    firebase.auth().onAuthStateChanged(user => {
+        if (user && window.__pendingFCMToken) {
+            window.recibirTokenFCM(window.__pendingFCMToken);
+            window.__pendingFCMToken = null;
+        }
+    });
 })();
