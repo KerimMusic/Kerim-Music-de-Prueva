@@ -1467,6 +1467,7 @@ button:active { opacity: 0.72; }
 
 .mp-modal-status { font-size: 13px; color: #ff5757; min-height: 18px; text-align: center; margin: 10px 0 0; }
 .mp-modal-status.ok { color: #4ade80; font-weight: 700; }
+.mp-modal-status.checking { color: #b3b3b3; font-weight: 600; }
 
 .mp-modal-actions { display: flex; gap: 10px; margin-top: 14px; }
 
@@ -1548,11 +1549,11 @@ button:active { opacity: 0.72; }
     color: #ff2a2a;
     font-weight: 800;
 }
+
 /* ============================================================
    MENSAJES DIRECTOS
    ============================================================ */
 
-/* Badge de no leídos en el menú */
 .msg-badge {
     display: inline-flex;
     align-items: center;
@@ -1570,7 +1571,6 @@ button:active { opacity: 0.72; }
     vertical-align: middle;
 }
 
-/* Vistas (comparten estructura con las demás) */
 .mensajes-view,
 .chat-view,
 .newmsg-view {
@@ -1589,7 +1589,6 @@ button:active { opacity: 0.72; }
 .chat-view.visible,
 .newmsg-view.visible { transform: translateY(0); visibility: visible; }
 
-/* Headers */
 .msg-header,
 .newmsg-header {
     flex-shrink: 0;
@@ -1643,7 +1642,6 @@ button:active { opacity: 0.72; }
 }
 .msg-new-btn:active { transform: scale(0.94); opacity: 0.9; }
 
-/* Lista de conversaciones */
 .msg-scroll {
     flex: 1;
     overflow-y: auto;
@@ -1712,7 +1710,6 @@ button:active { opacity: 0.72; }
 .msg-empty-title { font-size: 18px; font-weight: 800; color: #ffffff; margin-bottom: 6px; }
 .msg-empty-sub { font-size: 13px; color: #999999; }
 
-/* Chat */
 .chat-header {
     flex-shrink: 0;
     display: flex;
@@ -1802,7 +1799,6 @@ button:active { opacity: 0.72; }
 .chat-bubble-song-title { font-size: 13px; font-weight: 800; color: inherit; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chat-bubble-song-sub { font-size: 11px; opacity: 0.75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/* Composer */
 .chat-composer {
     flex-shrink: 0;
     padding: 8px 12px 12px;
@@ -1886,7 +1882,6 @@ button:active { opacity: 0.72; }
 .chat-send:active { transform: scale(0.94); opacity: 0.9; }
 .chat-send svg { width: 18px; height: 18px; }
 
-/* Vista nuevo mensaje */
 .newmsg-search-wrap { padding: 4px 16px 8px; flex-shrink: 0; }
 .newmsg-input {
     width: 100%;
