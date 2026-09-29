@@ -80,6 +80,7 @@
             <ul class="submenu-list">
                 <li><a href="#" id="mi-playlist-link" class="submenu-link" type="button">Mi Playlist</a></li>
                 <li><a href="#" id="mensajes-link" class="submenu-link" type="button">Mensajes <span class="msg-badge" id="msg-badge" style="display:none;">0</span></a></li>
+                <li><a href="#" id="edit-name-link" class="submenu-link" type="button">Editar nombre</a></li>
                 <li><a href="#" id="logout-link" class="submenu-link" type="button">Cerrar Sesion</a></li>
             </ul>
         </nav>
@@ -1031,6 +1032,24 @@
             </div>
             <div class="mp-add-list" id="mp-add-list"></div>
             <p class="mp-modal-status" id="mp-add-status"></p>
+        </div>
+    </div>
+
+    <!-- ==================== Modal Editar Nombre de Usuario ==================== -->
+    <div class="mp-modal" id="name-modal" aria-hidden="true">
+        <div class="mp-modal-backdrop" id="name-modal-backdrop"></div>
+        <div class="mp-modal-box" role="dialog" aria-modal="true" aria-labelledby="name-modal-title">
+            <div class="mp-modal-header">
+                <h2 class="mp-modal-title" id="name-modal-title">Editar nombre de usuario</h2>
+                <button class="mp-modal-close" id="name-modal-close" type="button" aria-label="Cerrar">&times;</button>
+            </div>
+            <input type="text" class="mp-modal-input" id="name-modal-input"
+                   placeholder="Nuevo nombre..." maxlength="30" autocomplete="off">
+            <p class="mp-modal-status" id="name-modal-status"></p>
+            <div class="mp-modal-actions">
+                <button class="mp-modal-btn mp-modal-btn-cancel" id="name-modal-cancel" type="button">Cancelar</button>
+                <button class="mp-modal-btn mp-modal-btn-confirm" id="name-modal-confirm" type="button" disabled>Guardar</button>
+            </div>
         </div>
     </div>
 
