@@ -5685,3 +5685,333 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 })();
+/* ============================================================
+   29. EDITAR / PERSONALIZAR NOMBRE DE USUARIO
+   ------------------------------------------------------------
+   - Modal accesible desde el menú lateral ("Editar nombre").
+   - Valida longitud, caracteres y disponibilidad en Firestore.
+   - Comprueba duplicados contra toda la colección historial_usuarios.
+   - Guarda en:
+       · historial_usuarios/{uid}.nombre
+       · historial_usuarios/{uid}.nombre_lower (para búsquedas rápidas)
+       · user.updateProfile({ displayName })  → Auth de Firebase
+       · info.{uid}.nombre  → en todas las conversaciones del usuario
+   - Actualiza la UI inmediatamente (menú lateral, inputs, etc.).
+   ============================================================ */
+(function () {
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let usersCacheForNames = null;
+    let usersLoadingPromise = null;
+    let currentName = '';
+    let checkToken = 0;
+
+    /* ---------- Normalización ---------- */
+    function normalizeName(str) {
+        return String(str || '')
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    /* ---------- Validación local ---------- */
+    function validateName(name) {
+        const trimmed = String(name || '').trim();
+        if (!trimmed)                       return { ok: false, msg: 'Escribe un nombre.' };
+        if (trimmed.length < 3)             return { ok: false, msg: 'Mínimo 3 caracteres.' };
+        if (trimmed.length > 30)            return { ok: false, msg: 'Máximo 30 caracteres.' };
+        const validRegex = /^[\p{L}\p{N}\s._\-]+$/u;
+        if (!validRegex.test(trimmed)) {
+            return { ok: false, msg: 'Solo letras, números, espacios, . _ -' };
+        }
+        return { ok: true, value: trimmed };
+    }
+
+    /* ---------- Caché de usuarios ---------- */
+    async function loadAllUsersForNames() {
+        if (usersCacheForNames) return usersCacheForNames;
+        if (usersLoadingPromise) return usersLoadingPromise;
+        usersLoadingPromise = (async () => {
+            const snap = await firebase.firestore()
+                .collection('historial_usuarios').limit(1500).get();
+            const users = [];
+            snap.forEach(doc => {
+                const d = doc.data() || {};
+                const nombre = d.nombre || d.name || d.displayName || '';
+                const nombreLower = d.nombre_lower || normalizeName(nombre);
+                users.push({ uid: doc.id, nombre, nombreLower });
+            });
+            usersCacheForNames = users;
+            return users;
+        })().catch(err => { usersLoadingPromise = null; throw err; });
+        return usersLoadingPromise;
+    }
+
+    /* ---------- Disponibilidad del nombre ---------- */
+    async function isNameAvailable(name) {
+        const user = firebase.auth().currentUser;
+        if (!user) return false;
+        const target = normalizeName(name);
+        if (!target) return false;
+
+        try {
+            const snap = await firebase.firestore()
+                .collection('historial_usuarios')
+                .where('nombre_lower', '==', target)
+                .limit(5)
+                .get();
+            let taken = false;
+            snap.forEach(doc => { if (doc.id !== user.uid) taken = true; });
+            if (taken) return false;
+            if (!snap.empty) return true;
+        } catch (e) { /* fallback */ }
+
+        try {
+            const users = await loadAllUsersForNames();
+            for (const u of users) {
+                if (u.uid === user.uid) continue;
+                const cmp = u.nombreLower || normalizeName(u.nombre);
+                if (cmp === target) return false;
+            }
+        } catch (e) { /* silencioso */ }
+
+        return true;
+    }
+
+    /* ---------- UI helpers ---------- */
+    function updateStatus(msg, type) {
+        const status = $('name-modal-status');
+        if (!status) return;
+        status.textContent = msg || '';
+        status.classList.remove('ok', 'error', 'checking');
+        if (type === 'ok')            status.classList.add('ok');
+        else if (type === 'error')    status.classList.add('error');
+        else if (type === 'checking') status.classList.add('checking');
+    }
+    function setSaveEnabled(enabled) {
+        const btn = $('name-modal-confirm');
+        if (btn) btn.disabled = !enabled;
+    }
+
+    /* ---------- Comprobación con debounce ---------- */
+    async function checkAndValidate(name) {
+        const token = ++checkToken;
+        const validation = validateName(name);
+        if (!validation.ok) {
+            updateStatus(validation.msg, 'error');
+            setSaveEnabled(false);
+            return;
+        }
+        const trimmed = validation.value;
+        if (normalizeName(trimmed) === normalizeName(currentName)) {
+            updateStatus('Es tu nombre actual.', 'error');
+            setSaveEnabled(false);
+            return;
+        }
+        updateStatus('Comprobando disponibilidad…', 'checking');
+        setSaveEnabled(false);
+        try {
+            const available = await isNameAvailable(trimmed);
+            if (token !== checkToken) return;
+            if (!available) {
+                updateStatus('❌ Ese nombre no está disponible.', 'error');
+                setSaveEnabled(false);
+            } else {
+                updateStatus('✅ Nombre disponible.', 'ok');
+                setSaveEnabled(true);
+            }
+        } catch (e) {
+            updateStatus('Error al verificar. Intenta de nuevo.', 'error');
+            setSaveEnabled(false);
+        }
+    }
+
+    /* ---------- Abrir / cerrar modal ---------- */
+    function openModal() {
+        const modal = $('name-modal');
+        const input = $('name-modal-input');
+        if (!modal || !input) return;
+        const user = firebase.auth().currentUser;
+        if (!user) return;
+
+        const nombreEl = $('submenu-user-name');
+        currentName = (nombreEl ? nombreEl.textContent : '').trim() || '';
+        if (!currentName || currentName === 'Cargando usuario...') {
+            currentName = user.displayName || (user.email ? user.email.split('@')[0] : '') || '';
+        }
+
+        input.value = currentName;
+        updateStatus('', '');
+        setSaveEnabled(false);
+
+        modal.classList.add('visible');
+        modal.setAttribute('aria-hidden', 'false');
+        setTimeout(() => { input.focus(); input.select(); }, 180);
+    }
+
+    function closeModal() {
+        const modal = $('name-modal');
+        if (!modal) return;
+        modal.classList.remove('visible');
+        modal.setAttribute('aria-hidden', 'true');
+        setSaveEnabled(false);
+        updateStatus('', '');
+    }
+
+    /* ---------- Guardado ---------- */
+    async function saveName() {
+        const user = firebase.auth().currentUser;
+        if (!user) return;
+        const input = $('name-modal-input');
+        const confirmBtn = $('name-modal-confirm');
+        if (!input) return;
+
+        const validation = validateName(input.value);
+        if (!validation.ok) {
+            updateStatus(validation.msg, 'error');
+            return;
+        }
+        const newName = validation.value;
+
+        if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'Guardando…'; }
+        updateStatus('Guardando…', 'checking');
+
+        try {
+            const nombreLower = normalizeName(newName);
+
+            const available = await isNameAvailable(newName);
+            if (!available) {
+                updateStatus('❌ Ese nombre no está disponible.', 'error');
+                if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Guardar'; }
+                return;
+            }
+
+            try {
+                await user.updateProfile({ displayName: newName });
+            } catch (e) { console.warn('No se pudo actualizar displayName:', e); }
+
+            await firebase.firestore()
+                .collection('historial_usuarios')
+                .doc(user.uid)
+                .set({ nombre: newName, nombre_lower: nombreLower }, { merge: true });
+
+            try {
+                const convSnap = await firebase.firestore()
+                    .collection('conversaciones')
+                    .where('participantes', 'array-contains', user.uid)
+                    .get();
+                const tasks = [];
+                convSnap.forEach(doc => {
+                    tasks.push(
+                        doc.ref.update({ ['info.' + user.uid + '.nombre']: newName })
+                            .catch(() => {})
+                    );
+                });
+                if (tasks.length) await Promise.all(tasks);
+            } catch (e) { console.warn('No se pudieron actualizar conversaciones:', e); }
+
+            applyNewNameEverywhere(newName);
+
+            usersCacheForNames = null;
+            usersLoadingPromise = null;
+            try { loadAllUsersForNames(); } catch (_) {}
+
+            updateStatus('✅ Nombre actualizado.', 'ok');
+            setTimeout(closeModal, 900);
+
+        } catch (e) {
+            console.error('Error al guardar nombre:', e);
+            updateStatus('Error al guardar. Intenta de nuevo.', 'error');
+        } finally {
+            if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Guardar'; }
+        }
+    }
+
+    /* ---------- Aplicar el nuevo nombre en la UI ---------- */
+    function applyNewNameEverywhere(newName) {
+        const sideEl = $('submenu-user-name');
+        if (sideEl) sideEl.textContent = newName;
+
+        const modalInput = $('name-modal-input');
+        if (modalInput) modalInput.value = newName;
+
+        currentName = newName;
+    }
+
+    /* ---------- Init ---------- */
+    function init() {
+        if (typeof firebase === 'undefined' || !firebase.auth) { setTimeout(init, 300); return; }
+
+        const link     = $('edit-name-link');
+        const modal    = $('name-modal');
+        const input    = $('name-modal-input');
+        const closeBtn = $('name-modal-close');
+        const cancel   = $('name-modal-cancel');
+        const backdrop = $('name-modal-backdrop');
+        const confirm  = $('name-modal-confirm');
+        if (!modal || !input || !confirm) { setTimeout(init, 300); return; }
+
+        if (link && link.dataset.editNameReady !== '1') {
+            link.dataset.editNameReady = '1';
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const sm = $('submenu');
+                const so = $('submenu-overlay');
+                if (sm) sm.classList.remove('visible');
+                if (so) so.classList.remove('visible');
+                setTimeout(openModal, 120);
+            });
+        }
+        if (closeBtn && closeBtn.dataset.editNameReady !== '1') {
+            closeBtn.dataset.editNameReady = '1';
+            closeBtn.addEventListener('click', closeModal);
+        }
+        if (cancel && cancel.dataset.editNameReady !== '1') {
+            cancel.dataset.editNameReady = '1';
+            cancel.addEventListener('click', closeModal);
+        }
+        if (backdrop && backdrop.dataset.editNameReady !== '1') {
+            backdrop.dataset.editNameReady = '1';
+            backdrop.addEventListener('click', closeModal);
+        }
+        if (confirm && confirm.dataset.editNameReady !== '1') {
+            confirm.dataset.editNameReady = '1';
+            confirm.addEventListener('click', saveName);
+        }
+        if (input.dataset.editNameReady !== '1') {
+            input.dataset.editNameReady = '1';
+            let deb = null;
+            input.addEventListener('input', () => {
+                if (deb) clearTimeout(deb);
+                const val = input.value;
+                deb = setTimeout(() => checkAndValidate(val), 320);
+            });
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (!confirm.disabled) saveName();
+                }
+            });
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && modal.classList.contains('visible')) {
+                e.stopPropagation();
+                closeModal();
+            }
+        }, true);
+
+        loadAllUsersForNames().catch(() => {});
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+})();
