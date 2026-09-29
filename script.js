@@ -6015,3 +6015,233 @@ document.addEventListener('DOMContentLoaded', () => {
         init();
     }
 })();
+/* ============================================================
+   30. ESTADO "VISTO" EN MENSAJES
+   ------------------------------------------------------------
+   - Los mensajes enviados se muestran sin "Visto" por defecto.
+   - Cuando el destinatario abre la conversación, se marca en
+     Firestore `visto: true` en todos los mensajes que no son suyos.
+   - El emisor ve "✓✓ Visto" debajo de la hora del mensaje.
+   - El estado se actualiza en tiempo real con Firestore.
+   - No modifica nada existente (secciones 1 a 28).
+   ============================================================ */
+(function () {
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let currentConvId = null;
+    let otherUserUid = null;
+    let unsubSeen = null;
+    let chatViewObserved = false;
+    let domObserved = false;
+    let lastMessages = [];
+    let applyScheduled = null;
+
+    /* ---------- Normalizar nombre ---------- */
+    function normName(s) {
+        return String(s || '')
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .trim();
+    }
+
+    /* ---------- Construir convId ---------- */
+    function makeConvId(a, b) {
+        return [a, b].sort().join('__');
+    }
+
+    /* ---------- Buscar uid del otro usuario por nombre ---------- */
+    async function findOtherUidByName(name) {
+        if (!name) return null;
+        try {
+            const snap = await firebase.firestore()
+                .collection('historial_usuarios').limit(1500).get();
+            const target = normName(name);
+            for (const doc of snap.docs) {
+                const d = doc.data() || {};
+                const n = normName(d.nombre || d.name || d.displayName || '');
+                if (n && n === target) return doc.id;
+            }
+        } catch (e) { console.warn('[VISTO] Error buscando usuario:', e); }
+        return null;
+    }
+
+    /* ---------- Marcar mensajes como vistos en Firestore ---------- */
+    async function markMessagesAsSeen() {
+        const user = firebase.auth().currentUser;
+        if (!user || !currentConvId) return;
+        try {
+            const msgsRef = firebase.firestore()
+                .collection('conversaciones').doc(currentConvId)
+                .collection('mensajes');
+            const snap = await msgsRef.get();
+            const batch = firebase.firestore().batch();
+            let count = 0;
+            snap.forEach(doc => {
+                const d = doc.data() || {};
+                if (d.de !== user.uid && d.visto !== true) {
+                    batch.update(doc.ref, { visto: true });
+                    count++;
+                }
+            });
+            if (count > 0) await batch.commit();
+        } catch (e) { console.warn('[VISTO] Error marcando como visto:', e); }
+    }
+
+    /* ---------- Aplicar marcas de "Visto" al DOM ---------- */
+    function applySeenMarks(messages) {
+        if (messages) lastMessages = messages;
+        const container = $('chat-messages');
+        if (!container) return;
+        const user = firebase.auth().currentUser;
+        if (!user) return;
+
+        const outRows = Array.from(container.querySelectorAll('.chat-row--out'));
+        if (!outRows.length) return;
+
+        const mineMsgs = lastMessages.filter(m => m.de === user.uid);
+
+        const n = Math.min(outRows.length, mineMsgs.length);
+        for (let i = 0; i < n; i++) {
+            const row = outRows[outRows.length - 1 - i];
+            const msg = mineMsgs[mineMsgs.length - 1 - i];
+            if (!row || !msg) continue;
+            const bubble = row.querySelector('.chat-bubble');
+            if (!bubble) continue;
+
+            // Verificar coincidencia por texto si es posible
+            const txtEl = bubble.querySelector('.chat-bubble-text');
+            const bubbleText = (txtEl ? txtEl.textContent : '').trim();
+            const msgText = (msg.texto || '').trim();
+            if (bubbleText && msgText && bubbleText !== msgText) {
+                continue;
+            }
+
+            let mark = bubble.querySelector('.chat-seen-mark');
+            if (msg.visto === true) {
+                if (!mark) {
+                    mark = document.createElement('div');
+                    mark.className = 'chat-seen-mark';
+                    bubble.appendChild(mark);
+                }
+                mark.textContent = '✓✓ Visto';
+            } else {
+                if (mark) mark.remove();
+            }
+        }
+    }
+
+    function scheduleApplySeenMarks() {
+        if (applyScheduled) return;
+        applyScheduled = requestAnimationFrame(() => {
+            applyScheduled = null;
+            applySeenMarks();
+        });
+    }
+
+    /* ---------- Listener de mensajes en tiempo real ---------- */
+    function listenMessagesForSeen() {
+        if (unsubSeen) { unsubSeen(); unsubSeen = null; }
+        if (!currentConvId) return;
+
+        unsubSeen = firebase.firestore()
+            .collection('conversaciones').doc(currentConvId)
+            .collection('mensajes')
+            .orderBy('fecha', 'asc')
+            .onSnapshot(async snap => {
+                const arr = [];
+                const toMark = [];
+                const user = firebase.auth().currentUser;
+                if (!user) return;
+                snap.forEach(doc => {
+                    const d = doc.data() || {};
+                    arr.push({
+                        id: doc.id,
+                        de: d.de,
+                        texto: d.texto || '',
+                        cancion: d.cancion || null,
+                        visto: d.visto === true
+                    });
+                    if (d.de !== user.uid && d.visto !== true) {
+                        toMark.push(doc.ref);
+                    }
+                });
+                applySeenMarks(arr);
+                if (toMark.length > 0) {
+                    try {
+                        const batch = firebase.firestore().batch();
+                        toMark.forEach(ref => batch.update(ref, { visto: true }));
+                        await batch.commit();
+                    } catch (e) { /* silencioso */ }
+                }
+            }, err => { console.warn('[VISTO] Listener error:', err); });
+    }
+
+    /* ---------- Observar el DOM del chat ---------- */
+    function observeChatDOM() {
+        const container = $('chat-messages');
+        if (!container || domObserved) return;
+        domObserved = true;
+        const obs = new MutationObserver(() => {
+            if (currentConvId) scheduleApplySeenMarks();
+        });
+        obs.observe(container, { childList: true, subtree: true });
+    }
+
+    /* ---------- Detectar apertura del chat ---------- */
+    function watchChatView() {
+        const chatView = $('chat-view');
+        if (!chatView) { setTimeout(watchChatView, 300); return; }
+        if (chatViewObserved) return;
+        chatViewObserved = true;
+
+        let lastVisible = false;
+        const obs = new MutationObserver(async () => {
+            const visible = chatView.classList.contains('visible');
+            if (visible === lastVisible) return;
+            lastVisible = visible;
+
+            if (visible) {
+                const user = firebase.auth().currentUser;
+                if (!user) return;
+                const nameEl = $('chat-username');
+                const otherName = (nameEl ? nameEl.textContent : '').trim();
+                if (!otherName || otherName === 'Usuario') return;
+
+                const uid = await findOtherUidByName(otherName);
+                if (!uid) return;
+                otherUserUid = uid;
+                currentConvId = makeConvId(user.uid, uid);
+
+                await markMessagesAsSeen();
+                listenMessagesForSeen();
+                observeChatDOM();
+                setTimeout(scheduleApplySeenMarks, 250);
+                setTimeout(scheduleApplySeenMarks, 600);
+            } else {
+                if (unsubSeen) { unsubSeen(); unsubSeen = null; }
+                currentConvId = null;
+                otherUserUid = null;
+                lastMessages = [];
+            }
+        });
+        obs.observe(chatView, { attributes: true, attributeFilter: ['class'] });
+    }
+
+    /* ---------- Init ---------- */
+    function init() {
+        if (typeof firebase === 'undefined' || !firebase.auth) {
+            setTimeout(init, 300);
+            return;
+        }
+        watchChatView();
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+})();
