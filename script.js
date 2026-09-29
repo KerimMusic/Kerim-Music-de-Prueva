@@ -2956,16 +2956,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!modal) return;
         if (input) input.value = '';
         if (status) { status.textContent = ''; status.classList.remove('ok'); }
-        if (results) results.innerHTML = '<div class="search-empty"><div class="search-empty-sub">Cargando usuarios…</div></div>';
+        // ✅ NUEVO: sin usuarios visibles hasta que el usuario escriba
+        if (results) results.innerHTML = '';
+        if (recentBox) { recentBox.innerHTML = ''; recentBox.style.display = 'none'; }
         modal.classList.add('visible');
         modal.setAttribute('aria-hidden', 'false');
         await cargarCompartidosDePlaylist(playlist);
-        if (recentBox) renderSeguirCompartiendo(recentBox, onPickUser).catch(() => {});
-        cargarUsuariosFirebase().then(users => {
-            renderUserResults(filtrarUsuarios(users, ''), results, onPickUser, '');
-        }).catch(err => {
-            if (results) results.innerHTML = '<div class="search-empty"><div class="search-empty-title">Error</div><div class="search-empty-sub">No se pudieron cargar los usuarios.</div></div>';
-        });
+        // ✅ Precargar la caché de usuarios (sin renderizar nada)
+        cargarUsuariosFirebase().catch(() => {});
     }
 
     function closeShareModal() {
@@ -2991,12 +2989,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 status.textContent = '✓ Dejaste de compartir con ' + u.nombre;
                 status.classList.add('ok');
                 const results = $('share-modal-results');
-                const recentBox = $('share-modal-recent');
                 if (usersCache) {
                     const q = ($('share-modal-input')?.value || '').trim();
-                    renderUserResults(filtrarUsuarios(usersCache, q), results, onPickUser, q);
+                    if (q) renderUserResults(filtrarUsuarios(usersCache, q), results, onPickUser, q);
+                    else if (results) results.innerHTML = '';
                 }
-                if (recentBox) renderSeguirCompartiendo(recentBox, onPickUser).catch(() => {});
                 setTimeout(() => { status.textContent = ''; status.classList.remove('ok'); currentTargetUser = null; }, 1400);
             } catch (err) {
                 status.textContent = err.message || 'No se pudo dejar de compartir.';
@@ -3012,12 +3009,11 @@ document.addEventListener('DOMContentLoaded', () => {
             status.textContent = '✓ Playlist compartida con ' + u.nombre;
             status.classList.add('ok');
             const results = $('share-modal-results');
-            const recentBox = $('share-modal-recent');
             if (usersCache) {
                 const q = ($('share-modal-input')?.value || '').trim();
-                renderUserResults(filtrarUsuarios(usersCache, q), results, onPickUser, q);
+                if (q) renderUserResults(filtrarUsuarios(usersCache, q), results, onPickUser, q);
+                else if (results) results.innerHTML = '';
             }
-            if (recentBox) renderSeguirCompartiendo(recentBox, onPickUser).catch(() => {});
             setTimeout(() => { status.textContent = ''; status.classList.remove('ok'); currentTargetUser = null; }, 1600);
         } catch (err) {
             status.textContent = err.message || 'No se pudo compartir la playlist.';
@@ -3114,12 +3110,11 @@ document.addEventListener('DOMContentLoaded', () => {
             input.addEventListener('input', () => {
                 const q = input.value.trim();
                 if (debounceTimer) clearTimeout(debounceTimer);
-                if (recentBox) recentBox.style.display = q ? 'none' : '';
+                // ✅ Ocultar siempre la sección de recientes dentro del buscador
+                if (recentBox) { recentBox.innerHTML = ''; recentBox.style.display = 'none'; }
                 if (!q) {
-                    if (recentBox) renderSeguirCompartiendo(recentBox, onPickUser).catch(() => {});
-                    cargarUsuariosFirebase().then(users => {
-                        renderUserResults(filtrarUsuarios(users, ''), results, onPickUser, '');
-                    }).catch(() => {});
+                    // ✅ Vacío: no mostrar usuarios hasta que escriba
+                    if (results) results.innerHTML = '';
                     return;
                 }
                 if (usersCache) renderUserResults(filtrarUsuarios(usersCache, q), results, onPickUser, q);
@@ -3949,15 +3944,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /* ============================================================
    24. MENSAJES DIRECTOS
-   ------------------------------------------------------------
-   - Icono "Mensaje" en el reproductor a pantalla completa
-   - Sección "Mensajes" en el menú (con badge de no leídos)
-   - Chat con envío de texto + canción adjunta
-   - Buscador de usuarios por nombre o correo
-   - Firebase:
-       conversaciones/{uid1__uid2}
-       conversaciones/{uid1__uid2}/mensajes/{msgId}
-   - No modifica ninguna sección existente
    ============================================================ */
 (function () {
     'use strict';
@@ -4455,13 +4441,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const input = $('newmsg-input');
         if (input) input.value = '';
         const list = $('newmsg-list');
-        if (list) list.innerHTML = '<div class="newmsg-loading">Cargando usuarios…</div>';
-        try {
-            const users = await loadAllUsers();
-            renderNewMessageList(filterUsers(users, ''));
-        } catch (e) {
-            if (list) list.innerHTML = '<div class="newmsg-empty">No se pudieron cargar los usuarios</div>';
-        }
+        // ✅ NUEVO: mensaje de ayuda en lugar de listar usuarios
+        if (list) list.innerHTML = '<div class="newmsg-empty">Escribe un nombre o correo para buscar</div>';
+        // ✅ Precargar caché (sin renderizar nada)
+        loadAllUsers().catch(() => {});
     }
 
     function renderNewMessageList(users) {
@@ -4590,10 +4573,17 @@ document.addEventListener('DOMContentLoaded', () => {
             let deb = null;
             newmsgInput.addEventListener('input', () => {
                 if (deb) clearTimeout(deb);
+                const q = newmsgInput.value.trim();
+                if (!q) {
+                    // ✅ Vacío: no mostrar usuarios hasta que escriba
+                    const list = $('newmsg-list');
+                    if (list) list.innerHTML = '<div class="newmsg-empty">Escribe un nombre o correo para buscar</div>';
+                    return;
+                }
                 deb = setTimeout(async () => {
                     try {
                         const users = await loadAllUsers();
-                        renderNewMessageList(filterUsers(users, newmsgInput.value));
+                        renderNewMessageList(filterUsers(users, q));
                     } catch (e) {}
                 }, 100);
             });
@@ -4666,12 +4656,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /* ============================================================
    25. REFUERZO: Refresco directo de la lista de conversaciones
-   ------------------------------------------------------------
-   Al abrir "Mensajes", hace una consulta directa (get) a
-   Firestore y renderiza la lista, aunque el listener en tiempo
-   real de la sección 24 no se haya disparado todavía o haya
-   fallado silenciosamente por reglas de seguridad.
-   No modifica nada existente.
    ============================================================ */
 (function () {
     'use strict';
@@ -4836,19 +4820,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
     else init();
 })();
+
 /* ============================================================
    26. NOTIFICACIONES DE MENSAJES (badge + historial persistente)
-   ------------------------------------------------------------
-   Refuerza lo existente SIN modificar nada:
-   - Contador de no leídos junto a "Mensajes" en el menú.
-   - Se actualiza en tiempo real con Firestore.
-   - Desaparece cuando no hay mensajes pendientes.
-   - Marca la conversación abierta como leída al recibir
-     mensajes nuevos (aunque el chat ya esté abierto).
-   - Refresca el contador al volver a la app.
-   - Refresca al abrir la vista "Mensajes".
-   - 👇 MODIFICADO: Ahora dispara notificación nativa a Android
-     cuando llega un mensaje nuevo mientras la app está abierta.
    ============================================================ */
 (function () {
     'use strict';
@@ -4874,7 +4848,6 @@ document.addEventListener('DOMContentLoaded', () => {
             badge.textContent   = n > 99 ? '99+' : String(n);
         }
 
-        // Refuerzo visual: si cambia de >0 a 0, animar brevemente
         if (lastUnread > 0 && n === 0) {
             badge.style.display = 'none';
         }
@@ -4917,7 +4890,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     const unread = (d.noLeidos && d.noLeidos[currentUid]) || 0;
                     total += unread;
                     
-                    // Extraer información del último mensaje para la notificación
                     if (unread > 0) {
                         const otherUid = (d.participantes || []).find(u => u !== currentUid);
                         const info = (d.info && d.info[otherUid]) || {};
@@ -4929,9 +4901,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 });
 
-                // 👇 INICIO DE LA MODIFICACIÓN: Disparar notificación a Android
                 if (total > lastUnread && lastUnread > 0 && lastMsgInfo) {
-                    // Verificar si el usuario ya está viendo el chat de esa persona
                     const chatView = $('chat-view');
                     const usernameEl = $('chat-username');
                     let isChatOpen = false;
@@ -4939,12 +4909,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (chatView && chatView.classList.contains('visible') && usernameEl) {
                         const activeName = (usernameEl.textContent || '').trim().toLowerCase();
                         if (activeName && lastMsgInfo.nombre.toLowerCase() === activeName) {
-                            isChatOpen = true; // Ya está en el chat, no notificar
+                            isChatOpen = true;
                         }
                     }
 
                     if (!isChatOpen) {
-                        // Intentar con NativeBridge (el que configuramos) o AndroidBridge (el que ya tenías)
                         var bridge = window.NativeBridge || window.AndroidBridge;
                         if (bridge && typeof bridge.avisarMensajeNuevo === 'function') {
                             try {
@@ -4953,11 +4922,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         }
                     }
                 }
-                // 👆 FIN DE LA MODIFICACIÓN
 
                 paintBadge(total);
 
-                // Si el usuario tiene un chat abierto, marcarlo leído
                 if (total > 0) markOpenConversationRead();
             }, err => {
                 console.warn('[MSG-NOTIF] Listener falló:', err && err.code);
@@ -5000,7 +4967,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (tasks.length) {
                 await Promise.all(tasks);
-                // El listener de tiempo real actualizará el badge automáticamente
             }
         } catch (e) {
             // silencioso
@@ -5009,7 +4975,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /* ---------- Observadores de vistas ---------- */
     function watchViews() {
-        // Al abrir "chat-view": marcar leído tras un instante
         const chatView = $('chat-view');
         if (chatView && chatView.dataset.badgeWatch !== '1') {
             chatView.dataset.badgeWatch = '1';
@@ -5022,7 +4987,6 @@ document.addEventListener('DOMContentLoaded', () => {
             obs.observe(chatView, { attributes: true, attributeFilter: ['class'] });
         }
 
-        // Al abrir "mensajes-view": recomputar el badge
         const mensajesView = $('mensajes-view');
         if (mensajesView && mensajesView.dataset.badgeWatch !== '1') {
             mensajesView.dataset.badgeWatch = '1';
@@ -5034,7 +4998,6 @@ document.addEventListener('DOMContentLoaded', () => {
             obs.observe(mensajesView, { attributes: true, attributeFilter: ['class'] });
         }
 
-        // Al abrir el menú hamburguesa: recomputar (por si acaso)
         const submenu = $('submenu');
         if (submenu && submenu.dataset.badgeWatch !== '1') {
             submenu.dataset.badgeWatch = '1';
@@ -5057,22 +5020,20 @@ document.addEventListener('DOMContentLoaded', () => {
         firebase.auth().onAuthStateChanged(user => {
             currentUid = user ? user.uid : null;
             if (user) {
-                listenBadge();          // tiempo real
-                computeAndPaintBadge(); // inmediato (por si el listener tarda)
+                listenBadge();
+                computeAndPaintBadge();
             } else {
                 if (unsubBadge) { unsubBadge(); unsubBadge = null; }
                 paintBadge(0);
             }
         });
 
-        // Refrescar al volver a la app
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') {
                 computeAndPaintBadge();
             }
         });
 
-        // Refrescar también al recuperar foco
         window.addEventListener('focus', () => computeAndPaintBadge());
 
         watchViews();
@@ -5084,13 +5045,9 @@ document.addEventListener('DOMContentLoaded', () => {
         init();
     }
 })();
+
 /* ============================================================
    27. ELIMINAR / LIMPIAR CONVERSACIONES (long-press 2s)
-   ------------------------------------------------------------
-   - Mantener presionada una conversación 2 seg → menú con:
-       · Eliminar  → borra SOLO esa conversación de Firebase.
-       · Limpiar tu ventana → modo selección múltiple.
-   - NO modifica ni interfiere con las secciones 24 / 25 / 26.
    ============================================================ */
 (function () {
     'use strict';
@@ -5107,9 +5064,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let assignTimer = null;
 
-    /* ---------------------------------------------------------
-       Utilidades
-       --------------------------------------------------------- */
     function haptic(ms) {
         if (navigator.vibrate) { try { navigator.vibrate(ms || 15); } catch (_) {} }
     }
@@ -5119,9 +5073,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }[c]));
     }
 
-    /* ---------------------------------------------------------
-       Estilos inyectados (aislados, no alteran CSS existente)
-       --------------------------------------------------------- */
     const style = document.createElement('style');
     style.id = 'conv-clean-styles';
     style.textContent = `
@@ -5183,7 +5134,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         .conv-menu-cancel:active { background: #262626; }
 
-        /* Modo selección */
         .msg-row.selecting { padding-left: 52px !important; }
         .msg-row .msg-row-select {
             position: absolute; left: 14px; top: 50%;
@@ -5210,7 +5160,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         .msg-row.selecting { cursor: pointer; }
 
-        /* Barra inferior */
         .conv-clean-bar {
             position: absolute;
             left: 0; right: 0; bottom: 0;
@@ -5244,7 +5193,6 @@ document.addEventListener('DOMContentLoaded', () => {
         .conv-clean-btn.confirm:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
         .conv-clean-btn:active:not(:disabled) { transform: scale(0.95); }
 
-        /* Confirmación */
         .conv-confirm-box {
             width: 100%; max-width: 340px;
             background: #141414;
@@ -5273,9 +5221,6 @@ document.addEventListener('DOMContentLoaded', () => {
     `;
     if (!document.getElementById('conv-clean-styles')) document.head.appendChild(style);
 
-    /* ---------------------------------------------------------
-       Mapear filas → convId de Firestore
-       --------------------------------------------------------- */
     async function assignConvIdsToRows() {
         const user = firebase.auth().currentUser;
         if (!user) return;
@@ -5335,9 +5280,6 @@ document.addEventListener('DOMContentLoaded', () => {
         assignTimer = setTimeout(assignConvIdsToRows, 120);
     }
 
-    /* ---------------------------------------------------------
-       Modales
-       --------------------------------------------------------- */
     function closeMenu() {
         if (activeMenu && activeMenu.parentNode) activeMenu.parentNode.removeChild(activeMenu);
         activeMenu = null;
@@ -5425,14 +5367,10 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    /* ---------------------------------------------------------
-       Borrado en Firestore
-       --------------------------------------------------------- */
     async function deleteConversations(convIds) {
         const tasks = convIds.map(id => (async () => {
             try {
                 const ref = firebase.firestore().collection('conversaciones').doc(id);
-                // 1) Borrar subcolección mensajes (por lotes)
                 try {
                     const msgs = await ref.collection('mensajes').limit(500).get();
                     if (!msgs.empty) {
@@ -5440,8 +5378,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         msgs.forEach(m => batch.delete(m.ref));
                         await batch.commit();
                     }
-                } catch (e) { /* puede no existir */ }
-                // 2) Borrar documento principal
+                } catch (e) { }
                 await ref.delete();
             } catch (e) {
                 console.warn('[CONV-CLEAN] Error al eliminar', id, e);
@@ -5450,9 +5387,6 @@ document.addEventListener('DOMContentLoaded', () => {
         await Promise.all(tasks);
     }
 
-    /* ---------------------------------------------------------
-       Modo selección ("Limpiar tu ventana")
-       --------------------------------------------------------- */
     function enterSelectionMode() {
         const view = $('mensajes-view');
         const list = $('msg-list');
@@ -5520,7 +5454,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 async () => {
                     exitSelectionMode();
                     await deleteConversations(ids);
-                    // Refresco optimista por si el listener tarda
                     const list = $('msg-list');
                     if (list) {
                         list.querySelectorAll('.msg-row').forEach(r => {
@@ -5557,9 +5490,6 @@ document.addEventListener('DOMContentLoaded', () => {
         haptic(8);
     }
 
-    /* ---------------------------------------------------------
-       Handlers de la lista
-       --------------------------------------------------------- */
     function handleRowClickCapture(e) {
         const row = e.target.closest('.msg-row');
         if (!row) return;
@@ -5606,7 +5536,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             showConvMenu(
                 row,
-                /* Eliminar solo esta */
                 () => {
                     const name = row.dataset.otherName || 'esta conversación';
                     showConfirm(
@@ -5619,7 +5548,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         }
                     );
                 },
-                /* Limpiar tu ventana */
                 () => { enterSelectionMode(); }
             );
         }, LONG_PRESS_MS);
@@ -5646,9 +5574,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
     }
 
-    /* ---------------------------------------------------------
-       Observadores y arranque
-       --------------------------------------------------------- */
     function observeMsgList() {
         const list = $('msg-list');
         if (!list) { setTimeout(observeMsgList, 300); return; }
@@ -5668,7 +5593,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             });
             if (changed) {
-                // Si llega una nueva fila mientras estamos en selección, aplicarle el modo
                 if (selectionMode) {
                     list.querySelectorAll('.msg-row').forEach(row => {
                         if (!row.classList.contains('selecting')) {
@@ -5686,7 +5610,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         obs.observe(list, { childList: true, subtree: true });
 
-        // Re-mapear al abrir la vista
         const view = $('mensajes-view');
         if (view && view.dataset.convCleanView !== '1') {
             view.dataset.convCleanView = '1';
@@ -5703,7 +5626,6 @@ document.addEventListener('DOMContentLoaded', () => {
         setTimeout(assignConvIdsToRows, 200);
     }
 
-    /* ESC cierra menú / confirmación / modo selección primero */
     document.addEventListener('keydown', (e) => {
         if (e.key !== 'Escape') return;
         if (activeMenu) {
@@ -5731,6 +5653,7 @@ document.addEventListener('DOMContentLoaded', () => {
         init();
     }
 })();
+
 /* ============================================================
    28. TOKEN FCM → Guardar en Firestore
    ============================================================ */
