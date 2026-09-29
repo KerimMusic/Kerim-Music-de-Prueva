@@ -1971,3 +1971,19 @@ button:active { opacity: 0.72; }
     60%  { transform: scale(1.15); opacity: 1; }
     100% { transform: scale(1); opacity: 1; }
 }
+/* ============================================================
+   ESTADO "VISTO" EN MENSAJES
+   ============================================================ */
+.chat-seen-mark {
+    font-size: 10.5px;
+    color: rgba(255, 255, 255, 0.9);
+    text-align: right;
+    margin-top: 3px;
+    align-self: flex-end;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    opacity: 0.85;
+    transition: opacity 0.2s ease;
+    user-select: none;
+    pointer-events: none;
+}
