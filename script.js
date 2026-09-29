@@ -6016,30 +6016,32 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 })();
 /* ============================================================
-   30. ESTADO "VISTO" EN MENSAJES
+   30. ESTADO "VISTO" EN MENSAJES (versión corregida)
    ------------------------------------------------------------
-   - Los mensajes enviados se muestran sin "Visto" por defecto.
-   - Cuando el destinatario abre la conversación, se marca en
-     Firestore `visto: true` en todos los mensajes que no son suyos.
-   - El emisor ve "✓✓ Visto" debajo de la hora del mensaje.
-   - El estado se actualiza en tiempo real con Firestore.
-   - No modifica nada existente (secciones 1 a 28).
+   Cómo funciona:
+   - El EMISOR escribe un mensaje → se guarda SIN campo "visto".
+   - El RECEPTOR abre el chat → se marcan como "visto: true"
+     todos los mensajes que NO son suyos (batch update).
+   - El EMISOR ve "✓✓ Visto" debajo de la hora SOLO cuando
+     el campo "visto" del mensaje es true en Firestore.
+   - Se actualiza en tiempo real con Firestore onSnapshot.
+   - No interfiere con la sección 24 (listener propio, no lo toca).
    ============================================================ */
 (function () {
     'use strict';
 
     const $ = (id) => document.getElementById(id);
 
-    let currentConvId = null;
-    let otherUserUid = null;
-    let unsubSeen = null;
-    let chatViewObserved = false;
-    let domObserved = false;
-    let lastMessages = [];
-    let applyScheduled = null;
+    let currentConvId    = null;
+    let currentOtherUid  = null;
+    let unsubSeen        = null;   // listener de mensajes
+    let chatDomObserver  = null;   // observer del DOM del chat
+    let lastMessagesData = [];     // cache de los últimos mensajes vistos
+    let isMarking        = false;  // evita re-entradas al marcar como visto
+    let applyTimer       = null;   // debounce para aplicar marcas
 
     /* ---------- Normalizar nombre ---------- */
-    function normName(s) {
+    function normalizeName(s) {
         return String(s || '')
             .toLowerCase()
             .normalize('NFD')
@@ -6053,71 +6055,90 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /* ---------- Buscar uid del otro usuario por nombre ---------- */
-    async function findOtherUidByName(name) {
+    async function findUidByName(name) {
         if (!name) return null;
         try {
             const snap = await firebase.firestore()
                 .collection('historial_usuarios').limit(1500).get();
-            const target = normName(name);
+            const target = normalizeName(name);
             for (const doc of snap.docs) {
                 const d = doc.data() || {};
-                const n = normName(d.nombre || d.name || d.displayName || '');
+                const n = normalizeName(d.nombre || d.name || d.displayName || '');
                 if (n && n === target) return doc.id;
             }
         } catch (e) { console.warn('[VISTO] Error buscando usuario:', e); }
         return null;
     }
 
-    /* ---------- Marcar mensajes como vistos en Firestore ---------- */
-    async function markMessagesAsSeen() {
+    /* ---------- Marcar como vistos los mensajes AJENOS (del otro) ---------- */
+    async function markOthersAsSeen() {
         const user = firebase.auth().currentUser;
-        if (!user || !currentConvId) return;
+        if (!user || !currentConvId || isMarking) return;
+        isMarking = true;
         try {
             const msgsRef = firebase.firestore()
                 .collection('conversaciones').doc(currentConvId)
                 .collection('mensajes');
             const snap = await msgsRef.get();
+            if (snap.empty) { isMarking = false; return; }
+
             const batch = firebase.firestore().batch();
             let count = 0;
             snap.forEach(doc => {
                 const d = doc.data() || {};
+                // Solo los mensajes que NO son míos y que aún no están vistos
                 if (d.de !== user.uid && d.visto !== true) {
                     batch.update(doc.ref, { visto: true });
                     count++;
                 }
             });
-            if (count > 0) await batch.commit();
-        } catch (e) { console.warn('[VISTO] Error marcando como visto:', e); }
+            if (count > 0) {
+                await batch.commit();
+                console.log('[VISTO] ' + count + ' mensajes marcados como vistos');
+            }
+        } catch (e) {
+            console.warn('[VISTO] Error al marcar como visto:', e);
+        } finally {
+            isMarking = false;
+        }
     }
 
-    /* ---------- Aplicar marcas de "Visto" al DOM ---------- */
-    function applySeenMarks(messages) {
-        if (messages) lastMessages = messages;
+    /* ---------- Aplicar / quitar la marca "✓✓ Visto" en el DOM ---------- */
+    function applySeenMarks() {
         const container = $('chat-messages');
-        if (!container) return;
         const user = firebase.auth().currentUser;
-        if (!user) return;
+        if (!container || !user) return;
 
+        // Filas de MIS mensajes (out) y de los del otro (in) en orden cronológico
         const outRows = Array.from(container.querySelectorAll('.chat-row--out'));
         if (!outRows.length) return;
 
-        const mineMsgs = lastMessages.filter(m => m.de === user.uid);
+        // Mis mensajes (según Firestore)
+        const myMsgs = lastMessagesData.filter(m => m.de === user.uid);
 
-        const n = Math.min(outRows.length, mineMsgs.length);
-        for (let i = 0; i < n; i++) {
+        // Emparejar desde el final: el último mensaje del DOM con el último de Firestore
+        // Esto es más fiable que el match por texto, porque respeta el orden.
+        const total = Math.min(outRows.length, myMsgs.length);
+        for (let i = 0; i < total; i++) {
             const row = outRows[outRows.length - 1 - i];
-            const msg = mineMsgs[mineMsgs.length - 1 - i];
+            const msg = myMsgs[myMsgs.length - 1 - i];
             if (!row || !msg) continue;
+
             const bubble = row.querySelector('.chat-bubble');
             if (!bubble) continue;
 
-            // Verificar coincidencia por texto si es posible
+            // Verificación cruzada por texto para evitar falsos positivos
+            // (si hay discrepancias, probamos coincidencia por canción)
             const txtEl = bubble.querySelector('.chat-bubble-text');
             const bubbleText = (txtEl ? txtEl.textContent : '').trim();
             const msgText = (msg.texto || '').trim();
-            if (bubbleText && msgText && bubbleText !== msgText) {
-                continue;
-            }
+            const bubbleHasSong = !!bubble.querySelector('.chat-bubble-song');
+            const msgHasSong = !!(msg.cancion && msg.cancion.audioUrl);
+
+            const textMatches = !bubbleText && !msgText ? true : bubbleText === msgText;
+            const songMatches = bubbleHasSong === msgHasSong;
+
+            if (!textMatches && !songMatches) continue;
 
             let mark = bubble.querySelector('.chat-seen-mark');
             if (msg.visto === true) {
@@ -6133,15 +6154,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function scheduleApplySeenMarks() {
-        if (applyScheduled) return;
-        applyScheduled = requestAnimationFrame(() => {
-            applyScheduled = null;
+    function scheduleApplySeenMarks(delay) {
+        if (applyTimer) clearTimeout(applyTimer);
+        applyTimer = setTimeout(() => {
+            applyTimer = null;
             applySeenMarks();
-        });
+        }, delay || 60);
     }
 
-    /* ---------- Listener de mensajes en tiempo real ---------- */
+    /* ---------- Listener de mensajes de la conversación actual ---------- */
     function listenMessagesForSeen() {
         if (unsubSeen) { unsubSeen(); unsubSeen = null; }
         if (!currentConvId) return;
@@ -6150,11 +6171,13 @@ document.addEventListener('DOMContentLoaded', () => {
             .collection('conversaciones').doc(currentConvId)
             .collection('mensajes')
             .orderBy('fecha', 'asc')
-            .onSnapshot(async snap => {
-                const arr = [];
-                const toMark = [];
+            .onSnapshot(snap => {
                 const user = firebase.auth().currentUser;
                 if (!user) return;
+
+                const arr = [];
+                const toMark = [];
+
                 snap.forEach(doc => {
                     const d = doc.data() || {};
                     arr.push({
@@ -6164,67 +6187,93 @@ document.addEventListener('DOMContentLoaded', () => {
                         cancion: d.cancion || null,
                         visto: d.visto === true
                     });
+                    // Los mensajes que NO son míos y aún no están vistos → marcar
                     if (d.de !== user.uid && d.visto !== true) {
                         toMark.push(doc.ref);
                     }
                 });
-                applySeenMarks(arr);
+
+                lastMessagesData = arr;
+
+                // Aplicar marcas al DOM (con pequeños delays para que el DOM se haya pintado)
+                scheduleApplySeenMarks(50);
+                scheduleApplySeenMarks(250);
+
+                // Marcar como vistos los ajenos (si los hay)
                 if (toMark.length > 0) {
-                    try {
-                        const batch = firebase.firestore().batch();
-                        toMark.forEach(ref => batch.update(ref, { visto: true }));
-                        await batch.commit();
-                    } catch (e) { /* silencioso */ }
+                    const batch = firebase.firestore().batch();
+                    toMark.forEach(ref => batch.update(ref, { visto: true }));
+                    batch.commit().catch(() => {});
                 }
-            }, err => { console.warn('[VISTO] Listener error:', err); });
+            }, err => {
+                console.warn('[VISTO] Listener error:', err);
+            });
     }
 
-    /* ---------- Observar el DOM del chat ---------- */
-    function observeChatDOM() {
+    /* ---------- Observar el DOM del chat para re-aplicar marcas ---------- */
+    function observeChatDom() {
         const container = $('chat-messages');
-        if (!container || domObserved) return;
-        domObserved = true;
-        const obs = new MutationObserver(() => {
-            if (currentConvId) scheduleApplySeenMarks();
+        if (!container || chatDomObserver) return;
+
+        chatDomObserver = new MutationObserver(() => {
+            if (!currentConvId) return;
+            // Cuando la sección 24 re-renderiza los mensajes, re-aplicamos las marcas
+            scheduleApplySeenMarks(60);
         });
-        obs.observe(container, { childList: true, subtree: true });
+        chatDomObserver.observe(container, { childList: true, subtree: true });
     }
 
-    /* ---------- Detectar apertura del chat ---------- */
+    /* ---------- Detectar apertura / cierre del chat ---------- */
     function watchChatView() {
         const chatView = $('chat-view');
         if (!chatView) { setTimeout(watchChatView, 300); return; }
-        if (chatViewObserved) return;
-        chatViewObserved = true;
+        if (chatView.dataset.seenWatch === '1') return;
+        chatView.dataset.seenWatch = '1';
 
         let lastVisible = false;
+
         const obs = new MutationObserver(async () => {
             const visible = chatView.classList.contains('visible');
             if (visible === lastVisible) return;
             lastVisible = visible;
 
             if (visible) {
+                // ---- Chat ABIERTO ----
                 const user = firebase.auth().currentUser;
                 if (!user) return;
+
                 const nameEl = $('chat-username');
                 const otherName = (nameEl ? nameEl.textContent : '').trim();
                 if (!otherName || otherName === 'Usuario') return;
 
-                const uid = await findOtherUidByName(otherName);
+                const uid = await findUidByName(otherName);
                 if (!uid) return;
-                otherUserUid = uid;
+
+                currentOtherUid = uid;
                 currentConvId = makeConvId(user.uid, uid);
 
-                await markMessagesAsSeen();
+                console.log('[VISTO] Chat abierto con "' + otherName + '" → convId:', currentConvId);
+
+                // 1) Marcar como vistos los mensajes ajenos pendientes
+                await markOthersAsSeen();
+
+                // 2) Escuchar cambios para aplicar marcas en mis mensajes
                 listenMessagesForSeen();
-                observeChatDOM();
-                setTimeout(scheduleApplySeenMarks, 250);
-                setTimeout(scheduleApplySeenMarks, 600);
+
+                // 3) Observar el DOM para re-aplicar marcas cuando se re-renderice
+                observeChatDom();
+
+                // 4) Reintentos por si el DOM tarda en pintarse
+                scheduleApplySeenMarks(200);
+                scheduleApplySeenMarks(600);
+                scheduleApplySeenMarks(1200);
+
             } else {
+                // ---- Chat CERRADO ----
                 if (unsubSeen) { unsubSeen(); unsubSeen = null; }
                 currentConvId = null;
-                otherUserUid = null;
-                lastMessages = [];
+                currentOtherUid = null;
+                lastMessagesData = [];
             }
         });
         obs.observe(chatView, { attributes: true, attributeFilter: ['class'] });
