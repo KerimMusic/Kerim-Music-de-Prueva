@@ -5041,3 +5041,650 @@ document.addEventListener('DOMContentLoaded', () => {
         init();
     }
 })();
+/* ============================================================
+   27. ELIMINAR / LIMPIAR CONVERSACIONES (long-press 2s)
+   ------------------------------------------------------------
+   - Mantener presionada una conversación 2 seg → menú con:
+       · Eliminar  → borra SOLO esa conversación de Firebase.
+       · Limpiar tu ventana → modo selección múltiple.
+   - NO modifica ni interfiere con las secciones 24 / 25 / 26.
+   ============================================================ */
+(function () {
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+    const LONG_PRESS_MS = 2000;
+
+    let longPressTimer   = null;
+    let suppressNextClick = false;
+
+    let activeMenu = null;
+    let selectionMode = false;
+    const selectedConvIds = new Set();
+
+    let assignTimer = null;
+
+    /* ---------------------------------------------------------
+       Utilidades
+       --------------------------------------------------------- */
+    function haptic(ms) {
+        if (navigator.vibrate) { try { navigator.vibrate(ms || 15); } catch (_) {} }
+    }
+    function escapeHtml(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[c]));
+    }
+
+    /* ---------------------------------------------------------
+       Estilos inyectados (aislados, no alteran CSS existente)
+       --------------------------------------------------------- */
+    const style = document.createElement('style');
+    style.id = 'conv-clean-styles';
+    style.textContent = `
+        .conv-menu-backdrop {
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.72);
+            z-index: 10500;
+            display: flex; align-items: center; justify-content: center;
+            padding: 20px;
+            opacity: 0; visibility: hidden;
+            transition: opacity 0.2s ease, visibility 0.2s ease;
+            backdrop-filter: blur(3px);
+        }
+        .conv-menu-backdrop.visible { opacity: 1; visibility: visible; }
+
+        .conv-menu {
+            width: 100%; max-width: 340px;
+            background: #141414;
+            border: 1px solid #262626;
+            border-radius: 16px;
+            overflow: hidden;
+            transform: scale(0.94);
+            transition: transform 0.25s cubic-bezier(0.22,1,0.36,1);
+        }
+        .conv-menu-backdrop.visible .conv-menu { transform: scale(1); }
+
+        .conv-menu-title {
+            padding: 16px 18px 10px;
+            font-size: 12.5px; font-weight: 800;
+            letter-spacing: 1.4px;
+            text-transform: uppercase;
+            color: #ff2a2a;
+            text-align: center;
+            border-bottom: 1px solid #1f1f1f;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .conv-menu-btn {
+            display: flex; align-items: center; gap: 12px;
+            width: 100%; padding: 16px 18px;
+            background: none; border: none;
+            color: #ffffff; font-family: inherit;
+            font-size: 15px; font-weight: 700;
+            text-align: left; cursor: pointer;
+            border-bottom: 1px solid #1f1f1f;
+        }
+        .conv-menu-btn:last-child { border-bottom: none; }
+        .conv-menu-btn:active { background: #1f1f1f; }
+        .conv-menu-btn.danger { color: #ff5757; }
+        .conv-menu-btn svg { flex-shrink: 0; }
+        .conv-menu-cancel {
+            display: block; width: 100%;
+            padding: 14px 18px;
+            background: #1a1a1a; border: none;
+            color: #b3b3b3; font-family: inherit;
+            font-size: 14px; font-weight: 700;
+            cursor: pointer;
+        }
+        .conv-menu-cancel:active { background: #262626; }
+
+        /* Modo selección */
+        .msg-row.selecting { padding-left: 52px !important; }
+        .msg-row .msg-row-select {
+            position: absolute; left: 14px; top: 50%;
+            transform: translateY(-50%);
+            width: 22px; height: 22px;
+            border-radius: 50%;
+            border: 2px solid #555;
+            background: transparent;
+            display: flex; align-items: center; justify-content: center;
+            pointer-events: none;
+            box-sizing: border-box;
+            transition: background 0.15s ease, border-color 0.15s ease;
+        }
+        .msg-row.msg-row-selected { background: rgba(255,42,42,0.10) !important; }
+        .msg-row.msg-row-selected .msg-row-select {
+            background: #ff2a2a; border-color: #ff2a2a;
+        }
+        .msg-row.msg-row-selected .msg-row-select::after {
+            content: '';
+            width: 10px; height: 6px;
+            border-left: 2px solid #fff;
+            border-bottom: 2px solid #fff;
+            transform: rotate(-45deg) translate(1px, -1px);
+        }
+        .msg-row.selecting { cursor: pointer; }
+
+        /* Barra inferior */
+        .conv-clean-bar {
+            position: absolute;
+            left: 0; right: 0; bottom: 0;
+            background: #141414;
+            border-top: 1px solid #262626;
+            padding: 12px 16px;
+            display: flex; gap: 10px;
+            align-items: center;
+            z-index: 55;
+            transform: translateY(110%);
+            transition: transform 0.3s cubic-bezier(0.22,1,0.36,1);
+            box-shadow: 0 -8px 26px rgba(0,0,0,0.7);
+        }
+        .conv-clean-bar.visible { transform: translateY(0); }
+
+        .conv-clean-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+        .conv-clean-count { font-size: 14px; font-weight: 800; color: #ffffff; }
+        .conv-clean-hint  { font-size: 11.5px; color: #999999; }
+
+        .conv-clean-btn {
+            flex-shrink: 0;
+            border: none; border-radius: 50px;
+            padding: 12px 18px;
+            font-family: inherit;
+            font-size: 13px; font-weight: 800;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .conv-clean-btn.cancel  { background: #262626; color: #ffffff; }
+        .conv-clean-btn.confirm { background: #ff2a2a; color: #ffffff; box-shadow: 0 6px 18px rgba(255,42,42,0.35); }
+        .conv-clean-btn.confirm:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
+        .conv-clean-btn:active:not(:disabled) { transform: scale(0.95); }
+
+        /* Confirmación */
+        .conv-confirm-box {
+            width: 100%; max-width: 340px;
+            background: #141414;
+            border: 1px solid #262626;
+            border-radius: 16px;
+            padding: 22px 20px 18px;
+            text-align: center;
+            transform: scale(0.94);
+            transition: transform 0.25s cubic-bezier(0.22,1,0.36,1);
+        }
+        .conv-menu-backdrop.visible .conv-confirm-box { transform: scale(1); }
+        .conv-confirm-title { font-size: 17px; font-weight: 800; color: #ffffff; margin-bottom: 8px; }
+        .conv-confirm-sub { font-size: 13.5px; color: #b3b3b3; line-height: 1.4; margin-bottom: 18px; }
+        .conv-confirm-actions { display: flex; gap: 10px; }
+        .conv-confirm-actions button {
+            flex: 1; border: none;
+            border-radius: 50px;
+            padding: 13px 16px;
+            font-family: inherit;
+            font-size: 14px; font-weight: 800;
+            cursor: pointer;
+        }
+        .conv-confirm-actions .no  { background: #262626; color: #ffffff; }
+        .conv-confirm-actions .yes { background: #ff2a2a; color: #ffffff; box-shadow: 0 6px 18px rgba(255,42,42,0.35); }
+        .conv-confirm-actions button:active { transform: scale(0.96); }
+    `;
+    if (!document.getElementById('conv-clean-styles')) document.head.appendChild(style);
+
+    /* ---------------------------------------------------------
+       Mapear filas → convId de Firestore
+       --------------------------------------------------------- */
+    async function assignConvIdsToRows() {
+        const user = firebase.auth().currentUser;
+        if (!user) return;
+        const list = $('msg-list');
+        if (!list) return;
+        const rows = Array.from(list.querySelectorAll('.msg-row'));
+        if (!rows.length) return;
+
+        try {
+            const snap = await firebase.firestore()
+                .collection('conversaciones')
+                .where('participantes', 'array-contains', user.uid)
+                .get();
+
+            const convs = [];
+            snap.forEach(doc => {
+                const d = doc.data() || {};
+                const otherUid = (d.participantes || []).find(u => u !== user.uid);
+                if (!otherUid) return;
+                const info = (d.info && d.info[otherUid]) || {};
+                const ult  = d.ultimoMensaje || {};
+                const fecha = ult.fecha && typeof ult.fecha.toDate === 'function'
+                    ? ult.fecha.toDate() : null;
+                convs.push({
+                    id: doc.id,
+                    otherUid,
+                    otherName: info.nombre || 'Usuario',
+                    fecha
+                });
+            });
+            convs.sort((a, b) =>
+                (b.fecha ? b.fecha.getTime() : 0) - (a.fecha ? a.fecha.getTime() : 0)
+            );
+
+            const used = new Set();
+            rows.forEach(row => {
+                const nameEl = row.querySelector('.msg-row-name');
+                const name = (nameEl ? nameEl.textContent : '').trim().toLowerCase();
+                let match = convs.find(c =>
+                    !used.has(c.id) &&
+                    (c.otherName || '').trim().toLowerCase() === name
+                );
+                if (!match) match = convs.find(c => !used.has(c.id));
+                if (match) {
+                    used.add(match.id);
+                    row.dataset.convId   = match.id;
+                    row.dataset.otherUid = match.otherUid;
+                    row.dataset.otherName = match.otherName;
+                }
+            });
+        } catch (e) {
+            console.warn('[CONV-CLEAN] No se pudieron mapear conversaciones:', e);
+        }
+    }
+    function scheduleAssign() {
+        if (assignTimer) clearTimeout(assignTimer);
+        assignTimer = setTimeout(assignConvIdsToRows, 120);
+    }
+
+    /* ---------------------------------------------------------
+       Modales
+       --------------------------------------------------------- */
+    function closeMenu() {
+        if (activeMenu && activeMenu.parentNode) activeMenu.parentNode.removeChild(activeMenu);
+        activeMenu = null;
+    }
+
+    function showConvMenu(row, onDeleteSingle, onCleanMode) {
+        closeMenu();
+        const otherName = row.dataset.otherName || 'esta conversación';
+
+        const backdrop = document.createElement('div');
+        backdrop.className = 'conv-menu-backdrop';
+        backdrop.innerHTML = `
+            <div class="conv-menu" role="dialog" aria-modal="true">
+                <div class="conv-menu-title">${escapeHtml(otherName)}</div>
+                <button type="button" class="conv-menu-btn danger" data-action="delete">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none"
+                         stroke="currentColor" stroke-width="2"
+                         stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="3 6 5 6 21 6"/>
+                        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                        <path d="M10 11v6M14 11v6"/>
+                        <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+                    </svg>
+                    <span>Eliminar</span>
+                </button>
+                <button type="button" class="conv-menu-btn" data-action="clean">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none"
+                         stroke="currentColor" stroke-width="2"
+                         stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                        <line x1="10" y1="11" x2="10" y2="17"/>
+                        <line x1="14" y1="11" x2="14" y2="17"/>
+                        <line x1="3" y1="3" x2="21" y2="21"/>
+                    </svg>
+                    <span>Limpiar tu ventana</span>
+                </button>
+                <button type="button" class="conv-menu-cancel" data-action="cancel">Cancelar</button>
+            </div>
+        `;
+        document.body.appendChild(backdrop);
+        activeMenu = backdrop;
+        requestAnimationFrame(() => backdrop.classList.add('visible'));
+
+        backdrop.addEventListener('click', (e) => {
+            const t = e.target.closest('[data-action]');
+            if (!t) {
+                if (e.target === backdrop) closeMenu();
+                return;
+            }
+            const action = t.dataset.action;
+            closeMenu();
+            if (action === 'delete') onDeleteSingle();
+            else if (action === 'clean') onCleanMode();
+        });
+    }
+
+    function showConfirm(title, message, onYes) {
+        closeMenu();
+        const backdrop = document.createElement('div');
+        backdrop.className = 'conv-menu-backdrop';
+        backdrop.innerHTML = `
+            <div class="conv-confirm-box" role="dialog" aria-modal="true">
+                <div class="conv-confirm-title">${escapeHtml(title)}</div>
+                <div class="conv-confirm-sub">${escapeHtml(message)}</div>
+                <div class="conv-confirm-actions">
+                    <button type="button" class="no"  data-action="no">Cancelar</button>
+                    <button type="button" class="yes" data-action="yes">Eliminar</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(backdrop);
+        activeMenu = backdrop;
+        requestAnimationFrame(() => backdrop.classList.add('visible'));
+
+        backdrop.addEventListener('click', (e) => {
+            const t = e.target.closest('[data-action]');
+            if (!t) {
+                if (e.target === backdrop) closeMenu();
+                return;
+            }
+            const action = t.dataset.action;
+            closeMenu();
+            if (action === 'yes') { try { onYes(); } catch (_) {} }
+        });
+    }
+
+    /* ---------------------------------------------------------
+       Borrado en Firestore
+       --------------------------------------------------------- */
+    async function deleteConversations(convIds) {
+        const tasks = convIds.map(id => (async () => {
+            try {
+                const ref = firebase.firestore().collection('conversaciones').doc(id);
+                // 1) Borrar subcolección mensajes (por lotes)
+                try {
+                    const msgs = await ref.collection('mensajes').limit(500).get();
+                    if (!msgs.empty) {
+                        const batch = firebase.firestore().batch();
+                        msgs.forEach(m => batch.delete(m.ref));
+                        await batch.commit();
+                    }
+                } catch (e) { /* puede no existir */ }
+                // 2) Borrar documento principal
+                await ref.delete();
+            } catch (e) {
+                console.warn('[CONV-CLEAN] Error al eliminar', id, e);
+            }
+        })());
+        await Promise.all(tasks);
+    }
+
+    /* ---------------------------------------------------------
+       Modo selección ("Limpiar tu ventana")
+       --------------------------------------------------------- */
+    function enterSelectionMode() {
+        const view = $('mensajes-view');
+        const list = $('msg-list');
+        if (!view || !list) return;
+        selectionMode = true;
+        selectedConvIds.clear();
+        suppressNextClick = true;
+
+        list.querySelectorAll('.msg-row').forEach(row => {
+            row.classList.add('selecting');
+            row.classList.remove('msg-row-selected');
+            if (!row.querySelector('.msg-row-select')) {
+                const check = document.createElement('span');
+                check.className = 'msg-row-select';
+                row.insertBefore(check, row.firstChild);
+            }
+        });
+
+        addCleanBar();
+        updateSelectionUI();
+    }
+
+    function exitSelectionMode() {
+        selectionMode = false;
+        selectedConvIds.clear();
+        const list = $('msg-list');
+        if (list) {
+            list.querySelectorAll('.msg-row').forEach(row => {
+                row.classList.remove('selecting', 'msg-row-selected');
+                const c = row.querySelector('.msg-row-select');
+                if (c) c.remove();
+            });
+        }
+        removeCleanBar();
+    }
+
+    function addCleanBar() {
+        removeCleanBar();
+        const view = $('mensajes-view');
+        if (!view) return;
+        const bar = document.createElement('div');
+        bar.className = 'conv-clean-bar';
+        bar.id = 'conv-clean-bar';
+        bar.innerHTML = `
+            <div class="conv-clean-info">
+                <div class="conv-clean-count" id="conv-clean-count">0 seleccionadas</div>
+                <div class="conv-clean-hint">Toca para seleccionar</div>
+            </div>
+            <button type="button" class="conv-clean-btn cancel"  id="conv-clean-cancel">Cancelar</button>
+            <button type="button" class="conv-clean-btn confirm" id="conv-clean-confirm" disabled>Eliminar</button>
+        `;
+        view.appendChild(bar);
+        requestAnimationFrame(() => bar.classList.add('visible'));
+
+        bar.querySelector('#conv-clean-cancel').addEventListener('click', () => {
+            exitSelectionMode();
+        });
+        bar.querySelector('#conv-clean-confirm').addEventListener('click', () => {
+            if (!selectedConvIds.size) return;
+            const n = selectedConvIds.size;
+            const ids = Array.from(selectedConvIds);
+            showConfirm(
+                '¿Eliminar conversaciones?',
+                `Se eliminarán ${n} ${n === 1 ? 'conversación' : 'conversaciones'}. Esta acción no se puede deshacer.`,
+                async () => {
+                    exitSelectionMode();
+                    await deleteConversations(ids);
+                    // Refresco optimista por si el listener tarda
+                    const list = $('msg-list');
+                    if (list) {
+                        list.querySelectorAll('.msg-row').forEach(r => {
+                            if (ids.includes(r.dataset.convId)) r.remove();
+                        });
+                    }
+                    setTimeout(assignConvIdsToRows, 500);
+                }
+            );
+        });
+    }
+    function removeCleanBar() {
+        const bar = $('conv-clean-bar');
+        if (bar && bar.parentNode) bar.parentNode.removeChild(bar);
+    }
+
+    function updateSelectionUI() {
+        const count   = $('conv-clean-count');
+        const confirm = $('conv-clean-confirm');
+        const n = selectedConvIds.size;
+        if (count)   count.textContent = n + (n === 1 ? ' seleccionada' : ' seleccionadas');
+        if (confirm) confirm.disabled = n === 0;
+    }
+
+    function toggleRowSelection(row, id) {
+        if (selectedConvIds.has(id)) {
+            selectedConvIds.delete(id);
+            row.classList.remove('msg-row-selected');
+        } else {
+            selectedConvIds.add(id);
+            row.classList.add('msg-row-selected');
+        }
+        updateSelectionUI();
+        haptic(8);
+    }
+
+    /* ---------------------------------------------------------
+       Handlers de la lista
+       --------------------------------------------------------- */
+    function handleRowClickCapture(e) {
+        const row = e.target.closest('.msg-row');
+        if (!row) return;
+
+        if (suppressNextClick) {
+            e.stopPropagation();
+            e.preventDefault();
+            suppressNextClick = false;
+            return;
+        }
+        if (selectionMode) {
+            e.stopPropagation();
+            e.preventDefault();
+            const id = row.dataset.convId;
+            if (id) {
+                toggleRowSelection(row, id);
+            } else {
+                assignConvIdsToRows().then(() => {
+                    const newId = row.dataset.convId;
+                    if (newId) toggleRowSelection(row, newId);
+                });
+            }
+        }
+    }
+
+    function onPointerDown(e) {
+        if (selectionMode) return;
+        const row = e.target.closest('.msg-row');
+        if (!row) return;
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+        const startX = e.clientX, startY = e.clientY;
+
+        if (longPressTimer) clearTimeout(longPressTimer);
+        longPressTimer = setTimeout(async () => {
+            longPressTimer = null;
+            if (!row.dataset.convId) await assignConvIdsToRows();
+            const convId   = row.dataset.convId;
+            const otherUid = row.dataset.otherUid;
+            if (!convId) return;
+
+            haptic(25);
+            suppressNextClick = true;
+
+            showConvMenu(
+                row,
+                /* Eliminar solo esta */
+                () => {
+                    const name = row.dataset.otherName || 'esta conversación';
+                    showConfirm(
+                        '¿Eliminar conversación?',
+                        `Se eliminará la conversación con ${name}. Esta acción no se puede deshacer.`,
+                        async () => {
+                            await deleteConversations([convId]);
+                            if (row.parentNode) row.remove();
+                            setTimeout(assignConvIdsToRows, 500);
+                        }
+                    );
+                },
+                /* Limpiar tu ventana */
+                () => { enterSelectionMode(); }
+            );
+        }, LONG_PRESS_MS);
+
+        function moveHandler(ev) {
+            if (Math.abs(ev.clientX - startX) > 10 ||
+                Math.abs(ev.clientY - startY) > 10) {
+                cancelLongPress();
+                cleanup();
+            }
+        }
+        function upHandler() { cancelLongPress(); cleanup(); }
+        function cleanup() {
+            document.removeEventListener('pointermove', moveHandler);
+            document.removeEventListener('pointerup', upHandler);
+            document.removeEventListener('pointercancel', upHandler);
+        }
+        document.addEventListener('pointermove', moveHandler);
+        document.addEventListener('pointerup', upHandler);
+        document.addEventListener('pointercancel', upHandler);
+    }
+
+    function cancelLongPress() {
+        if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+    }
+
+    /* ---------------------------------------------------------
+       Observadores y arranque
+       --------------------------------------------------------- */
+    function observeMsgList() {
+        const list = $('msg-list');
+        if (!list) { setTimeout(observeMsgList, 300); return; }
+        if (list.dataset.convCleanReady === '1') return;
+        list.dataset.convCleanReady = '1';
+
+        list.addEventListener('pointerdown', onPointerDown, true);
+        list.addEventListener('click',       handleRowClickCapture, true);
+
+        const obs = new MutationObserver((muts) => {
+            let changed = false;
+            muts.forEach(m => {
+                m.addedNodes.forEach(n => {
+                    if (n.nodeType !== 1) return;
+                    if (n.classList && n.classList.contains('msg-row')) changed = true;
+                    else if (n.querySelectorAll && n.querySelectorAll('.msg-row').length) changed = true;
+                });
+            });
+            if (changed) {
+                // Si llega una nueva fila mientras estamos en selección, aplicarle el modo
+                if (selectionMode) {
+                    list.querySelectorAll('.msg-row').forEach(row => {
+                        if (!row.classList.contains('selecting')) {
+                            row.classList.add('selecting');
+                            if (!row.querySelector('.msg-row-select')) {
+                                const check = document.createElement('span');
+                                check.className = 'msg-row-select';
+                                row.insertBefore(check, row.firstChild);
+                            }
+                        }
+                    });
+                }
+                scheduleAssign();
+            }
+        });
+        obs.observe(list, { childList: true, subtree: true });
+
+        // Re-mapear al abrir la vista
+        const view = $('mensajes-view');
+        if (view && view.dataset.convCleanView !== '1') {
+            view.dataset.convCleanView = '1';
+            const obsV = new MutationObserver(() => {
+                if (view.classList.contains('visible')) {
+                    scheduleAssign();
+                } else if (selectionMode) {
+                    exitSelectionMode();
+                }
+            });
+            obsV.observe(view, { attributes: true, attributeFilter: ['class'] });
+        }
+
+        setTimeout(assignConvIdsToRows, 200);
+    }
+
+    /* ESC cierra menú / confirmación / modo selección primero */
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        if (activeMenu) {
+            e.stopPropagation(); e.preventDefault();
+            closeMenu();
+            return;
+        }
+        if (selectionMode) {
+            e.stopPropagation(); e.preventDefault();
+            exitSelectionMode();
+        }
+    }, true);
+
+    function init() {
+        if (typeof firebase === 'undefined' || !firebase.auth) {
+            setTimeout(init, 300);
+            return;
+        }
+        observeMsgList();
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+})();
