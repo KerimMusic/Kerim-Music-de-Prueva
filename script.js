@@ -1555,6 +1555,24 @@ document.addEventListener('DOMContentLoaded', () => {
     'use strict';
     const CAROUSEL_LIMIT = 12;
     const COLLAB_SPLIT = /\s+(?:ft\.?|feat\.?|featuring|con|&)\s+/i;
+
+    /* ---- Títulos dinámicos para "Lo que has escuchado" ---- */
+    const LISTEN_AGAIN_TITLES = [
+        '🎵 ¿La escuchamos de nuevo?',
+        '🔁 Invitado a escuchar de nuevo',
+        '🎧 Vuelve a escuchar tus favoritas',
+        '🎶 Continúa escuchando',
+        '🔥 ¿Repetimos?',
+        '💿 Para volver a escuchar',
+        '🎧 Lo que has escuchado'
+    ];
+
+    function getListenAgainTitle(index) {
+        const arr = LISTEN_AGAIN_TITLES;
+        const i = (typeof index === 'number' && index >= 0) ? index : 0;
+        return arr[i % arr.length];
+    }
+
     function norm(str) {
         if (typeof normalizeStr === 'function') return normalizeStr(str);
         return String(str || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
@@ -1677,10 +1695,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const playlists = (typeof window.__getPlaylistsCache === 'function') ? window.__getPlaylistsCache() : [];
         if (!playlists.length) { sec.style.display = 'none'; return; }
         sec.style.display = '';
-        playlists.slice().reverse().forEach(pl => carousel.appendChild(makePlaylistCard(pl)));
+        const ordered = playlists.slice().reverse();
+        ordered.forEach((pl, idx) => carousel.appendChild(makePlaylistCard(pl, idx)));
     }
 
-    function makePlaylistCard(playlist) {
+    function makePlaylistCard(playlist, index) {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'home-card home-card--playlist';
@@ -1703,15 +1722,19 @@ document.addEventListener('DOMContentLoaded', () => {
             thumb.appendChild(cell);
         });
         btn.appendChild(thumb);
+
         const t = document.createElement('span');
         t.className = 'home-card-title';
-        t.textContent = playlist.nombre;
+        // ✅ Título dinámico visible (NO altera playlist.nombre interno)
+        t.textContent = getListenAgainTitle(typeof index === 'number' ? index : 0);
         btn.appendChild(t);
+
         const s = document.createElement('span');
         s.className = 'home-card-sub';
         const n = playlist.canciones.length;
         s.textContent = n + ' ' + (n === 1 ? 'canción' : 'canciones');
         btn.appendChild(s);
+
         btn.addEventListener('click', () => {
             if (typeof window.__openPlaylistView === 'function') window.__openPlaylistView(playlist);
         });
@@ -1825,7 +1848,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
     else boot();
 })();
-
 /* ============================================================
    11. BOTÓN "MOSTRAR TODAS LAS CANCIONES"
    ============================================================ */
