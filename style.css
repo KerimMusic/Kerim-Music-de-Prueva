@@ -1987,3 +1987,77 @@ button:active { opacity: 0.72; }
     user-select: none;
     pointer-events: none;
 }
+/* ============================================================
+   33. BUSCADOR AVANZADO: GÉNERO + PLAYLISTS PÚBLICAS
+   ============================================================ */
+.search-row--playlist .search-row-thumb {
+    border-radius: 8px;
+    box-shadow: 0 0 0 2px rgba(255, 42, 42, 0.20);
+}
+
+/* ============================================================
+   34. SISTEMA DE RECOMENDACIONES
+   ============================================================ */
+#sec-recommendations .home-card-thumb {
+    position: relative;
+}
+#sec-recommendations .home-card-thumb::after {
+    content: "★";
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    background: rgba(255, 42, 42, 0.88);
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 800;
+    padding: 3px 6px;
+    border-radius: 50px;
+    line-height: 1;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+    pointer-events: none;
+}
+
+/* ============================================================
+   35. ELIMINAR PLAYLIST (botón dentro de Editar)
+   ============================================================ */
+.pv-delete-btn {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #ff2a2a;
+    color: #ffffff;
+    border: none;
+    border-radius: 50px;
+    padding: 7px 12px;
+    font-family: inherit;
+    font-size: 10.5px;
+    font-weight: 800;
+    text-align: left;
+    cursor: pointer;
+    box-shadow: 0 6px 18px rgba(255, 42, 42, 0.35);
+    max-width: 132px;
+    margin-left: 6px;
+    animation: pv-del-pop 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.pv-delete-btn span { display: block; }
+.pv-delete-btn:active { transform: scale(0.95); opacity: 0.9; }
+.pv-delete-btn svg { flex-shrink: 0; }
+
+@keyframes pv-del-pop {
+    0%   { transform: scale(0.6); opacity: 0; }
+    60%  { transform: scale(1.08); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+}
+
+.pv-del-confirm-msg {
+    font-size: 13.5px;
+    color: #b3b3b3;
+    line-height: 1.45;
+    margin: 4px 0 8px;
+    text-align: center;
+}
+.pv-del-confirm-msg strong {
+    color: #ffffff;
+    word-break: break-word;
+}
