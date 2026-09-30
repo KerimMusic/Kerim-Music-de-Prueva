@@ -6294,3 +6294,739 @@ document.addEventListener('DOMContentLoaded', () => {
         init();
     }
 })();
+/* ============================================================
+   33. BUSCADOR AVANZADO: GÉNERO + PLAYLISTS PÚBLICAS
+   ------------------------------------------------------------
+   - Añade al buscador (search-input) resultados por:
+       · Género musical (última parte del .item-subtitle tras "·")
+       · Playlists públicas (mis_playlists donde privada == false)
+   - NO modifica la sección 17. Se apoya en un observer sobre
+     #search-results para añadir secciones al final.
+   ============================================================ */
+(function () {
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+    let publicCache = null;
+    let publicPromise = null;
+    let enrichTimer = null;
+
+    function norm(s) {
+        return String(s || '')
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .trim();
+    }
+
+    function getGenre(item) {
+        const sub = item.querySelector('.item-subtitle')?.textContent || '';
+        const parts = sub.split('·').map(s => s.trim()).filter(Boolean);
+        if (parts.length < 2) return '';
+        const last = parts[parts.length - 1];
+        if (/^subido$/i.test(last)) return '';
+        return last;
+    }
+    function getCover(item)  { return item.querySelector('.thumbnail img')?.src || ''; }
+    function getTitle(item)  { return item.querySelector('.item-title')?.textContent.trim() || ''; }
+    function getSubtitle(it) { return it.querySelector('.item-subtitle')?.textContent.trim() || ''; }
+
+    /* ---------- Cache de playlists públicas ---------- */
+    async function loadPublicPlaylists() {
+        if (publicCache) return publicCache;
+        if (publicPromise) return publicPromise;
+        publicPromise = (async () => {
+            try {
+                const snap = await firebase.firestore()
+                    .collection('mis_playlists')
+                    .where('privada', '==', false)
+                    .limit(500).get();
+                const list = [];
+                snap.forEach(doc => {
+                    const d = doc.data() || {};
+                    list.push({
+                        id: doc.id,
+                        uid: d.uid || '',
+                        nombre: d.nombre || 'Playlist',
+                        canciones: Array.isArray(d.canciones) ? d.canciones : []
+                    });
+                });
+                publicCache = list;
+                return list;
+            } catch (e) {
+                console.warn('[BUSQUEDA] Error playlists públicas:', e);
+                publicCache = [];
+                return [];
+            } finally {
+                publicPromise = null;
+            }
+        })();
+        return publicPromise;
+    }
+
+    function ensureContainer() {
+        let el = $('search-results');
+        if (el) return el;
+        const pl = $('playlist');
+        if (!pl) return null;
+        el = document.createElement('div');
+        el.id = 'search-results';
+        el.className = 'search-results';
+        el.style.display = 'none';
+        pl.appendChild(el);
+        return el;
+    }
+
+    function buildSection(title) {
+        const sec = document.createElement('section');
+        sec.className = 'search-section';
+        const h = document.createElement('h3');
+        h.className = 'search-section-title';
+        h.textContent = title;
+        sec.appendChild(h);
+        return sec;
+    }
+
+    function closeSearchView() {
+        const input = $('search-input');
+        if (input) input.value = '';
+        const res = $('search-results');
+        if (res) { res.innerHTML = ''; res.style.display = 'none'; }
+        const sc = $('search-container');
+        if (sc) sc.classList.remove('visible');
+        const hv = $('home-view');
+        if (hv) hv.style.display = '';
+    }
+
+    function buildSongRow(item) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'search-row';
+        const thumb = document.createElement('div');
+        thumb.className = 'search-row-thumb';
+        const cover = getCover(item);
+        if (cover) {
+            const img = document.createElement('img');
+            img.src = cover; img.alt = getTitle(item); img.loading = 'lazy';
+            thumb.appendChild(img);
+        }
+        btn.appendChild(thumb);
+        const info = document.createElement('div');
+        info.className = 'search-row-info';
+        const t = document.createElement('span');
+        t.className = 'search-row-title';
+        t.textContent = getTitle(item);
+        info.appendChild(t);
+        const s = document.createElement('span');
+        s.className = 'search-row-sub';
+        s.textContent = getSubtitle(item);
+        info.appendChild(s);
+        btn.appendChild(info);
+        const p = document.createElement('span');
+        p.className = 'search-row-play';
+        p.textContent = '▶';
+        btn.appendChild(p);
+        btn.addEventListener('click', () => {
+            closeSearchView();
+            setTimeout(() => item.click(), 30);
+        });
+        return btn;
+    }
+
+    function buildPlaylistRow(pl) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'search-row search-row--playlist';
+        const thumb = document.createElement('div');
+        thumb.className = 'search-row-thumb';
+        const first = (pl.canciones && pl.canciones[0]) || null;
+        const cover = first ? (first.portada || '') : '';
+        if (cover) {
+            const img = document.createElement('img');
+            img.src = cover; img.alt = pl.nombre; img.loading = 'lazy';
+            thumb.appendChild(img);
+        }
+        btn.appendChild(thumb);
+        const info = document.createElement('div');
+        info.className = 'search-row-info';
+        const t = document.createElement('span');
+        t.className = 'search-row-title';
+        t.textContent = pl.nombre;
+        info.appendChild(t);
+        const s = document.createElement('span');
+        s.className = 'search-row-sub';
+        const n = pl.canciones.length;
+        s.textContent = 'Playlist pública · ' + n + ' canción' + (n === 1 ? '' : 'es');
+        info.appendChild(s);
+        btn.appendChild(info);
+        const p = document.createElement('span');
+        p.className = 'search-row-play';
+        p.textContent = '▶';
+        btn.appendChild(p);
+        btn.addEventListener('click', () => {
+            closeSearchView();
+            const user = firebase.auth().currentUser;
+            const isOwner = !!(user && pl.uid === user.uid);
+            const view = {
+                id: pl.id,
+                nombre: pl.nombre,
+                canciones: pl.canciones.map(c => ({
+                    titulo: c.titulo,
+                    portada: c.portada || '',
+                    subtitulo: c.subtitulo || ''
+                })),
+                isOwner,
+                esMiPlaylist: isOwner,
+                privada: false,
+                esPublica: true
+            };
+            if (typeof window.__openPlaylistView === 'function') {
+                window.__openPlaylistView(view);
+            }
+        });
+        return btn;
+    }
+
+    async function enrich(q) {
+        const c = $('search-results');
+        if (!c) return;
+        if (c.dataset.enriching === '1') return;
+        if (c.querySelector('[data-enriched="1"]')) return;
+        const nq = norm(q);
+        if (!nq) return;
+        const pl = $('playlist');
+        if (!pl) return;
+
+        c.dataset.enriching = '1';
+        try {
+            // 1. Canciones por género
+            const genreMatches = [];
+            pl.querySelectorAll('.playlist-item').forEach(it => {
+                const g = getGenre(it);
+                if (g && norm(g).includes(nq)) genreMatches.push(it);
+            });
+
+            // 2. Playlists públicas por nombre
+            const pubs = await loadPublicPlaylists();
+            const plMatches = pubs.filter(p => norm(p.nombre).includes(nq));
+
+            if (!genreMatches.length && !plMatches.length) return;
+
+            const wrap = document.createElement('div');
+            wrap.dataset.enriched = '1';
+
+            if (genreMatches.length) {
+                const sec = buildSection('Canciones por género');
+                genreMatches.slice(0, 12).forEach(it => sec.appendChild(buildSongRow(it)));
+                wrap.appendChild(sec);
+            }
+            if (plMatches.length) {
+                const sec = buildSection('Playlists públicas');
+                plMatches.slice(0, 12).forEach(p => sec.appendChild(buildPlaylistRow(p)));
+                wrap.appendChild(sec);
+            }
+
+            // Quitar el "Sin resultados" si la sección 17 lo puso pero nosotros sí tenemos
+            const empty = c.querySelector('.search-empty');
+            if (empty) empty.remove();
+
+            // Si la sección 17 no añadió ninguna sección base, ocultar home/items
+            if (!c.querySelector('.search-section')) {
+                const hv = $('home-view');
+                if (hv) hv.style.display = 'none';
+                pl.querySelectorAll('.playlist-item').forEach(it => { it.style.display = 'none'; });
+            }
+
+            c.appendChild(wrap);
+            c.style.display = 'block';
+        } finally {
+            c.dataset.enriching = '0';
+        }
+    }
+
+    function init() {
+        if (typeof firebase === 'undefined' || !firebase.auth) { setTimeout(init, 300); return; }
+        const input = $('search-input');
+        const container = ensureContainer();
+        if (!input || !container) { setTimeout(init, 300); return; }
+        if (container.dataset.enrichReady === '1') return;
+        container.dataset.enrichReady = '1';
+
+        // Debounce propio (más largo que el de la sección 17 = 70ms)
+        input.addEventListener('input', () => {
+            if (enrichTimer) clearTimeout(enrichTimer);
+            const q = (input.value || '').trim();
+            if (!q) {
+                container.querySelectorAll('[data-enriched="1"]').forEach(el => el.remove());
+                return;
+            }
+            enrichTimer = setTimeout(() => {
+                enrichTimer = null;
+                enrich(q);
+            }, 220);
+        });
+
+        // Observer: cuando la sección 17 re-renderiza, enriquecemos de nuevo
+        const obs = new MutationObserver(() => {
+            if (container.dataset.enriching === '1') return;
+            if (container.querySelector('[data-enriched="1"]')) return;
+            const q = (input.value || '').trim();
+            if (!q) return;
+            if (enrichTimer) clearTimeout(enrichTimer);
+            enrichTimer = setTimeout(() => {
+                enrichTimer = null;
+                const q2 = (input.value || '').trim();
+                if (!q2) return;
+                enrich(q2);
+            }, 180);
+        });
+        obs.observe(container, { childList: true });
+    }
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+    else init();
+})();
+
+/* ============================================================
+   34. SISTEMA DE RECOMENDACIONES MUSICALES
+   ------------------------------------------------------------
+   - Rastrea géneros y artistas de las canciones que el usuario
+     reproduce (via click en .playlist-item).
+   - Guarda los contadores en historial_usuarios/{uid}.musica_prefs
+     con escritura diferida (batch cada 8s).
+   - Genera una sección dinámica "Recomendado para ti" en home-view
+     puntuando cada canción según:
+        · Género afín al usuario (peso 5 - rank)
+        · Artista afín al usuario (peso 7 - rank)
+        · Excluye las ya reproducidas (historial)
+   - No modifica ninguna función existente (secciones 1 a 33).
+   ============================================================ */
+(function () {
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+    const COLLECTION = 'historial_usuarios';
+
+    let queue = { generos: {}, artistas: {} };
+    let flushTimer = null;
+    let currentUser = null;
+    let isBooted = false;
+
+    function norm(s) {
+        return String(s || '')
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .trim();
+    }
+
+    function parseItem(item) {
+        const title = item.querySelector('.item-title')?.textContent.trim() || '';
+        const sub = item.querySelector('.item-subtitle')?.textContent || '';
+        const parts = sub.split('·').map(s => s.trim()).filter(Boolean);
+        const artista = parts[0] || '';
+        let genero = parts.length >= 2 ? parts[parts.length - 1] : '';
+        if (/^subido$/i.test(genero)) genero = '';
+        return { title, artista, genero };
+    }
+
+    /* ---------- Registro de reproducciones ---------- */
+    function trackPlay(item) {
+        if (!item) return;
+        const { artista, genero } = parseItem(item);
+        if (genero) queue.generos[genero] = (queue.generos[genero] || 0) + 1;
+        if (artista) queue.artistas[artista] = (queue.artistas[artista] || 0) + 1;
+        scheduleFlush();
+    }
+
+    function scheduleFlush() {
+        if (flushTimer) clearTimeout(flushTimer);
+        flushTimer = setTimeout(flushPrefs, 8000);
+    }
+
+    async function flushPrefs() {
+        flushTimer = null;
+        if (!currentUser) return;
+        const g = { ...queue.generos };
+        const a = { ...queue.artistas };
+        if (!Object.keys(g).length && !Object.keys(a).length) return;
+        queue = { generos: {}, artistas: {} };
+        try {
+            const ref = firebase.firestore().collection(COLLECTION).doc(currentUser.uid);
+            const snap = await ref.get();
+            const data = snap.exists ? snap.data() : {};
+            const prev = data.musica_prefs || { generos: {}, artistas: {} };
+            const newPrefs = {
+                generos:  { ...(prev.generos  || {}) },
+                artistas: { ...(prev.artistas || {}) },
+                ultima_actualizacion: firebase.firestore.FieldValue.serverTimestamp()
+            };
+            for (const k in g) newPrefs.generos[k]  = (newPrefs.generos[k]  || 0) + g[k];
+            for (const k in a) newPrefs.artistas[k] = (newPrefs.artistas[k] || 0) + a[k];
+            await ref.set({ musica_prefs: newPrefs }, { merge: true });
+            console.log('🎯 [RECS] Preferencias guardadas');
+        } catch (e) {
+            console.warn('[RECS] Error flush:', e);
+        }
+    }
+
+    /* ---------- Sección dinámica en home-view ---------- */
+    function ensureSection() {
+        let sec = $('sec-recommendations');
+        if (sec) return { sec, carousel: $('carousel-recommendations') };
+        const homeView = $('home-view');
+        if (!homeView) return null;
+        const template = $('sec-maybe') || $('sec-top') || $('sec-artists');
+
+        sec = document.createElement('section');
+        sec.id = 'sec-recommendations';
+        sec.className = template ? template.className : 'home-section';
+        sec.style.display = 'none';
+
+        const h = document.createElement('h2');
+        h.className = 'home-section-title';
+        h.textContent = 'Recomendado para ti';
+        sec.appendChild(h);
+
+        const carousel = document.createElement('div');
+        carousel.className = 'home-carousel';
+        carousel.id = 'carousel-recommendations';
+        sec.appendChild(carousel);
+
+        const anchor = $('sec-maybe') || $('sec-top') || $('sec-artists');
+        if (anchor && anchor.parentNode === homeView) {
+            homeView.insertBefore(sec, anchor.nextSibling);
+        } else {
+            homeView.insertBefore(sec, homeView.firstChild);
+        }
+        return { sec, carousel };
+    }
+
+    function buildCard(item) {
+        const title = item.querySelector('.item-title')?.textContent.trim() || '';
+        const cover = item.querySelector('.thumbnail img')?.src || '';
+        const sub = item.querySelector('.item-subtitle')?.textContent.trim() || '';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'home-card';
+        btn.setAttribute('aria-label', title);
+        const thumb = document.createElement('div');
+        thumb.className = 'home-card-thumb';
+        if (cover) {
+            const img = document.createElement('img');
+            img.src = cover; img.alt = title; img.loading = 'lazy';
+            thumb.appendChild(img);
+        }
+        btn.appendChild(thumb);
+        const t = document.createElement('span');
+        t.className = 'home-card-title';
+        t.textContent = title;
+        btn.appendChild(t);
+        if (sub) {
+            const s = document.createElement('span');
+            s.className = 'home-card-sub';
+            s.textContent = sub;
+            btn.appendChild(s);
+        }
+        btn.addEventListener('click', () => item.click());
+        return btn;
+    }
+
+    /* ---------- Cálculo de recomendaciones ---------- */
+    async function computeRecommendations() {
+        if (!currentUser) return [];
+        let prefs = { generos: {}, artistas: {} };
+        try {
+            const snap = await firebase.firestore()
+                .collection(COLLECTION).doc(currentUser.uid).get();
+            prefs = (snap.data() && snap.data().musica_prefs) || prefs;
+        } catch (e) { /* silencioso */ }
+
+        const topG = Object.entries(prefs.generos || {})
+            .sort((a, b) => b[1] - a[1]).slice(0, 5).map(x => x[0]);
+        const topA = Object.entries(prefs.artistas || {})
+            .sort((a, b) => b[1] - a[1]).slice(0, 5).map(x => x[0]);
+
+        if (!topG.length && !topA.length) return [];
+
+        const playedSet = new Set(
+            (window.__getHistorialCache?.() || []).map(c => norm(c.titulo))
+        );
+        const pl = $('playlist');
+        if (!pl) return [];
+
+        const scored = [];
+        pl.querySelectorAll('.playlist-item').forEach(item => {
+            const { title, artista, genero } = parseItem(item);
+            if (!title) return;
+            if (playedSet.has(norm(title))) return;
+            let score = 0;
+            const gi = topG.findIndex(g => norm(g) === norm(genero));
+            if (gi >= 0) score += (5 - gi);
+            const ai = topA.findIndex(a => norm(a) === norm(artista));
+            if (ai >= 0) score += (7 - ai);
+            if (score > 0) scored.push({ item, score });
+        });
+        scored.sort((a, b) => b.score - a.score);
+        return scored.slice(0, 12).map(s => s.item);
+    }
+
+    async function renderRecommendations() {
+        const els = ensureSection();
+        if (!els) return;
+        const { sec, carousel } = els;
+        const items = await computeRecommendations();
+        carousel.innerHTML = '';
+        if (!items.length) { sec.style.display = 'none'; return; }
+        sec.style.display = '';
+        items.forEach(it => carousel.appendChild(buildCard(it)));
+    }
+
+    /* ---------- Detección de reproducciones ---------- */
+    function detectPlays() {
+        const pl = $('playlist');
+        if (pl && pl.dataset.recsListen !== '1') {
+            pl.dataset.recsListen = '1';
+            pl.addEventListener('click', (e) => {
+                const item = e.target.closest('.playlist-item');
+                if (item) {
+                    trackPlay(item);
+                    setTimeout(renderRecommendations, 1500);
+                }
+            });
+        }
+    }
+
+    /* ---------- Init ---------- */
+    function init() {
+        if (typeof firebase === 'undefined' || !firebase.auth) { setTimeout(init, 300); return; }
+        if (isBooted) return;
+        isBooted = true;
+
+        firebase.auth().onAuthStateChanged(user => {
+            currentUser = user;
+            if (user) {
+                detectPlays();
+                let tries = 0;
+                (function loop() {
+                    tries++;
+                    const has = document.querySelectorAll('#playlist .playlist-item').length > 0;
+                    if (has || tries > 30) {
+                        renderRecommendations();
+                        return;
+                    }
+                    setTimeout(loop, 300);
+                })();
+            } else {
+                const sec = $('sec-recommendations');
+                if (sec) sec.style.display = 'none';
+            }
+        });
+    }
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+    else init();
+
+    // Exponer para re-render desde otras secciones
+    window.__renderRecommendations = renderRecommendations;
+})();
+
+/* ============================================================
+   35. ELIMINAR PLAYLIST (desde Editar)
+   ------------------------------------------------------------
+   - Inyecta un botón "Eliminar playlist" en el header de
+     #playlist-view, visible solo cuando:
+        · El modal está en modo edición (clase .edit-mode)
+        · La playlist actual es del usuario (esMiPlaylist === true)
+   - Al pulsarlo, muestra un modal de confirmación.
+   - Al confirmar:
+        · Borra el documento en mis_playlists/{id}
+        · Borra los shares en playlists_compartidas (de == uid && playlistId == id)
+        · Cierra el playlist-view
+   - No modifica las secciones 1 a 34.
+   ============================================================ */
+(function () {
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+    const COLLECTION = 'mis_playlists';
+    let deleteBtn = null;
+    let confirmModal = null;
+
+    function escHtml(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[c]));
+    }
+
+    /* ---------- Modal de confirmación ---------- */
+    function ensureConfirmModal() {
+        if (confirmModal) return confirmModal;
+        const modal = document.createElement('div');
+        modal.className = 'mp-modal';
+        modal.id = 'pv-delete-modal';
+        modal.setAttribute('aria-hidden', 'true');
+        modal.innerHTML =
+            '<div class="mp-modal-backdrop" id="pv-delete-backdrop"></div>' +
+            '<div class="mp-modal-box" role="dialog" aria-modal="true">' +
+                '<div class="mp-modal-header">' +
+                    '<h2 class="mp-modal-title" style="text-align:left;">Eliminar playlist</h2>' +
+                    '<button class="mp-modal-close" id="pv-delete-close" type="button" aria-label="Cerrar">&times;</button>' +
+                '</div>' +
+                '<p class="pv-del-confirm-msg" id="pv-delete-msg">' +
+                    '¿Seguro que quieres eliminar esta playlist? Esta acción no se puede deshacer.' +
+                '</p>' +
+                '<p class="mp-modal-status" id="pv-delete-status"></p>' +
+                '<div class="mp-modal-actions">' +
+                    '<button class="mp-modal-btn mp-modal-btn-cancel" id="pv-delete-cancel" type="button">Cancelar</button>' +
+                    '<button class="mp-modal-btn mp-modal-btn-confirm" id="pv-delete-confirm" type="button">Eliminar</button>' +
+                '</div>' +
+            '</div>';
+        document.body.appendChild(modal);
+
+        function close() {
+            modal.classList.remove('visible');
+            modal.setAttribute('aria-hidden', 'true');
+            const st = $('pv-delete-status');
+            if (st) { st.textContent = ''; st.classList.remove('ok'); }
+        }
+        $('pv-delete-close').addEventListener('click', close);
+        $('pv-delete-cancel').addEventListener('click', close);
+        $('pv-delete-backdrop').addEventListener('click', close);
+
+        $('pv-delete-confirm').addEventListener('click', async () => {
+            const pl = window.__currentOpenPlaylist;
+            if (!pl || !pl.esMiPlaylist) { close(); return; }
+            const st = $('pv-delete-status');
+            const btn = $('pv-delete-confirm');
+            if (btn) { btn.disabled = true; btn.textContent = 'Eliminando…'; }
+            if (st) { st.textContent = 'Eliminando…'; st.classList.add('ok'); }
+
+            try {
+                const user = firebase.auth().currentUser;
+                // 1. Eliminar la playlist
+                await firebase.firestore().collection(COLLECTION).doc(pl.id).delete();
+                // 2. Eliminar shares de esta playlist
+                if (user) {
+                    try {
+                        const snap = await firebase.firestore()
+                            .collection('playlists_compartidas')
+                            .where('de', '==', user.uid)
+                            .where('playlistId', '==', pl.id)
+                            .get();
+                        if (!snap.empty) {
+                            const batch = firebase.firestore().batch();
+                            snap.forEach(doc => batch.delete(doc.ref));
+                            await batch.commit();
+                        }
+                    } catch (e) { console.warn('[DEL] Error borrando shares:', e); }
+                }
+                // 3. Cerrar modales y vista
+                close();
+                const pv = $('playlist-view');
+                if (pv) {
+                    pv.classList.remove('visible', 'edit-mode');
+                    pv.setAttribute('aria-hidden', 'true');
+                }
+                window.__currentOpenPlaylist = null;
+                // Refrescar recomendaciones por si había esa playlist referenciada
+                if (typeof window.__renderRecommendations === 'function') {
+                    try { window.__renderRecommendations(); } catch (_) {}
+                }
+            } catch (e) {
+                console.warn('[DEL] Error eliminando:', e);
+                if (st) { st.textContent = 'No se pudo eliminar.'; st.classList.remove('ok'); }
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = 'Eliminar'; }
+            }
+        });
+
+        confirmModal = modal;
+        return modal;
+    }
+
+    function openConfirm() {
+        const modal = ensureConfirmModal();
+        const pl = window.__currentOpenPlaylist;
+        if (!pl) return;
+        const msg = $('pv-delete-msg');
+        if (msg) {
+            msg.innerHTML = '¿Seguro que quieres eliminar <strong>' +
+                escHtml(pl.nombre || 'esta playlist') +
+                '</strong>? Esta acción no se puede deshacer.';
+        }
+        modal.classList.add('visible');
+        modal.setAttribute('aria-hidden', 'false');
+    }
+
+    /* ---------- Inyección del botón Eliminar ---------- */
+    function injectDeleteButton() {
+        const view = $('playlist-view');
+        if (!view) return false;
+        const pvEdit = $('pv-edit');
+        if (!pvEdit || !pvEdit.parentNode) return false;
+        if (document.getElementById('pv-delete-btn')) {
+            deleteBtn = document.getElementById('pv-delete-btn');
+            return true;
+        }
+
+        const btn = document.createElement('button');
+        btn.id = 'pv-delete-btn';
+        btn.type = 'button';
+        btn.className = 'pv-delete-btn';
+        btn.setAttribute('aria-label', 'Eliminar playlist');
+        btn.innerHTML =
+            '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" ' +
+            'stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+                '<polyline points="3 6 5 6 21 6"/>' +
+                '<path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>' +
+                '<path d="M10 11v6M14 11v6"/>' +
+                '<path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>' +
+            '</svg>' +
+            '<span>Eliminar<br>playlist</span>';
+        btn.style.display = 'none';
+        btn.addEventListener('click', () => {
+            if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} }
+            openConfirm();
+        });
+        pvEdit.parentNode.insertBefore(btn, pvEdit.nextSibling);
+        deleteBtn = btn;
+        return true;
+    }
+
+    function updateButtonVisibility() {
+        const view = $('playlist-view');
+        if (!view || !deleteBtn) return;
+        const inEdit = view.classList.contains('edit-mode');
+        const pl = window.__currentOpenPlaylist;
+        const canDelete = !!(pl && pl.esMiPlaylist === true);
+        deleteBtn.style.display = (inEdit && canDelete) ? '' : 'none';
+    }
+
+    function init() {
+        if (typeof firebase === 'undefined' || !firebase.auth) { setTimeout(init, 300); return; }
+        const view = $('playlist-view');
+        if (!view) { setTimeout(init, 300); return; }
+        if (view.dataset.delReady === '1') return;
+        view.dataset.delReady = '1';
+
+        let tries = 0;
+        (function wait() {
+            tries++;
+            if (injectDeleteButton()) return;
+            if (tries < 40) setTimeout(wait, 200);
+        })();
+
+        const obs = new MutationObserver(updateButtonVisibility);
+        obs.observe(view, { attributes: true, attributeFilter: ['class'] });
+
+        document.addEventListener('click', (e) => {
+            if (e.target.closest('#pv-edit')) {
+                setTimeout(updateButtonVisibility, 60);
+            }
+        });
+    }
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+    else init();
+})();
