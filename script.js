@@ -6793,15 +6793,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 })();
 /* ============================================================
-   33. BÚSQUEDA POR GÉNERO Y PLAYLISTS PÚBLICAS
+   33. BÚSQUEDA POR GÉNERO Y PLAYLISTS PÚBLICAS (CORREGIDA)
    ------------------------------------------------------------
-   - Amplía los resultados del buscador (sección 17) añadiendo:
-       · Una sección "Géneros" con todas las canciones cuyo
-         género (parte después del "·" del subtítulo) coincida.
-       · Una sección "Playlists públicas" consultando Firestore
-         (`mis_playlists` con `privada: false`).
-   - NO modifica la sección 17: se engancha mediante un
-     MutationObserver al contenedor `#search-results`.
+   - Ahora busca en TODO el catálogo:
+       · Canciones antiguas (género en el DOM .item-subtitle)
+       · Canciones nuevas subidas por usuarios (género en Firestore
+         campo `genero` / `género` / `genre` / `categoria`)
+       · Canciones futuras (se detectan automáticamente al vuelo)
+   - Construye un mapa `título → género` desde Firestore para
+     completar el género de canciones cuyo DOM diga solo "· Subido".
+   - NO modifica la sección 17. Se engancha con MutationObserver.
    ============================================================ */
 (function () {
     'use strict';
@@ -6813,6 +6814,11 @@ document.addEventListener('DOMContentLoaded', () => {
     let searchObserver = null;
     let debounceTimer = null;
     let lastRenderedQ = '';
+
+    // Mapa global: título normalizado → género (para canciones nuevas)
+    let genreMapFromFirestore = new Map();
+    let genreMapLoading = null;
+    let genreMapLoadedOnce = false;
 
     function normalizeStr(s) {
         return String(s || '').toLowerCase()
@@ -6826,15 +6832,93 @@ document.addEventListener('DOMContentLoaded', () => {
     function getItemCover(item) {
         return item.querySelector('.thumbnail img')?.src || '';
     }
-    function getItemGenre(item) {
+
+    /* -------- Leer género del DOM (canciones del HTML) -------- */
+    function getGenreFromDom(item) {
         const sub = item.querySelector('.item-subtitle')?.textContent || '';
         const idx = sub.indexOf('·');
         if (idx === -1) return '';
         const genre = sub.slice(idx + 1).trim();
-        if (!genre || genre.toLowerCase() === 'subido') return '';
+        if (!genre) return '';
+        const lower = genre.toLowerCase();
+        if (lower === 'subido' || lower === 'subidos') return '';
         return genre;
     }
 
+    /* -------- Leer género para una canción (DOM + Firestore fallback) -------- */
+    function getItemGenre(item) {
+        // 1) Intentar desde el DOM
+        const fromDom = getGenreFromDom(item);
+        if (fromDom) return fromDom;
+
+        // 2) Fallback: buscar en el mapa de Firestore
+        if (genreMapFromFirestore.size > 0) {
+            const title = getItemTitle(item);
+            const key = normalizeStr(title);
+            if (key && genreMapFromFirestore.has(key)) {
+                return genreMapFromFirestore.get(key);
+            }
+        }
+        return '';
+    }
+
+    /* -------- Cargar mapa de géneros desde Firestore -------- */
+    async function cargarGenerosDesdeFirestore(force) {
+        if (!force && genreMapLoadedOnce) return genreMapFromFirestore;
+        if (genreMapLoading && !force) return genreMapLoading;
+
+        genreMapLoading = (async () => {
+            const map = new Map();
+
+            function pickGenre(d) {
+                return d.genero || d['género'] || d.genre ||
+                       d.categoria || d.category || d.tipo || '';
+            }
+
+            // 1) canciones_usuarios
+            try {
+                const snap = await firebase.firestore()
+                    .collection('canciones_usuarios').limit(500).get();
+                snap.forEach(doc => {
+                    const d = doc.data() || {};
+                    const titulo = d.titulo || '';
+                    const genero = pickGenre(d);
+                    if (titulo && genero) {
+                        map.set(normalizeStr(titulo), String(genero).trim());
+                    }
+                });
+            } catch (e) {
+                console.warn('[BUSCADOR-GÉNERO] canciones_usuarios:', e);
+            }
+
+            // 2) collectionGroup('canciones') — canciones de subcolecciones
+            try {
+                const snap = await firebase.firestore()
+                    .collectionGroup('canciones').limit(500).get();
+                snap.forEach(doc => {
+                    const d = doc.data() || {};
+                    if (d.origen && d.origen !== 'dropbox') return;
+                    const titulo = d.titulo || '';
+                    const genero = pickGenre(d);
+                    if (titulo && genero) {
+                        map.set(normalizeStr(titulo), String(genero).trim());
+                    }
+                });
+            } catch (e) {
+                console.warn('[BUSCADOR-GÉNERO] collectionGroup canciones:', e);
+            }
+
+            genreMapFromFirestore = map;
+            genreMapLoadedOnce = true;
+            genreMapLoading = null;
+            console.log('[BUSCADOR-GÉNERO] Géneros cargados:', map.size);
+            return map;
+        })();
+
+        return genreMapLoading;
+    }
+
+    /* -------- Playlists públicas (igual que antes) -------- */
     async function cargarPlaylistsPublicas(force) {
         if (!force && publicPlaylistsCache) return publicPlaylistsCache;
         if (cachePromise && !force) return cachePromise;
@@ -6867,9 +6951,11 @@ document.addEventListener('DOMContentLoaded', () => {
         return cachePromise;
     }
 
+    /* -------- Sección "Géneros" (ahora con todo el catálogo) -------- */
     function buildGenreSection(qNorm) {
         const items = Array.from(document.querySelectorAll('#playlist .playlist-item'));
         const map = new Map();
+
         items.forEach(item => {
             const genre = getItemGenre(item);
             if (!genre) return;
@@ -6880,6 +6966,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             map.get(key).items.push(item);
         });
+
         if (!map.size) return null;
 
         const sec = document.createElement('section');
@@ -6891,6 +6978,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const grid = document.createElement('div');
         grid.className = 'search-card-grid';
+
         Array.from(map.values()).slice(0, 6).forEach(g => {
             const btn = document.createElement('button');
             btn.type = 'button';
@@ -6918,7 +7006,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             btn.addEventListener('click', () => {
                 if (navigator.vibrate) { try { navigator.vibrate(10); } catch (_) {} }
-                // Reproducir la primera canción del género y activar filtro
                 if (typeof setArtistFilter === 'function') {
                     setArtistFilter(g.items, g.name);
                 } else {
@@ -6926,7 +7013,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     window.__artistFilterName = g.name;
                 }
                 if (g.items[0]) g.items[0].click();
-                // Cerrar buscador
+
                 const input = $('search-input');
                 if (input) input.value = '';
                 const sr = $('search-results');
@@ -6942,14 +7029,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
             grid.appendChild(btn);
         });
+
         sec.appendChild(grid);
         return sec;
     }
 
+    /* -------- Sección "Playlists públicas" -------- */
     function buildPublicPlaylistSection(qNorm, playlists) {
         if (!playlists || !playlists.length) return null;
         const currentUid = firebase.auth().currentUser?.uid || '';
-
         const filtered = playlists.filter(pl => normalizeStr(pl.nombre).includes(qNorm));
         if (!filtered.length) return null;
 
@@ -7017,7 +7105,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     privada: false,
                     esPublica: true
                 };
-                // Cerrar buscador
                 const input = $('search-input');
                 if (input) input.value = '';
                 const sr = $('search-results');
@@ -7036,10 +7123,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
             grid.appendChild(btn);
         });
+
         sec.appendChild(grid);
         return sec;
     }
 
+    /* -------- Añadir secciones extra al buscador -------- */
     async function addExtraSections(q) {
         const container = $('search-results');
         if (!container || !q) return;
@@ -7052,17 +7141,21 @@ document.addEventListener('DOMContentLoaded', () => {
         );
         if (existing && lastRenderedQ === q) return;
 
-        // Eliminar las secciones anteriores
+        // Eliminar las secciones anteriores (para evitar duplicados)
         container.querySelectorAll(
             '.search-section--genres, .search-section--public-playlists'
         ).forEach(el => el.remove());
 
+        // 🔑 Cargar géneros desde Firestore (canciones nuevas)
+        //   y playlists públicas en paralelo
+        await Promise.all([
+            cargarGenerosDesdeFirestore(false).catch(() => {}),
+            cargarPlaylistsPublicas(false).catch(() => {})
+        ]);
+
         const genreSec = buildGenreSection(qNorm);
+        const plSec = buildPublicPlaylistSection(qNorm, publicPlaylistsCache || []);
 
-        const playlists = await cargarPlaylistsPublicas();
-        const plSec = buildPublicPlaylistSection(qNorm, playlists);
-
-        // Si hay alguna sección nueva, quitar el "Sin resultados"
         if (genreSec || plSec) {
             const emptyEl = container.querySelector('.search-empty');
             if (emptyEl) emptyEl.remove();
@@ -7071,7 +7164,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (genreSec) container.appendChild(genreSec);
         if (plSec) container.appendChild(plSec);
 
-        // Asegurar que el contenedor esté visible
         if (genreSec || plSec) {
             container.style.display = 'block';
         }
@@ -7093,7 +7185,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const input = $('search-input');
         if (!container || !input) { setTimeout(init, 300); return; }
 
+        // Precargar mapas
+        cargarGenerosDesdeFirestore(false).catch(() => {});
         cargarPlaylistsPublicas().catch(() => {});
+
+        // Si el usuario sube canciones nuevas, refrescar el mapa al enfocar el buscador
+        if (!window.__genreRefreshHook) {
+            window.__genreRefreshHook = true;
+            input.addEventListener('focus', () => {
+                cargarGenerosDesdeFirestore(true).catch(() => {});
+            });
+        }
 
         if (!searchObserver) {
             searchObserver = new MutationObserver(() => {
@@ -7490,10 +7592,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         // Refrescar home
                         if (typeof window.__buildListenAgain === 'function') {
                             try { window.__buildListenAgain(); } catch (_) {}
-                        }
-                        // Refrescar Mi Playlist si está abierto
-                        if (typeof window.__openMiPlaylistView === 'function') {
-                            // El listener de Firestore actualizará la lista
                         }
                         // Toast breve
                         let toast = document.getElementById('omega-toast');
