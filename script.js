@@ -294,7 +294,7 @@ window.__guardarEnHistorial = guardarEnHistorial;
 window.__getHistorialCache = () => historialCache;
 
 /* ============================================================
-   0.4. SISTEMA DE PLAYLISTS "TU PLAYLIST"
+   0.4. SISTEMA DE PLAYLISTS "VOLVER A OÍR"
    ============================================================ */
 const MAX_CANCIONES_POR_PLAYLIST = 10;
 const MAX_COMPLETADAS = 300;
@@ -370,7 +370,7 @@ function computePlaylistsFromCompletadas() {
         if (!cancionesFiltradas.length) continue;
         playlists.push({
             id: plId,
-            nombre: 'Tu Playlist #' + idx,
+            nombre: 'Volver a Oír',
             fecha: chunk[0].fecha,
             canciones: cancionesFiltradas,
             isOwner: true
@@ -1556,23 +1556,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const CAROUSEL_LIMIT = 12;
     const COLLAB_SPLIT = /\s+(?:ft\.?|feat\.?|featuring|con|&)\s+/i;
 
-    /* ---- Títulos dinámicos para "Lo que has escuchado" ---- */
-    const LISTEN_AGAIN_TITLES = [
-        '🎵 ¿La escuchamos de nuevo?',
-        '🔁 Invitado a escuchar de nuevo',
-        '🎧 Vuelve a escuchar tus favoritas',
-        '🎶 Continúa escuchando',
-        '🔥 ¿Repetimos?',
-        '💿 Para volver a escuchar',
-        '🎧 Lo que has escuchado'
-    ];
-
-    function getListenAgainTitle(index) {
-        const arr = LISTEN_AGAIN_TITLES;
-        const i = (typeof index === 'number' && index >= 0) ? index : 0;
-        return arr[i % arr.length];
-    }
-
     function norm(str) {
         if (typeof normalizeStr === 'function') return normalizeStr(str);
         return String(str || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
@@ -1695,11 +1678,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const playlists = (typeof window.__getPlaylistsCache === 'function') ? window.__getPlaylistsCache() : [];
         if (!playlists.length) { sec.style.display = 'none'; return; }
         sec.style.display = '';
-        const ordered = playlists.slice().reverse();
-        ordered.forEach((pl, idx) => carousel.appendChild(makePlaylistCard(pl, idx)));
+        playlists.slice().reverse().forEach(pl => carousel.appendChild(makePlaylistCard(pl)));
     }
 
-    function makePlaylistCard(playlist, index) {
+    function makePlaylistCard(playlist) {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'home-card home-card--playlist';
@@ -1725,8 +1707,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const t = document.createElement('span');
         t.className = 'home-card-title';
-        // ✅ Título dinámico visible (NO altera playlist.nombre interno)
-        t.textContent = getListenAgainTitle(typeof index === 'number' ? index : 0);
+        t.textContent = playlist.nombre;
         btn.appendChild(t);
 
         const s = document.createElement('span');
@@ -1848,6 +1829,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
     else boot();
 })();
+
 /* ============================================================
    11. BOTÓN "MOSTRAR TODAS LAS CANCIONES"
    ============================================================ */
@@ -2433,7 +2415,7 @@ document.addEventListener('DOMContentLoaded', () => {
 })();
 
 /* ============================================================
-   18. VISTA DE "TU PLAYLIST" (detalle + escuchar + EDITAR)
+   18. VISTA DE "VOLVER A OÍR" (detalle + escuchar + EDITAR)
    ============================================================ */
 (function () {
     'use strict';
@@ -2620,7 +2602,7 @@ document.addEventListener('DOMContentLoaded', () => {
         function openView(pl) {
             if (editMode) exitEditMode();
             currentPlaylist = pl;
-            pvTitle.textContent = pl.nombre || 'Tu Playlist';
+            pvTitle.textContent = pl.nombre || 'Volver a Oír';
             const n = pl.canciones.length;
             pvCount.textContent = n + ' ' + (n === 1 ? 'canción' : 'canciones');
             let coverSet = false;
@@ -7541,7 +7523,7 @@ document.addEventListener('DOMContentLoaded', () => {
    - Al pulsarlo se muestra un modal de confirmación.
    - Al confirmar, se elimina la playlist completa de Firestore
      (`mis_playlists/{id}`) y sus shares (`playlists_compartidas`).
-   - NO modifica la sección 18 (Vista de "Tu Playlist").
+   - NO modifica la sección 18 (Vista de "Volver a Oír").
    ============================================================ */
 (function () {
     'use strict';
