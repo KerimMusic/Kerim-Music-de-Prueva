@@ -496,21 +496,6 @@ function setArtistFilter(items, name) {
 }
 
 /* ============================================================
-   2. ANUNCIOS
-   ============================================================ */
-const ADS = [
-  { id: 'ad9', url: 'https://www.dropbox.com/scl/fi/l41bs2ooxh6ccnewgnvd1/1785466259517.png?rlkey=czf0bcn58v0irh5qdfeg9tnef&st=pbd0d7v5&raw=1', title: 'Anuncio 9', category: 'ANUNCIO', music: 'https://www.dropbox.com/scl/fi/9tsc6vvge3ukcao3w8hiy/elimina-basura-spotyfi.mp3?rlkey=pogumn7wjmhepbtocb16km25w&st=3oh3m9tu&raw=1', isAd: true },
-  { id: 'ad8', url: 'https://www.dropbox.com/scl/fi/zstw4ykjmjh3ljzejuwk5/Anuncio.png?rlkey=pumuamhvcw40nas5biyyrizvo&st=ku13lu66&raw=1', title: 'Anuncio 8', category: 'ANUNCIO', music: 'https://www.dropbox.com/scl/fi/63czt3npjdkz54trajxdf/Presentacion-de-isco-Dany-Zm.wav?rlkey=q7caesruijhiuiil7map3oecn&st=326tvf8c&raw=1', isAd: true },
-  { id: 'ad7', url: 'https://www.dropbox.com/scl/fi/zstw4ykjmjh3ljzejuwk5/Anuncio.png?rlkey=pumuamhvcw40nas5biyyrizvo&st=ku13lu66&raw=1', title: 'Anuncio 7', category: 'ANUNCIO', music: 'https://www.dropbox.com/scl/fi/ymz00x4bk0arik8vapgnd/11-de-abril-de-2026.mp3?rlkey=hafgkwkgt6tgyrryodqz2c6fy&st=p5vsj82t&raw=1', isAd: true },
-  { id: 'ad6b', url: 'https://www.dropbox.com/scl/fi/7myjpayd9cocf2of9srrj/Cris-Znchez.jpg?rlkey=eqarykexb089abzkacqgbarsl&st=l7cxp9cf&raw=1', title: 'Anuncio Cris', category: 'ANUNCIO', music: 'https://www.dropbox.com/scl/fi/w8ynapsg34o119wnye6el/Auncio-cris-sanches_.mp3?rlkey=pr73mrdydh12tzu1jyreb4pqo&st=u5ewfxwg&raw=1', isAd: true },
-  { id: 'ad1', url: 'https://www.dropbox.com/scl/fi/zstw4ykjmjh3ljzejuwk5/Anuncio.png?rlkey=pumuamhvcw40nas5biyyrizvo&st=ku13lu66&raw=1', title: 'Anuncio 1', category: 'ANUNCIO', music: 'https://www.dropbox.com/scl/fi/z3fbqqzthhvvqt9275lc7/2-tema-grabados_1783188240865.mp3?rlkey=7v6ha18uxps052z43rty0d5jr&st=sam7gv97&raw=1', isAd: true },
-  { id: 'ad2', url: 'https://www.dropbox.com/scl/fi/zstw4ykjmjh3ljzejuwk5/Anuncio.png?rlkey=pumuamhvcw40nas5biyyrizvo&st=ku13lu66&raw=1', title: 'Anuncio 2', category: 'ANUNCIO', music: 'https://www.dropbox.com/scl/fi/xgl19r2bd49n5cdup93f4/Escucha-sin-anusios_1783188103278.mp3?rlkey=00usrx9c68td9pkqw6o2x1qct&st=4ck7wlz8&raw=1', isAd: true },
-  { id: 'ad3', url: '', title: 'Anuncio 3', category: 'ANUNCIO', music: '', video: 'https://www.dropbox.com/scl/fi/5hvqucrjyjotpjge1wpei/AQPEGQdoqPKVT4eHsCxScmq2Pgjwlze7l6aPYix_phWROLbabx1WiKmXH3GA8eDVa8AyecSArdrF9I_wbvUT5XaZ9cJVWSAHpGXci6nOD_T-Eg.mp4?rlkey=29tg1m9o3zgvlrgz1bskg7dzj&st=pmeqma9m&raw=1', isAd: true },
-  { id: 'ad6', url: '', title: 'Anuncio 6', category: 'ANUNCIO', music: '', video: 'https://www.dropbox.com/scl/fi/n4nhc00dzenwsoj0t0mud/El-placoso-de-la-L.mp4?rlkey=tde69aczhy3rhxit16xyu3ewx&st=sf47qwl2&raw=1', isAd: true },
-  { id: 'ad4', url: 'https://www.dropbox.com/scl/fi/zstw4ykjmjh3ljzejuwk5/Anuncio.png?rlkey=pumuamhvcw40nas5biyyrizvo&st=ku13lu66&raw=1', title: 'Anuncio 4', category: 'ANUNCIO', music: 'https://www.dropbox.com/scl/fi/vl4d6mwau9frvxmjm6wwn/Baner.mp3?rlkey=z8jezojlzlyt0i3qp16jrvid9&st=tdb7ne0h&raw=1', isAd: true }
-];
-
-/* ============================================================
    3. REPRODUCTOR PRINCIPAL
    ============================================================ */
 document.addEventListener('DOMContentLoaded', () => {
@@ -980,105 +965,242 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 /* ============================================================
-   4. GESTOR DE ANUNCIOS
+   4. GESTOR DE ANUNCIOS (FIREBASE) ✨ NUEVO
+   ------------------------------------------------------------
+   - Se eliminan los anuncios hardcodeados.
+   - Se cargan exclusivamente desde Firestore: colección "anuncios".
+   - Contadores diarios en la colección "anuncios_vistas".
+   - Ciclo: cada 6 canciones → 3 anuncios aleatorios.
+   - Botón "Omitir" SOLO en el tercer anuncio del ciclo.
+   - Los anuncios que alcanzan su límite diario se excluyen.
    ============================================================ */
 (function () {
     'use strict';
-    function init() {
-        var audioPlayer = document.getElementById('audio-player');
-        if (!audioPlayer) return;
-        if (typeof ADS === 'undefined' || !Array.isArray(ADS) || !ADS.length) return;
 
-        var BEATS_PER_AD = 6;
-        var SKIP_DELAY = 5;
-        var beatPlayCount = 0;
-        var lastSrc = '';
-        var isAdPlaying = false;
-        var adIndex = 0;
-        var adOnComplete = null;
-        var currentAdMedia = null;
-        var countdownInterval = null;
-        var adTimeout = null;
-        var originalPlay = audioPlayer.play.bind(audioPlayer);
+    const BEATS_PER_AD  = 6;
+    const ADS_PER_CYCLE = 3;
+    const SKIP_DELAY    = 5;
 
-        var overlay = document.createElement('div');
+    let audioPlayer  = null;
+    let originalPlay = null;
+
+    let beatPlayCount     = 0;
+    let lastSrc           = '';
+    let isAdPlaying       = false;
+    let adPlaying         = false;
+    let adOnComplete      = null;
+    let currentAdMedia    = null;
+    let countdownInterval = null;
+    let adTimeout         = null;
+
+    let adsCache        = [];
+    let adsLoadPromise  = null;
+    let dailyViewsCache = {};
+
+    let overlay   = null;
+    let adMedia   = null;
+    let adSkip    = null;
+    let adCounter = null;
+
+    function getTodayKey() {
+        const d = new Date();
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return y + '-' + m + '-' + day;
+    }
+
+    function normalizeAd(doc) {
+        const d = doc.data() || {};
+        return {
+            id:          doc.id,
+            titulo:      d.titulo || d.title || d.nombre || 'Anuncio',
+            audio:       d.audio  || d.audioUrl || d.music || d.musica || '',
+            imagen:      d.imagen || d.imagenUrl || d.image || d.url || d.portada || '',
+            video:       d.video  || d.videoUrl || '',
+            vecesPorDia: Number(d.vecesPorDia ?? d.limiteDiario ?? d.limite ?? d.veces ?? 0) || 0,
+            activo:      d.activo !== false
+        };
+    }
+
+    async function cargarAnuncios(force) {
+        if (!force && adsLoadPromise) return adsLoadPromise;
+        adsLoadPromise = (async () => {
+            try {
+                const snap = await firebase.firestore().collection('anuncios').get();
+                adsCache = snap.docs.map(normalizeAd);
+                console.log('[ADS] Anuncios cargados:', adsCache.length);
+            } catch (e) {
+                console.warn('[ADS] Error cargando anuncios:', e);
+                adsCache = [];
+            }
+            return adsCache;
+        })();
+        return adsLoadPromise;
+    }
+
+    async function cargarVistasDelDia() {
+        const hoy = getTodayKey();
+        try {
+            const snap = await firebase.firestore()
+                .collection('anuncios_vistas')
+                .where('fecha', '==', hoy)
+                .get();
+            dailyViewsCache = {};
+            snap.forEach(doc => {
+                const d = doc.data() || {};
+                if (d.adId) dailyViewsCache[d.adId] = Number(d.count) || 0;
+            });
+        } catch (e) {
+            console.warn('[ADS] Error cargando vistas:', e);
+            dailyViewsCache = {};
+        }
+    }
+
+    async function incrementarVista(adId) {
+        const hoy = getTodayKey();
+        const docId = adId + '_' + hoy;
+        dailyViewsCache[adId] = (dailyViewsCache[adId] || 0) + 1;
+        try {
+            const ref = firebase.firestore().collection('anuncios_vistas').doc(docId);
+            await ref.set({
+                adId:        adId,
+                fecha:       hoy,
+                count:       firebase.firestore.FieldValue.increment(1),
+                actualizado: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+        } catch (e) {
+            console.warn('[ADS] Error incrementando vista:', e);
+        }
+    }
+
+    function adDisponible(ad) {
+        if (!ad || ad.activo === false) return false;
+        if (!ad.audio && !ad.video)     return false;
+        const limite = ad.vecesPorDia || 0;
+        if (limite > 0) {
+            const vistas = dailyViewsCache[ad.id] || 0;
+            if (vistas >= limite) return false;
+        }
+        return true;
+    }
+
+    function seleccionarAnuncios(cantidad) {
+        const disponibles = adsCache.filter(adDisponible);
+        for (let i = disponibles.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [disponibles[i], disponibles[j]] = [disponibles[j], disponibles[i]];
+        }
+        return disponibles.slice(0, cantidad);
+    }
+
+    function ensureOverlay() {
+        if (overlay && overlay.isConnected) return;
+        overlay = document.createElement('div');
         overlay.id = 'ad-overlay';
         overlay.setAttribute('aria-hidden', 'true');
         overlay.innerHTML =
             '<div class="ad-inner">' +
                 '<div class="ad-label">ANUNCIO</div>' +
+                '<div class="ad-counter" id="ad-counter"></div>' +
                 '<div class="ad-media"></div>' +
-                '<button class="ad-skip" type="button" disabled>' +
+                '<button class="ad-skip" type="button" style="display:none;">' +
                     'Saltar anuncio (<span class="ad-countdown">' + SKIP_DELAY + '</span>)' +
                 '</button>' +
             '</div>';
         document.body.appendChild(overlay);
+        adMedia   = overlay.querySelector('.ad-media');
+        adSkip    = overlay.querySelector('.ad-skip');
+        adCounter = overlay.querySelector('#ad-counter');
+    }
 
-        var adMedia = overlay.querySelector('.ad-media');
-        var adSkip = overlay.querySelector('.ad-skip');
+    function cleanupAdMedia() {
+        if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
+        if (adTimeout)         { clearTimeout(adTimeout); adTimeout = null; }
+        if (currentAdMedia) {
+            try {
+                currentAdMedia.pause();
+                currentAdMedia.removeAttribute('src');
+                currentAdMedia.load();
+            } catch (_) {}
+            currentAdMedia = null;
+        }
+        if (adMedia) adMedia.innerHTML = '';
+    }
 
-        audioPlayer.play = function () {
-            if (isAdPlaying) return Promise.resolve();
-            var src = audioPlayer.src;
-            var isNewBeat = src && src !== lastSrc;
-            if (isNewBeat) {
-                lastSrc = src;
-                if (beatPlayCount >= BEATS_PER_AD) {
-                    beatPlayCount = 0;
-                    showAd(function () { originalPlay().catch(function () {}); });
-                    return Promise.resolve();
-                }
-                beatPlayCount++;
+    function finalizarAnuncio() {
+        if (!adPlaying) return;
+        adPlaying = false;
+        cleanupAdMedia();
+        if (overlay) {
+            overlay.classList.remove('visible');
+            overlay.setAttribute('aria-hidden', 'true');
+        }
+        const cb = adOnComplete;
+        adOnComplete = null;
+        if (cb) { try { cb(); } catch (e) { console.warn(e); } }
+    }
+
+    function mostrarAnuncio(ad, indexInCycle, totalInCycle, onEnd) {
+        ensureOverlay();
+        adPlaying = true;
+        adOnComplete = onEnd;
+
+        const allowSkip = (indexInCycle === totalInCycle - 1);
+
+        if (adCounter) {
+            adCounter.textContent = (indexInCycle + 1) + ' / ' + totalInCycle;
+        }
+
+        adMedia.innerHTML = '';
+        if (currentAdMedia) {
+            try {
+                currentAdMedia.pause();
+                currentAdMedia.removeAttribute('src');
+                currentAdMedia.load();
+            } catch (_) {}
+            currentAdMedia = null;
+        }
+
+        let mediaEl = null;
+        if (ad.video) {
+            mediaEl = document.createElement('video');
+            mediaEl.src = ad.video;
+            mediaEl.playsInline = true;
+            mediaEl.setAttribute('playsinline', '');
+            mediaEl.setAttribute('webkit-playsinline', '');
+            mediaEl.preload = 'auto';
+            mediaEl.controls = false;
+            adMedia.appendChild(mediaEl);
+        } else {
+            if (ad.imagen) {
+                const img = document.createElement('img');
+                img.src = ad.imagen;
+                img.alt = ad.titulo || 'Anuncio';
+                img.className = 'ad-cover';
+                adMedia.appendChild(img);
             }
-            return originalPlay();
-        };
-
-        function showAd(onComplete) {
-            if (isAdPlaying) return;
-            isAdPlaying = true;
-            adOnComplete = onComplete || null;
-            try { audioPlayer.pause(); } catch (_) {}
-            var ad = ADS[adIndex % ADS.length];
-            adIndex = (adIndex + 1) % ADS.length;
-            adMedia.innerHTML = '';
-            if (currentAdMedia) {
-                try { currentAdMedia.pause(); currentAdMedia.removeAttribute('src'); currentAdMedia.load(); } catch (_) {}
-                currentAdMedia = null;
-            }
-            var mediaEl = null;
-            if (ad.video) {
-                mediaEl = document.createElement('video');
-                mediaEl.src = ad.video;
-                mediaEl.playsInline = true;
-                mediaEl.setAttribute('playsinline', '');
-                mediaEl.setAttribute('webkit-playsinline', '');
+            if (ad.audio) {
+                mediaEl = document.createElement('audio');
+                mediaEl.src = ad.audio;
                 mediaEl.preload = 'auto';
-                mediaEl.controls = false;
                 adMedia.appendChild(mediaEl);
-            } else {
-                if (ad.url) {
-                    var img = document.createElement('img');
-                    img.src = ad.url; img.alt = ad.title || 'Anuncio'; img.className = 'ad-cover';
-                    adMedia.appendChild(img);
-                }
-                if (ad.music) {
-                    mediaEl = document.createElement('audio');
-                    mediaEl.src = ad.music; mediaEl.preload = 'auto';
-                    adMedia.appendChild(mediaEl);
-                }
             }
-            currentAdMedia = mediaEl;
-            overlay.classList.add('visible');
-            overlay.setAttribute('aria-hidden', 'false');
+        }
+        currentAdMedia = mediaEl;
 
-            var remaining = SKIP_DELAY;
+        overlay.classList.add('visible');
+        overlay.setAttribute('aria-hidden', 'false');
+
+        if (allowSkip) {
+            adSkip.style.display = '';
             adSkip.disabled = true;
-            adSkip.innerHTML = 'Saltar anuncio (<span class="ad-countdown">' + remaining + '</span>)';
-
+            adSkip.innerHTML = 'Saltar anuncio (<span class="ad-countdown">' + SKIP_DELAY + '</span>)';
+            let remaining = SKIP_DELAY;
             if (countdownInterval) clearInterval(countdownInterval);
-            countdownInterval = setInterval(function () {
+            countdownInterval = setInterval(() => {
                 remaining--;
-                var el = adSkip.querySelector('.ad-countdown');
+                const el = adSkip.querySelector('.ad-countdown');
                 if (el) el.textContent = Math.max(0, remaining);
                 if (remaining <= 0) {
                     clearInterval(countdownInterval);
@@ -1087,50 +1209,121 @@ document.addEventListener('DOMContentLoaded', () => {
                     adSkip.textContent = 'Saltar anuncio ✕';
                 }
             }, 1000);
-
-            if (mediaEl) {
-                mediaEl.addEventListener('ended', endAd, { once: true });
-                mediaEl.addEventListener('error', function () { adTimeout = setTimeout(endAd, 900); }, { once: true });
-                var p = mediaEl.play();
-                if (p && p.catch) {
-                    p.catch(function () {
-                        mediaEl.muted = true;
-                        var p2 = mediaEl.play();
-                        if (p2 && p2.catch) p2.catch(function () { adTimeout = setTimeout(endAd, 4000); });
-                    });
-                }
-            } else {
-                adTimeout = setTimeout(endAd, SKIP_DELAY * 1000);
-            }
-        }
-
-        function endAd() {
-            if (!isAdPlaying) return;
-            isAdPlaying = false;
-            if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
-            if (adTimeout) { clearTimeout(adTimeout); adTimeout = null; }
-            if (currentAdMedia) {
-                try { currentAdMedia.pause(); currentAdMedia.removeAttribute('src'); currentAdMedia.load(); } catch (_) {}
-                currentAdMedia = null;
-            }
-            adMedia.innerHTML = '';
-            overlay.classList.remove('visible');
-            overlay.setAttribute('aria-hidden', 'true');
+        } else {
+            adSkip.style.display = 'none';
             adSkip.disabled = true;
-            adSkip.innerHTML = 'Saltar anuncio (<span class="ad-countdown">' + SKIP_DELAY + '</span>)';
-            var cb = adOnComplete;
-            adOnComplete = null;
-            if (cb) { try { cb(); } catch (e) { console.warn(e); } }
         }
 
+        incrementarVista(ad.id);
+
+        if (mediaEl) {
+            mediaEl.addEventListener('ended', finalizarAnuncio, { once: true });
+            mediaEl.addEventListener('error', () => {
+                adTimeout = setTimeout(finalizarAnuncio, 900);
+            }, { once: true });
+            const p = mediaEl.play();
+            if (p && p.catch) {
+                p.catch(() => {
+                    mediaEl.muted = true;
+                    const p2 = mediaEl.play();
+                    if (p2 && p2.catch) {
+                        p2.catch(() => { adTimeout = setTimeout(finalizarAnuncio, 4000); });
+                    }
+                });
+            }
+        } else {
+            adTimeout = setTimeout(finalizarAnuncio, 4000);
+        }
+    }
+
+    async function mostrarCicloAnuncios(onComplete) {
+        if (isAdPlaying) return;
+        isAdPlaying = true;
+        try { audioPlayer.pause(); } catch (_) {}
+
+        await cargarAnuncios();
+        await cargarVistasDelDia();
+
+        const seleccion = seleccionarAnuncios(ADS_PER_CYCLE);
+        if (!seleccion.length) {
+            console.log('[ADS] No hay anuncios disponibles');
+            isAdPlaying = false;
+            if (onComplete) onComplete();
+            return;
+        }
+
+        let idx = 0;
+        function siguiente() {
+            if (idx >= seleccion.length) {
+                isAdPlaying = false;
+                if (overlay) {
+                    overlay.classList.remove('visible');
+                    overlay.setAttribute('aria-hidden', 'true');
+                }
+                if (onComplete) onComplete();
+                return;
+            }
+            const ad = seleccion[idx];
+            const indexInCycle = idx;
+            idx++;
+            mostrarAnuncio(ad, indexInCycle, seleccion.length, siguiente);
+        }
+        siguiente();
+    }
+
+    function bindSkip() {
+        if (!adSkip) return;
         adSkip.addEventListener('click', function () {
             if (adSkip.disabled) return;
             if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} }
-            endAd();
+            finalizarAnuncio();
         });
     }
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
-    else init();
+
+    function init() {
+        audioPlayer = document.getElementById('audio-player');
+        if (!audioPlayer) { setTimeout(init, 200); return; }
+        if (audioPlayer.dataset.adManagerReady === '1') return;
+        audioPlayer.dataset.adManagerReady = '1';
+
+        originalPlay = audioPlayer.play.bind(audioPlayer);
+
+        audioPlayer.play = function () {
+            if (isAdPlaying) return Promise.resolve();
+            const src = audioPlayer.src;
+            const isNewBeat = src && src !== lastSrc;
+            if (isNewBeat) {
+                lastSrc = src;
+                if (beatPlayCount >= BEATS_PER_AD) {
+                    beatPlayCount = 0;
+                    mostrarCicloAnuncios(function () {
+                        originalPlay().catch(function () {});
+                    });
+                    return Promise.resolve();
+                }
+                beatPlayCount++;
+            }
+            return originalPlay();
+        };
+
+        ensureOverlay();
+        bindSkip();
+
+        cargarAnuncios().catch(function () {});
+
+        document.addEventListener('visibilitychange', function () {
+            if (document.visibilityState === 'visible') {
+                cargarAnuncios(true).catch(function () {});
+                cargarVistasDelDia().catch(function () {});
+            }
+        });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
 })();
 
 /* ============================================================
@@ -2960,13 +3153,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!modal) return;
         if (input) input.value = '';
         if (status) { status.textContent = ''; status.classList.remove('ok'); }
-        // ✅ NUEVO: sin usuarios visibles hasta que el usuario escriba
         if (results) results.innerHTML = '';
         if (recentBox) { recentBox.innerHTML = ''; recentBox.style.display = 'none'; }
         modal.classList.add('visible');
         modal.setAttribute('aria-hidden', 'false');
         await cargarCompartidosDePlaylist(playlist);
-        // ✅ Precargar la caché de usuarios (sin renderizar nada)
         cargarUsuariosFirebase().catch(() => {});
     }
 
@@ -3114,10 +3305,8 @@ document.addEventListener('DOMContentLoaded', () => {
             input.addEventListener('input', () => {
                 const q = input.value.trim();
                 if (debounceTimer) clearTimeout(debounceTimer);
-                // ✅ Ocultar siempre la sección de recientes dentro del buscador
                 if (recentBox) { recentBox.innerHTML = ''; recentBox.style.display = 'none'; }
                 if (!q) {
-                    // ✅ Vacío: no mostrar usuarios hasta que escriba
                     if (results) results.innerHTML = '';
                     return;
                 }
@@ -3958,15 +4147,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const ALL_VIEWS  = MAIN_VIEWS.concat(MY_VIEWS);
 
     let currentUser = null;
-    let currentChat = null;          // { uid, nombre, foto }
-    let currentAttachment = null;    // { titulo, artista, portada, audioUrl }
+    let currentChat = null;
+    let currentAttachment = null;
     let unsubConversaciones = null;
     let unsubChatMessages = null;
     let allUsersCache = null;
     let allUsersPromise = null;
     let lastRenderedIds = '';
 
-    /* -------------------- Utilidades -------------------- */
     function normalizeStr(s) {
         return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
     }
@@ -3996,7 +4184,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return initial;
     }
 
-    /* -------------------- Exclusividad de vistas -------------------- */
     function closeOtherViews(except) {
         ALL_VIEWS.forEach(id => {
             if (id === except) return;
@@ -4033,7 +4220,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    /* -------------------- Carga de usuarios -------------------- */
     async function loadAllUsers() {
         if (allUsersCache) return allUsersCache;
         if (allUsersPromise) return allUsersPromise;
@@ -4064,7 +4250,6 @@ document.addEventListener('DOMContentLoaded', () => {
         ).slice(0, 60);
     }
 
-    /* -------------------- Badge de no leídos -------------------- */
     function listenConversaciones() {
         if (unsubConversaciones) { unsubConversaciones(); unsubConversaciones = null; }
         if (!currentUser) return;
@@ -4109,7 +4294,6 @@ document.addEventListener('DOMContentLoaded', () => {
         else { badge.style.display = 'inline-flex'; badge.textContent = String(n > 99 ? '99+' : n); }
     }
 
-    /* -------------------- Lista de conversaciones -------------------- */
     function renderConversaciones(convs) {
         const list = $('msg-list');
         const empty = $('msg-empty');
@@ -4175,7 +4359,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    /* -------------------- Chat -------------------- */
     async function openChat(otherUser) {
         if (!currentUser || !otherUser) return;
         currentChat = otherUser;
@@ -4331,7 +4514,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (scroll) scroll.scrollTop = scroll.scrollHeight;
     }
 
-    /* -------------------- Reproducir canción compartida -------------------- */
     function playSharedSong(cancion) {
         if (!cancion || !cancion.audioUrl) return;
         const playlist = $('playlist');
@@ -4359,7 +4541,6 @@ document.addEventListener('DOMContentLoaded', () => {
         setTimeout(() => div.click(), 30);
     }
 
-    /* -------------------- Enviar mensaje -------------------- */
     async function sendMessage() {
         if (!currentUser || !currentChat) return;
         const input = $('chat-input');
@@ -4439,15 +4620,12 @@ document.addEventListener('DOMContentLoaded', () => {
         wrap.appendChild(btn);
     }
 
-    /* -------------------- Vista nuevo mensaje -------------------- */
     async function openNewMessageFlow() {
         openView('newmsg-view');
         const input = $('newmsg-input');
         if (input) input.value = '';
         const list = $('newmsg-list');
-        // ✅ NUEVO: mensaje de ayuda en lugar de listar usuarios
         if (list) list.innerHTML = '<div class="newmsg-empty">Escribe un nombre o correo para buscar</div>';
-        // ✅ Precargar caché (sin renderizar nada)
         loadAllUsers().catch(() => {});
     }
 
@@ -4488,7 +4666,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    /* -------------------- Icono en fullscreen player -------------------- */
     function injectFsMessageButton() {
         const fsActions = document.querySelector('.fs-actions');
         if (!fsActions) return false;
@@ -4532,7 +4709,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return true;
     }
 
-    /* -------------------- Menú -------------------- */
     function setupMenuLink() {
         const link = $('mensajes-link');
         if (!link || link.dataset.msgReady === '1') return;
@@ -4547,7 +4723,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    /* -------------------- Init -------------------- */
     function init() {
         if (typeof firebase === 'undefined' || !firebase.auth) {
             setTimeout(init, 300);
@@ -4579,7 +4754,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (deb) clearTimeout(deb);
                 const q = newmsgInput.value.trim();
                 if (!q) {
-                    // ✅ Vacío: no mostrar usuarios hasta que escriba
                     const list = $('newmsg-list');
                     if (list) list.innerHTML = '<div class="newmsg-empty">Escribe un nombre o correo para buscar</div>';
                     return;
@@ -4654,7 +4828,6 @@ document.addEventListener('DOMContentLoaded', () => {
         init();
     }
 
-    // Exponer openChat para que otras secciones puedan abrir chats
     window.__msgOpenChat = openChat;
 })();
 
@@ -4833,12 +5006,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const $ = (id) => document.getElementById(id);
 
-    let unsubBadge    = null;   // listener en tiempo real
-    let currentUid    = null;   // uid del usuario actual
-    let lastUnread    = 0;      // último total calculado
+    let unsubBadge    = null;
+    let currentUid    = null;
+    let lastUnread    = 0;
     let badgeDebounce = null;
 
-    /* ---------- Pintar el badge ---------- */
     function paintBadge(total) {
         const badge = $('msg-badge');
         if (!badge) return;
@@ -4858,7 +5030,6 @@ document.addEventListener('DOMContentLoaded', () => {
         lastUnread = n;
     }
 
-    /* ---------- Consulta puntual (fallback) ---------- */
     async function computeAndPaintBadge() {
         if (!currentUid) { paintBadge(0); return; }
         try {
@@ -4877,7 +5048,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ---------- Listener en tiempo real ---------- */
     function listenBadge() {
         if (unsubBadge) { unsubBadge(); unsubBadge = null; }
         if (!currentUid) { paintBadge(0); return; }
@@ -4936,7 +5106,6 @@ document.addEventListener('DOMContentLoaded', () => {
             });
     }
 
-    /* ---------- Marcar como leída la conversación abierta ---------- */
     async function markOpenConversationRead() {
         const chatView = $('chat-view');
         if (!chatView || !chatView.classList.contains('visible')) return;
@@ -4977,7 +5146,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ---------- Observadores de vistas ---------- */
     function watchViews() {
         const chatView = $('chat-view');
         if (chatView && chatView.dataset.badgeWatch !== '1') {
@@ -5014,7 +5182,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ---------- Init ---------- */
     function init() {
         if (typeof firebase === 'undefined' || !firebase.auth) {
             setTimeout(init, 300);
@@ -5689,18 +5856,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 })();
+
 /* ============================================================
    29. EDITAR / PERSONALIZAR NOMBRE DE USUARIO
-   ------------------------------------------------------------
-   - Modal accesible desde el menú lateral ("Editar nombre").
-   - Valida longitud, caracteres y disponibilidad en Firestore.
-   - Comprueba duplicados contra toda la colección historial_usuarios.
-   - Guarda en:
-       · historial_usuarios/{uid}.nombre
-       · historial_usuarios/{uid}.nombre_lower (para búsquedas rápidas)
-       · user.updateProfile({ displayName })  → Auth de Firebase
-       · info.{uid}.nombre  → en todas las conversaciones del usuario
-   - Actualiza la UI inmediatamente (menú lateral, inputs, etc.).
    ============================================================ */
 (function () {
     'use strict';
@@ -5712,7 +5870,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentName = '';
     let checkToken = 0;
 
-    /* ---------- Normalización ---------- */
     function normalizeName(str) {
         return String(str || '')
             .toLowerCase()
@@ -5722,7 +5879,6 @@ document.addEventListener('DOMContentLoaded', () => {
             .trim();
     }
 
-    /* ---------- Validación local ---------- */
     function validateName(name) {
         const trimmed = String(name || '').trim();
         if (!trimmed)                       return { ok: false, msg: 'Escribe un nombre.' };
@@ -5735,7 +5891,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return { ok: true, value: trimmed };
     }
 
-    /* ---------- Caché de usuarios ---------- */
     async function loadAllUsersForNames() {
         if (usersCacheForNames) return usersCacheForNames;
         if (usersLoadingPromise) return usersLoadingPromise;
@@ -5755,7 +5910,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return usersLoadingPromise;
     }
 
-    /* ---------- Disponibilidad del nombre ---------- */
     async function isNameAvailable(name) {
         const user = firebase.auth().currentUser;
         if (!user) return false;
@@ -5772,7 +5926,7 @@ document.addEventListener('DOMContentLoaded', () => {
             snap.forEach(doc => { if (doc.id !== user.uid) taken = true; });
             if (taken) return false;
             if (!snap.empty) return true;
-        } catch (e) { /* fallback */ }
+        } catch (e) { }
 
         try {
             const users = await loadAllUsersForNames();
@@ -5781,12 +5935,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 const cmp = u.nombreLower || normalizeName(u.nombre);
                 if (cmp === target) return false;
             }
-        } catch (e) { /* silencioso */ }
+        } catch (e) { }
 
         return true;
     }
 
-    /* ---------- UI helpers ---------- */
     function updateStatus(msg, type) {
         const status = $('name-modal-status');
         if (!status) return;
@@ -5801,7 +5954,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (btn) btn.disabled = !enabled;
     }
 
-    /* ---------- Comprobación con debounce ---------- */
     async function checkAndValidate(name) {
         const token = ++checkToken;
         const validation = validateName(name);
@@ -5834,7 +5986,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ---------- Abrir / cerrar modal ---------- */
     function openModal() {
         const modal = $('name-modal');
         const input = $('name-modal-input');
@@ -5866,7 +6017,6 @@ document.addEventListener('DOMContentLoaded', () => {
         updateStatus('', '');
     }
 
-    /* ---------- Guardado ---------- */
     async function saveName() {
         const user = firebase.auth().currentUser;
         if (!user) return;
@@ -5935,7 +6085,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ---------- Aplicar el nuevo nombre en la UI ---------- */
     function applyNewNameEverywhere(newName) {
         const sideEl = $('submenu-user-name');
         if (sideEl) sideEl.textContent = newName;
@@ -5946,7 +6095,6 @@ document.addEventListener('DOMContentLoaded', () => {
         currentName = newName;
     }
 
-    /* ---------- Init ---------- */
     function init() {
         if (typeof firebase === 'undefined' || !firebase.auth) { setTimeout(init, 300); return; }
 
@@ -6019,17 +6167,9 @@ document.addEventListener('DOMContentLoaded', () => {
         init();
     }
 })();
+
 /* ============================================================
-   30. ESTADO "VISTO" EN MENSAJES (versión corregida)
-   ------------------------------------------------------------
-   Cómo funciona:
-   - El EMISOR escribe un mensaje → se guarda SIN campo "visto".
-   - El RECEPTOR abre el chat → se marcan como "visto: true"
-     todos los mensajes que NO son suyos (batch update).
-   - El EMISOR ve "✓✓ Visto" debajo de la hora SOLO cuando
-     el campo "visto" del mensaje es true en Firestore.
-   - Se actualiza en tiempo real con Firestore onSnapshot.
-   - No interfiere con la sección 24 (listener propio, no lo toca).
+   30. ESTADO "VISTO" EN MENSAJES
    ============================================================ */
 (function () {
     'use strict';
@@ -6038,13 +6178,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let currentConvId    = null;
     let currentOtherUid  = null;
-    let unsubSeen        = null;   // listener de mensajes
-    let chatDomObserver  = null;   // observer del DOM del chat
-    let lastMessagesData = [];     // cache de los últimos mensajes vistos
-    let isMarking        = false;  // evita re-entradas al marcar como visto
-    let applyTimer       = null;   // debounce para aplicar marcas
+    let unsubSeen        = null;
+    let chatDomObserver  = null;
+    let lastMessagesData = [];
+    let isMarking        = false;
+    let applyTimer       = null;
 
-    /* ---------- Normalizar nombre ---------- */
     function normalizeName(s) {
         return String(s || '')
             .toLowerCase()
@@ -6053,12 +6192,10 @@ document.addEventListener('DOMContentLoaded', () => {
             .trim();
     }
 
-    /* ---------- Construir convId ---------- */
     function makeConvId(a, b) {
         return [a, b].sort().join('__');
     }
 
-    /* ---------- Buscar uid del otro usuario por nombre ---------- */
     async function findUidByName(name) {
         if (!name) return null;
         try {
@@ -6074,7 +6211,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return null;
     }
 
-    /* ---------- Marcar como vistos los mensajes AJENOS (del otro) ---------- */
     async function markOthersAsSeen() {
         const user = firebase.auth().currentUser;
         if (!user || !currentConvId || isMarking) return;
@@ -6090,7 +6226,6 @@ document.addEventListener('DOMContentLoaded', () => {
             let count = 0;
             snap.forEach(doc => {
                 const d = doc.data() || {};
-                // Solo los mensajes que NO son míos y que aún no están vistos
                 if (d.de !== user.uid && d.visto !== true) {
                     batch.update(doc.ref, { visto: true });
                     count++;
@@ -6107,21 +6242,16 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ---------- Aplicar / quitar la marca "✓✓ Visto" en el DOM ---------- */
     function applySeenMarks() {
         const container = $('chat-messages');
         const user = firebase.auth().currentUser;
         if (!container || !user) return;
 
-        // Filas de MIS mensajes (out) y de los del otro (in) en orden cronológico
         const outRows = Array.from(container.querySelectorAll('.chat-row--out'));
         if (!outRows.length) return;
 
-        // Mis mensajes (según Firestore)
         const myMsgs = lastMessagesData.filter(m => m.de === user.uid);
 
-        // Emparejar desde el final: el último mensaje del DOM con el último de Firestore
-        // Esto es más fiable que el match por texto, porque respeta el orden.
         const total = Math.min(outRows.length, myMsgs.length);
         for (let i = 0; i < total; i++) {
             const row = outRows[outRows.length - 1 - i];
@@ -6131,8 +6261,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const bubble = row.querySelector('.chat-bubble');
             if (!bubble) continue;
 
-            // Verificación cruzada por texto para evitar falsos positivos
-            // (si hay discrepancias, probamos coincidencia por canción)
             const txtEl = bubble.querySelector('.chat-bubble-text');
             const bubbleText = (txtEl ? txtEl.textContent : '').trim();
             const msgText = (msg.texto || '').trim();
@@ -6166,7 +6294,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }, delay || 60);
     }
 
-    /* ---------- Listener de mensajes de la conversación actual ---------- */
     function listenMessagesForSeen() {
         if (unsubSeen) { unsubSeen(); unsubSeen = null; }
         if (!currentConvId) return;
@@ -6191,7 +6318,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         cancion: d.cancion || null,
                         visto: d.visto === true
                     });
-                    // Los mensajes que NO son míos y aún no están vistos → marcar
                     if (d.de !== user.uid && d.visto !== true) {
                         toMark.push(doc.ref);
                     }
@@ -6199,11 +6325,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 lastMessagesData = arr;
 
-                // Aplicar marcas al DOM (con pequeños delays para que el DOM se haya pintado)
                 scheduleApplySeenMarks(50);
                 scheduleApplySeenMarks(250);
 
-                // Marcar como vistos los ajenos (si los hay)
                 if (toMark.length > 0) {
                     const batch = firebase.firestore().batch();
                     toMark.forEach(ref => batch.update(ref, { visto: true }));
@@ -6214,20 +6338,17 @@ document.addEventListener('DOMContentLoaded', () => {
             });
     }
 
-    /* ---------- Observar el DOM del chat para re-aplicar marcas ---------- */
     function observeChatDom() {
         const container = $('chat-messages');
         if (!container || chatDomObserver) return;
 
         chatDomObserver = new MutationObserver(() => {
             if (!currentConvId) return;
-            // Cuando la sección 24 re-renderiza los mensajes, re-aplicamos las marcas
             scheduleApplySeenMarks(60);
         });
         chatDomObserver.observe(container, { childList: true, subtree: true });
     }
 
-    /* ---------- Detectar apertura / cierre del chat ---------- */
     function watchChatView() {
         const chatView = $('chat-view');
         if (!chatView) { setTimeout(watchChatView, 300); return; }
@@ -6242,7 +6363,6 @@ document.addEventListener('DOMContentLoaded', () => {
             lastVisible = visible;
 
             if (visible) {
-                // ---- Chat ABIERTO ----
                 const user = firebase.auth().currentUser;
                 if (!user) return;
 
@@ -6258,22 +6378,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 console.log('[VISTO] Chat abierto con "' + otherName + '" → convId:', currentConvId);
 
-                // 1) Marcar como vistos los mensajes ajenos pendientes
                 await markOthersAsSeen();
-
-                // 2) Escuchar cambios para aplicar marcas en mis mensajes
                 listenMessagesForSeen();
-
-                // 3) Observar el DOM para re-aplicar marcas cuando se re-renderice
                 observeChatDom();
 
-                // 4) Reintentos por si el DOM tarda en pintarse
                 scheduleApplySeenMarks(200);
                 scheduleApplySeenMarks(600);
                 scheduleApplySeenMarks(1200);
 
             } else {
-                // ---- Chat CERRADO ----
                 if (unsubSeen) { unsubSeen(); unsubSeen = null; }
                 currentConvId = null;
                 currentOtherUid = null;
@@ -6283,7 +6396,6 @@ document.addEventListener('DOMContentLoaded', () => {
         obs.observe(chatView, { attributes: true, attributeFilter: ['class'] });
     }
 
-    /* ---------- Init ---------- */
     function init() {
         if (typeof firebase === 'undefined' || !firebase.auth) {
             setTimeout(init, 300);
@@ -6298,37 +6410,25 @@ document.addEventListener('DOMContentLoaded', () => {
         init();
     }
 })();
+
 /* ============================================================
    31. CHAT ESTILO WHATSAPP / MESSENGER
-   ------------------------------------------------------------
-   - Auto-scroll al fondo cuando:
-       · Se abre la conversación
-       · Llega un mensaje nuevo
-       · Se envía un mensaje
-       · Se carga una imagen
-       · Se redimensiona el viewport (teclado móvil)
-   - Solo auto-scroll si el usuario está cerca del fondo
-     (no interrumpe si está leyendo mensajes antiguos).
-   - Los mensajes más recientes quedan SIEMPRE abajo.
-   - NO modifica ninguna función existente (secciones 1 a 30).
    ============================================================ */
 (function () {
     'use strict';
 
     const $ = (id) => document.getElementById(id);
 
-    let autoScroll = true;      // true = auto-scroll activo
-    let chatObserver = null;    // observer del contenedor de mensajes
-    let isBound = false;        // evita doble binding
+    let autoScroll = true;
+    let chatObserver = null;
+    let isBound = false;
 
-    /* ---------- ¿El usuario está cerca del fondo? ---------- */
     function isNearBottom(el, threshold) {
         if (!el) return true;
         const t = typeof threshold === 'number' ? threshold : 100;
         return (el.scrollHeight - el.scrollTop - el.clientHeight) <= t;
     }
 
-    /* ---------- Forzar scroll al fondo (instantáneo) ---------- */
     function scrollToBottom() {
         const scroll = $('chat-scroll');
         if (!scroll) return;
@@ -6337,7 +6437,6 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (_) {}
     }
 
-    /* ---------- Scroll con múltiples reintentos (por si el DOM tarda) ---------- */
     function forceScrollWithRetries() {
         scrollToBottom();
         requestAnimationFrame(() => {
@@ -6350,7 +6449,6 @@ document.addEventListener('DOMContentLoaded', () => {
         setTimeout(scrollToBottom, 600);
     }
 
-    /* ---------- Detectar posición manual del usuario ---------- */
     function bindScrollListener() {
         const scroll = $('chat-scroll');
         if (!scroll || scroll.dataset.waScroll === '1') return;
@@ -6360,7 +6458,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }, { passive: true });
     }
 
-    /* ---------- Observar cambios en los mensajes ---------- */
     function bindMessagesObserver() {
         const container = $('chat-messages');
         if (!container || chatObserver) return;
@@ -6368,7 +6465,7 @@ document.addEventListener('DOMContentLoaded', () => {
         chatObserver = new MutationObserver(() => {
             const view = $('chat-view');
             if (!view || !view.classList.contains('visible')) return;
-            if (!autoScroll) return;   // respeta si el usuario está leyendo arriba
+            if (!autoScroll) return;
             forceScrollWithRetries();
         });
         chatObserver.observe(container, {
@@ -6378,7 +6475,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    /* ---------- Auto-scroll cuando cargan imágenes ---------- */
     function bindImageLoader() {
         const container = $('chat-messages');
         if (!container || container.dataset.waImgs === '1') return;
@@ -6391,7 +6487,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }, true);
     }
 
-    /* ---------- Auto-scroll cuando cambia el viewport (teclado móvil) ---------- */
     function bindViewportResize() {
         const handler = () => {
             if (autoScroll) setTimeout(scrollToBottom, 80);
@@ -6402,7 +6497,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ---------- Auto-scroll al pulsar Enter o botón enviar ---------- */
     function bindComposer() {
         const btn = $('chat-send');
         if (btn && btn.dataset.waSend !== '1') {
@@ -6428,7 +6522,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ---------- Detectar apertura / cierre del chat ---------- */
     function watchChatView() {
         const view = $('chat-view');
         if (!view) { setTimeout(watchChatView, 300); return; }
@@ -6442,23 +6535,19 @@ document.addEventListener('DOMContentLoaded', () => {
             lastVisible = visible;
 
             if (visible) {
-                // ---- Chat ABIERTO ----
                 autoScroll = true;
                 bindScrollListener();
                 bindMessagesObserver();
                 bindImageLoader();
                 bindComposer();
-                // Múltiples reintentos: el DOM y las imágenes tardan en pintar
                 forceScrollWithRetries();
             } else {
-                // ---- Chat CERRADO ----
-                autoScroll = true;   // reset para la próxima apertura
+                autoScroll = true;
             }
         });
         obs.observe(view, { attributes: true, attributeFilter: ['class'] });
     }
 
-    /* ---------- Init ---------- */
     function init() {
         if (isBound) return;
         isBound = true;
@@ -6472,32 +6561,19 @@ document.addEventListener('DOMContentLoaded', () => {
         init();
     }
 })();
+
 /* ============================================================
    32. PRIVACIDAD DEL CORREO
-   ------------------------------------------------------------
-   - Agrega un selector "Público / Privado" dentro del modal
-     "Editar nombre" (sin modificar el HTML existente: se
-     inyecta dinámicamente).
-   - Guarda el campo `email_privado` en Firestore:
-       · false → correo visible para otros usuarios
-       · true  → correo oculto para otros usuarios
-   - Persiste al cerrar sesión / volver a entrar.
-   - Oculta el correo en TODOS los buscadores de usuarios
-     (compartir playlist y nuevo mensaje) cuando el usuario
-     lo tenga en privado.
-   - NO modifica ninguna función existente (secciones 1 a 31).
    ============================================================ */
 (function () {
     'use strict';
 
     const $ = (id) => document.getElementById(id);
 
-    // Cache local: uid → { email, privado }
     let privacyCache = new Map();
     let cacheLoading = null;
-    let privacidadActual = false; // del usuario actual
+    let privacidadActual = false;
 
-    /* ---------- Cargar cache de privacidad de todos los usuarios ---------- */
     async function cargarCachePrivacidad(force) {
         if (!force && privacyCache.size > 0) return privacyCache;
         if (cacheLoading && !force) return cacheLoading;
@@ -6526,11 +6602,9 @@ document.addEventListener('DOMContentLoaded', () => {
         return cacheLoading;
     }
 
-    /* ---------- Ocultar correos privados en un contenedor ---------- */
     function ocultarEmailsPrivados(root) {
         if (!root) return;
 
-        // 1) Compartir playlist (.share-user-sub) — contiene "email" o "Texto · email"
         root.querySelectorAll('.share-user-row').forEach(row => {
             const sub = row.querySelector('.share-user-sub');
             if (!sub) return;
@@ -6549,7 +6623,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
-        // 2) Nuevo mensaje (.newmsg-row-email) — solo el email
         root.querySelectorAll('.newmsg-row').forEach(row => {
             const emailEl = row.querySelector('.newmsg-row-email');
             if (!emailEl) return;
@@ -6562,7 +6635,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    /* ---------- Aplicar filtro a todos los contenedores abiertos ---------- */
     function aplicarFiltroEnVistas() {
         const shareResults = $('share-modal-results');
         if (shareResults) ocultarEmailsPrivados(shareResults);
@@ -6572,23 +6644,19 @@ document.addEventListener('DOMContentLoaded', () => {
         if (newmsgList) ocultarEmailsPrivados(newmsgList);
     }
 
-    /* ---------- Observar contenedores de buscadores en tiempo real ---------- */
     function observarBuscadores() {
-        // share-modal-results
         const shareResults = $('share-modal-results');
         if (shareResults && shareResults.dataset.privObs !== '1') {
             shareResults.dataset.privObs = '1';
             const obs = new MutationObserver(() => ocultarEmailsPrivados(shareResults));
             obs.observe(shareResults, { childList: true, subtree: true });
         }
-        // share-modal-recent
         const shareRecent = $('share-modal-recent');
         if (shareRecent && shareRecent.dataset.privObs !== '1') {
             shareRecent.dataset.privObs = '1';
             const obs = new MutationObserver(() => ocultarEmailsPrivados(shareRecent));
             obs.observe(shareRecent, { childList: true, subtree: true });
         }
-        // newmsg-list
         const newmsgList = $('newmsg-list');
         if (newmsgList && newmsgList.dataset.privObs !== '1') {
             newmsgList.dataset.privObs = '1';
@@ -6597,13 +6665,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ---------- Inyectar el bloque de privacidad en el modal name-modal ---------- */
     function inyectarBloquePrivacidad() {
         const modal = $('name-modal');
         if (!modal) return false;
         const box = modal.querySelector('.mp-modal-box');
         if (!box) return false;
-        if (box.querySelector('.name-email-privacy')) return true; // ya inyectado
+        if (box.querySelector('.name-email-privacy')) return true;
 
         const bloque = document.createElement('div');
         bloque.className = 'name-email-privacy';
@@ -6618,7 +6685,6 @@ document.addEventListener('DOMContentLoaded', () => {
             </span>
         `;
 
-        // Insertar justo antes del status (o al final del modal-box)
         const status = box.querySelector('#name-modal-status');
         const actions = box.querySelector('.mp-modal-actions');
         if (status) {
@@ -6629,12 +6695,11 @@ document.addEventListener('DOMContentLoaded', () => {
             box.appendChild(bloque);
         }
 
-        // Bind de los botones
         bloque.querySelectorAll('.name-email-privacy-btn').forEach(btn => {
             btn.addEventListener('click', async () => {
                 const value = btn.dataset.value;
                 const esPrivado = value === 'privado';
-                if (esPrivado === privacidadActual) return; // no change
+                if (esPrivado === privacidadActual) return;
                 setBotonActivo(esPrivado);
                 await guardarPrivacidad(esPrivado);
             });
@@ -6643,7 +6708,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return true;
     }
 
-    /* ---------- Marcar botón activo ---------- */
     function setBotonActivo(esPrivado) {
         privacidadActual = esPrivado;
         const modal = $('name-modal');
@@ -6655,7 +6719,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    /* ---------- Leer privacidad desde Firestore del usuario actual ---------- */
     async function cargarPrivacidadActual() {
         const user = firebase.auth().currentUser;
         if (!user) return false;
@@ -6672,7 +6735,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return privacidadActual;
     }
 
-    /* ---------- Guardar privacidad en Firestore ---------- */
     async function guardarPrivacidad(esPrivado) {
         const user = firebase.auth().currentUser;
         if (!user) return;
@@ -6682,13 +6744,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 .set({ email_privado: !!esPrivado }, { merge: true });
             console.log('✅ [PRIVACIDAD] Guardado: email_privado =', esPrivado);
 
-            // Refrescar cache local
             await cargarCachePrivacidad(true);
-
-            // Re-aplicar filtros en vistas abiertas
             aplicarFiltroEnVistas();
 
-            // Feedback visual breve
             const status = $('name-modal-status');
             if (status) {
                 status.textContent = esPrivado
@@ -6714,7 +6772,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ---------- Detectar apertura del modal name-modal ---------- */
     function observarModal() {
         const modal = $('name-modal');
         if (!modal) { setTimeout(observarModal, 300); return; }
@@ -6726,14 +6783,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 inyectarBloquePrivacidad();
                 await cargarCachePrivacidad(false);
                 await cargarPrivacidadActual();
-                // Refrescar filtros por si había buscadores abiertos antes
                 aplicarFiltroEnVistas();
             }
         });
         obs.observe(modal, { attributes: true, attributeFilter: ['class'] });
     }
 
-    /* ---------- Observar apertura de buscadores (aplicar filtro al abrir) ---------- */
     function observarVistasBuscadores() {
         const shareModal = $('share-modal');
         if (shareModal && shareModal.dataset.privWatchView !== '1') {
@@ -6763,14 +6818,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ---------- Init ---------- */
     function init() {
         if (typeof firebase === 'undefined' || !firebase.auth) {
             setTimeout(init, 300);
             return;
         }
 
-        // Observar cuando el usuario cierra/abre sesión
         firebase.auth().onAuthStateChanged(user => {
             if (user) {
                 cargarCachePrivacidad(true).catch(() => {});
@@ -6782,7 +6835,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
-        // También correr por si ya hay sesión
         if (firebase.auth().currentUser) {
             cargarCachePrivacidad(true).catch(() => {});
             observarModal();
@@ -6798,19 +6850,7 @@ document.addEventListener('DOMContentLoaded', () => {
 })();
 
 /* ============================================================
-   33. BÚSQUEDA POR GÉNERO Y PLAYLISTS PÚBLICAS (LISTA COMPLETA)
-   ------------------------------------------------------------
-   - Cuando el usuario busca un género (Rap, Reggaetón, Trap…),
-     muestra TODAS las canciones que coincidan en formato LISTA:
-       · Portada · Título · Artista · Subtítulo
-   - También muestra las PLAYLISTS PÚBLICAS cuyo nombre coincida
-     con la búsqueda, también en formato lista.
-   - Busca en TODO el catálogo:
-       · Canciones del HTML (género en .item-subtitle)
-       · Canciones nuevas (género desde Firestore: genero/género/
-         genre/categoria/category/tipo)
-       · Canciones futuras (mapa se refresca al enfocar el buscador)
-   - NO modifica la sección 17. Se engancha con MutationObserver.
+   33. BÚSQUEDA POR GÉNERO Y PLAYLISTS PÚBLICAS
    ============================================================ */
 (function () {
     'use strict';
@@ -6823,7 +6863,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let debounceTimer = null;
     let lastRenderedQ = '';
 
-    // Mapa global: título normalizado → género (para canciones nuevas)
     let genreMapFromFirestore = new Map();
     let genreMapLoading = null;
     let genreMapLoadedOnce = false;
@@ -6844,7 +6883,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return item.querySelector('.thumbnail img')?.src || '';
     }
 
-    /* -------- Leer género del DOM (canciones del HTML) -------- */
     function getGenreFromDom(item) {
         const sub = item.querySelector('.item-subtitle')?.textContent || '';
         const idx = sub.indexOf('·');
@@ -6856,13 +6894,10 @@ document.addEventListener('DOMContentLoaded', () => {
         return genre;
     }
 
-    /* -------- Leer género para una canción (DOM + Firestore fallback) -------- */
     function getItemGenre(item) {
-        // 1) Intentar desde el DOM
         const fromDom = getGenreFromDom(item);
         if (fromDom) return fromDom;
 
-        // 2) Fallback: buscar en el mapa de Firestore
         if (genreMapFromFirestore.size > 0) {
             const title = getItemTitle(item);
             const key = normalizeStr(title);
@@ -6873,7 +6908,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return '';
     }
 
-    /* -------- Cargar mapa de géneros desde Firestore -------- */
     async function cargarGenerosDesdeFirestore(force) {
         if (!force && genreMapLoadedOnce) return genreMapFromFirestore;
         if (genreMapLoading && !force) return genreMapLoading;
@@ -6886,7 +6920,6 @@ document.addEventListener('DOMContentLoaded', () => {
                        d.categoria || d.category || d.tipo || '';
             }
 
-            // 1) canciones_usuarios
             try {
                 const snap = await firebase.firestore()
                     .collection('canciones_usuarios').limit(500).get();
@@ -6902,7 +6935,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.warn('[BUSCADOR-GÉNERO] canciones_usuarios:', e);
             }
 
-            // 2) collectionGroup('canciones') — canciones de subcolecciones
             try {
                 const snap = await firebase.firestore()
                     .collectionGroup('canciones').limit(500).get();
@@ -6929,7 +6961,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return genreMapLoading;
     }
 
-    /* -------- Playlists públicas -------- */
     async function cargarPlaylistsPublicas(force) {
         if (!force && publicPlaylistsCache) return publicPlaylistsCache;
         if (cachePromise && !force) return cachePromise;
@@ -6962,7 +6993,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return cachePromise;
     }
 
-    /* -------- Fila de canción (formato lista) -------- */
     function buildSongRow(item) {
         const btn = document.createElement('button');
         btn.type = 'button';
@@ -7002,9 +7032,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         btn.addEventListener('click', () => {
             if (navigator.vibrate) { try { navigator.vibrate(10); } catch (_) {} }
-            // Reproducir la canción
             item.click();
-            // Cerrar buscador
             const input = $('search-input');
             if (input) input.value = '';
             const sr = $('search-results');
@@ -7021,11 +7049,9 @@ document.addEventListener('DOMContentLoaded', () => {
         return btn;
     }
 
-    /* -------- Sección "Géneros" con LISTA completa de canciones -------- */
     function buildGenreSection(qNorm, qRaw) {
         const items = Array.from(document.querySelectorAll('#playlist .playlist-item'));
 
-        // 1) Agrupar por género coincidente
         const byGenre = new Map();
         items.forEach(item => {
             const genre = getItemGenre(item);
@@ -7040,19 +7066,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!byGenre.size) return null;
 
-        // 2) Construir sección con TODAS las canciones en lista
         const sec = document.createElement('section');
         sec.className = 'search-section search-section--genres';
 
-        // Título general
         const h = document.createElement('h3');
         h.className = 'search-section-title';
         h.textContent = 'Canciones del género "' + qRaw + '"';
         sec.appendChild(h);
 
-        // Recorrer cada género encontrado y añadir sub-título + sus canciones
         byGenre.forEach(g => {
-            // Sub-título por género (por si la búsqueda coincide con varios)
             if (byGenre.size > 1) {
                 const sub = document.createElement('div');
                 sub.className = 'search-section-title';
@@ -7063,7 +7085,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 sec.appendChild(sub);
             }
 
-            // TODAS las canciones del género, en formato lista
             g.items.forEach(item => {
                 sec.appendChild(buildSongRow(item));
             });
@@ -7072,7 +7093,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return sec;
     }
 
-    /* -------- Sección "Playlists públicas" en formato lista -------- */
     function buildPublicPlaylistSection(qNorm, playlists) {
         if (!playlists || !playlists.length) return null;
         const currentUid = firebase.auth().currentUser?.uid || '';
@@ -7093,7 +7113,6 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.type = 'button';
             btn.className = 'search-row';
 
-            // Portada: primera canción de la playlist
             const thumb = document.createElement('div');
             thumb.className = 'search-row-thumb';
             const firstSong = pl.canciones[0];
@@ -7113,7 +7132,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             btn.appendChild(thumb);
 
-            // Info: nombre + número de canciones
             const info = document.createElement('div');
             info.className = 'search-row-info';
 
@@ -7177,7 +7195,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return sec;
     }
 
-    /* -------- Añadir secciones extra al buscador -------- */
     async function addExtraSections(q) {
         const container = $('search-results');
         if (!container || !q) return;
@@ -7190,13 +7207,10 @@ document.addEventListener('DOMContentLoaded', () => {
         );
         if (existing && lastRenderedQ === q) return;
 
-        // Eliminar las secciones anteriores (para evitar duplicados)
         container.querySelectorAll(
             '.search-section--genres, .search-section--public-playlists'
         ).forEach(el => el.remove());
 
-        // Cargar géneros desde Firestore (canciones nuevas)
-        // y playlists públicas en paralelo
         await Promise.all([
             cargarGenerosDesdeFirestore(false).catch(() => {}),
             cargarPlaylistsPublicas(false).catch(() => {})
@@ -7234,11 +7248,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const input = $('search-input');
         if (!container || !input) { setTimeout(init, 300); return; }
 
-        // Precargar mapas
         cargarGenerosDesdeFirestore(false).catch(() => {});
         cargarPlaylistsPublicas().catch(() => {});
 
-        // Refrescar el mapa al enfocar el buscador (canciones nuevas)
         if (!window.__genreRefreshHook) {
             window.__genreRefreshHook = true;
             input.addEventListener('focus', () => {
@@ -7276,15 +7288,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /* ============================================================
    34. SISTEMA DE RECOMENDACIONES PERSONALIZADAS
-   ------------------------------------------------------------
-   - Analiza la actividad musical del usuario:
-       · Historial de reproducciones (historial_usuarios.canciones)
-       · Canciones completadas (historial_usuarios.canciones_completadas)
-   - Genera un perfil de gustos (géneros y artistas preferidos).
-   - Puntúa cada canción del catálogo que el usuario NO ha
-     escuchado y muestra las mejores como "Recomendado para ti".
-   - Se actualiza al terminar cada canción y cada 60 segundos.
-   - No modifica ninguna sección existente.
    ============================================================ */
 (function () {
     'use strict';
@@ -7366,7 +7369,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (parts.artist && profile.artistCounts.has(parts.artist)) {
                 score += profile.artistCounts.get(parts.artist) * 5;
             }
-            // Match parcial de artista (variantes)
             if (parts.artist) {
                 profile.artistCounts.forEach((count, artist) => {
                     if (artist === parts.artist) return;
@@ -7408,7 +7410,6 @@ document.addEventListener('DOMContentLoaded', () => {
         carousel.id = 'carousel-recommended';
         sec.appendChild(carousel);
 
-        // Insertar al inicio de home-view
         if (homeView.firstChild) {
             homeView.insertBefore(sec, homeView.firstChild);
         } else {
@@ -7516,14 +7517,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /* ============================================================
    35. ELIMINAR PLAYLIST DESDE "EDITAR"
-   ------------------------------------------------------------
-   - Cuando el usuario entra al modo Editar de una playlist
-     que le pertenece (esMiPlaylist), se inyecta un botón
-     "Eliminar playlist" en el footer.
-   - Al pulsarlo se muestra un modal de confirmación.
-   - Al confirmar, se elimina la playlist completa de Firestore
-     (`mis_playlists/{id}`) y sus shares (`playlists_compartidas`).
-   - NO modifica la sección 18 (Vista de "Volver a Oír").
    ============================================================ */
 (function () {
     'use strict';
@@ -7539,19 +7532,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function canDelete(pl) {
         if (!pl) return false;
-        // Solo las playlists personalizadas guardadas en `mis_playlists`
         return pl.esMiPlaylist === true && !!pl.id;
     }
 
     async function deletePlaylistFromFirestore(pl) {
         if (!pl || !pl.id) throw new Error('Playlist sin id');
 
-        // 1) Eliminar de mis_playlists
         try {
             await firebase.firestore().collection('mis_playlists').doc(pl.id).delete();
         } catch (e) { console.warn('[DEL] mis_playlists:', e); }
 
-        // 2) Eliminar de playlists_compartidas (como emisor)
         try {
             const user = firebase.auth().currentUser;
             if (user) {
@@ -7634,15 +7624,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 async () => {
                     try {
                         await deletePlaylistFromFirestore(pl);
-                        // Cerrar la vista
                         view.classList.remove('visible', 'edit-mode');
                         view.setAttribute('aria-hidden', 'true');
                         window.__currentOpenPlaylist = null;
-                        // Refrescar home
                         if (typeof window.__buildListenAgain === 'function') {
                             try { window.__buildListenAgain(); } catch (_) {}
                         }
-                        // Toast breve
                         let toast = document.getElementById('omega-toast');
                         if (!toast) {
                             toast = document.createElement('div');
@@ -7665,7 +7652,6 @@ document.addEventListener('DOMContentLoaded', () => {
             );
         });
 
-        // Insertarlo al final del footer
         footer.appendChild(btn);
         deleteBtn = btn;
         return true;
@@ -7702,7 +7688,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const obs = new MutationObserver(() => updateVisibility());
         obs.observe(view, { attributes: true, attributeFilter: ['class'] });
 
-        // También observamos el footer por si se agrega después
         const footer = view.querySelector('.pv-footer');
         if (footer) {
             const obsF = new MutationObserver(() => updateVisibility());
@@ -7718,16 +7703,9 @@ document.addEventListener('DOMContentLoaded', () => {
         init();
     }
 })();
+
 /* ============================================================
    36. COLABORADORES EN EL REPRODUCTOR FULLSCREEN
-   ------------------------------------------------------------
-   - Detecta colaboradores desde el título/subtítulo usando
-     los patrones "ft", "feat", "featuring", "con" y "&".
-   - Los busca en el catálogo existente de artistas.
-   - Los muestra con animación en la esquina superior izquierda
-     del reproductor fullscreen.
-   - Al tocar uno, abre el perfil del artista.
-   - NO modifica ninguna función existente (secciones 1 a 35).
    ============================================================ */
 (function () {
     'use strict';
@@ -7757,7 +7735,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return img ? (img.getAttribute('src') || '') : '';
     }
 
-    /* Obtiene todos los artistas de un item */
     function getItemArtists(item) {
         const sub = getItemSubtitle(item);
         const idx = sub.indexOf('·');
@@ -7767,7 +7744,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return parts.length ? parts : [namePart];
     }
 
-    /* Recoge candidatos a colaborador desde subtítulo y título */
     function extractCollaborators(item) {
         if (!item) return [];
         const sub = getItemSubtitle(item);
@@ -7781,16 +7757,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const mainArtist = subArtists[0] || '';
 
         const candidates = [];
-        // Colaboradores del subtítulo (todos menos el primero)
         subArtists.slice(1).forEach(n => candidates.push(n));
 
-        // Colaboradores del título (todo lo que venga después del primer "ft/feat/con/&")
         if (COLLAB_SPLIT.test(title)) {
             const titleParts = title.split(COLLAB_SPLIT).map(s => s.trim()).filter(Boolean);
             titleParts.slice(1).forEach(n => candidates.push(n));
         }
 
-        // Filtrar el artista principal y duplicados
         const nMain = norm(mainArtist);
         const seen = new Set();
         const result = [];
@@ -7803,7 +7776,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return result;
     }
 
-    /* Busca el item que representa a un artista (para su portada) */
     function findArtistItem(name) {
         const target = norm(name);
         if (!target) return null;
@@ -7831,7 +7803,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return pl ? pl.querySelector('.playlist-item.active') : null;
     }
 
-    /* Crea el contenedor dentro del fullscreen */
     function ensureContainer() {
         if (containerEl && containerEl.isConnected) return containerEl;
         const fsPlayer = $('fs-player');
@@ -7853,7 +7824,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* Renderiza los colaboradores de la canción activa */
     function renderCollaborators() {
         const item = getActiveItem();
         if (!item) { clearCollaborators(); lastActiveItem = null; return; }
@@ -7935,7 +7905,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    /* Observar la apertura/cierre del fullscreen */
     function watchFullscreen() {
         const fsPlayer = $('fs-player');
         if (!fsPlayer) { setTimeout(watchFullscreen, 300); return; }
@@ -7960,7 +7929,6 @@ document.addEventListener('DOMContentLoaded', () => {
         obs.observe(fsPlayer, { attributes: true, attributeFilter: ['class'] });
     }
 
-    /* Observar cambios en el título del reproductor (mini) */
     function watchPlayerTitle() {
         const titleEl = document.getElementById('player-title');
         if (!titleEl) { setTimeout(watchPlayerTitle, 300); return; }
@@ -7976,7 +7944,6 @@ document.addEventListener('DOMContentLoaded', () => {
         obs.observe(titleEl, { childList: true, characterData: true, subtree: true });
     }
 
-    /* Observar cambios en la clase "active" de la playlist */
     function watchPlaylist() {
         const pl = $('playlist');
         if (!pl) { setTimeout(watchPlaylist, 300); return; }
