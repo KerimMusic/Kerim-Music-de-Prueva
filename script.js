@@ -6792,22 +6792,484 @@ document.addEventListener('DOMContentLoaded', () => {
         init();
     }
 })();
-🎵 Canciones del género "Rap"
 
-[Portada] Canción 1                    ▶
-          Artista · Rap
+/* ============================================================
+   33. BÚSQUEDA POR GÉNERO Y PLAYLISTS PÚBLICAS (LISTA COMPLETA)
+   ------------------------------------------------------------
+   - Cuando el usuario busca un género (Rap, Reggaetón, Trap…),
+     muestra TODAS las canciones que coincidan en formato LISTA:
+       · Portada · Título · Artista · Subtítulo
+   - También muestra las PLAYLISTS PÚBLICAS cuyo nombre coincida
+     con la búsqueda, también en formato lista.
+   - Busca en TODO el catálogo:
+       · Canciones del HTML (género en .item-subtitle)
+       · Canciones nuevas (género desde Firestore: genero/género/
+         genre/categoria/category/tipo)
+       · Canciones futuras (mapa se refresca al enfocar el buscador)
+   - NO modifica la sección 17. Se engancha con MutationObserver.
+   ============================================================ */
+(function () {
+    'use strict';
 
-[Portada] Canción 2                    ▶
-          Artista · Rap
+    const $ = (id) => document.getElementById(id);
 
-[Portada] Canción 3                    ▶
-          Artista · Rap
+    let publicPlaylistsCache = null;
+    let cachePromise = null;
+    let searchObserver = null;
+    let debounceTimer = null;
+    let lastRenderedQ = '';
 
-... TODAS las canciones de Rap ...
+    // Mapa global: título normalizado → género (para canciones nuevas)
+    let genreMapFromFirestore = new Map();
+    let genreMapLoading = null;
+    let genreMapLoadedOnce = false;
 
-Playlists públicas
-[Portada] Mi playlist de Rap           ▶
-          Pública · 10 canciones
+    function normalizeStr(s) {
+        return String(s || '').toLowerCase()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9]/g, '');
+    }
+
+    function getItemTitle(item) {
+        return item.querySelector('.item-title')?.textContent.trim() || '';
+    }
+    function getItemSubtitle(item) {
+        return item.querySelector('.item-subtitle')?.textContent.trim() || '';
+    }
+    function getItemCover(item) {
+        return item.querySelector('.thumbnail img')?.src || '';
+    }
+
+    /* -------- Leer género del DOM (canciones del HTML) -------- */
+    function getGenreFromDom(item) {
+        const sub = item.querySelector('.item-subtitle')?.textContent || '';
+        const idx = sub.indexOf('·');
+        if (idx === -1) return '';
+        const genre = sub.slice(idx + 1).trim();
+        if (!genre) return '';
+        const lower = genre.toLowerCase();
+        if (lower === 'subido' || lower === 'subidos') return '';
+        return genre;
+    }
+
+    /* -------- Leer género para una canción (DOM + Firestore fallback) -------- */
+    function getItemGenre(item) {
+        // 1) Intentar desde el DOM
+        const fromDom = getGenreFromDom(item);
+        if (fromDom) return fromDom;
+
+        // 2) Fallback: buscar en el mapa de Firestore
+        if (genreMapFromFirestore.size > 0) {
+            const title = getItemTitle(item);
+            const key = normalizeStr(title);
+            if (key && genreMapFromFirestore.has(key)) {
+                return genreMapFromFirestore.get(key);
+            }
+        }
+        return '';
+    }
+
+    /* -------- Cargar mapa de géneros desde Firestore -------- */
+    async function cargarGenerosDesdeFirestore(force) {
+        if (!force && genreMapLoadedOnce) return genreMapFromFirestore;
+        if (genreMapLoading && !force) return genreMapLoading;
+
+        genreMapLoading = (async () => {
+            const map = new Map();
+
+            function pickGenre(d) {
+                return d.genero || d['género'] || d.genre ||
+                       d.categoria || d.category || d.tipo || '';
+            }
+
+            // 1) canciones_usuarios
+            try {
+                const snap = await firebase.firestore()
+                    .collection('canciones_usuarios').limit(500).get();
+                snap.forEach(doc => {
+                    const d = doc.data() || {};
+                    const titulo = d.titulo || '';
+                    const genero = pickGenre(d);
+                    if (titulo && genero) {
+                        map.set(normalizeStr(titulo), String(genero).trim());
+                    }
+                });
+            } catch (e) {
+                console.warn('[BUSCADOR-GÉNERO] canciones_usuarios:', e);
+            }
+
+            // 2) collectionGroup('canciones') — canciones de subcolecciones
+            try {
+                const snap = await firebase.firestore()
+                    .collectionGroup('canciones').limit(500).get();
+                snap.forEach(doc => {
+                    const d = doc.data() || {};
+                    if (d.origen && d.origen !== 'dropbox') return;
+                    const titulo = d.titulo || '';
+                    const genero = pickGenre(d);
+                    if (titulo && genero) {
+                        map.set(normalizeStr(titulo), String(genero).trim());
+                    }
+                });
+            } catch (e) {
+                console.warn('[BUSCADOR-GÉNERO] collectionGroup canciones:', e);
+            }
+
+            genreMapFromFirestore = map;
+            genreMapLoadedOnce = true;
+            genreMapLoading = null;
+            console.log('[BUSCADOR-GÉNERO] Géneros cargados:', map.size);
+            return map;
+        })();
+
+        return genreMapLoading;
+    }
+
+    /* -------- Playlists públicas -------- */
+    async function cargarPlaylistsPublicas(force) {
+        if (!force && publicPlaylistsCache) return publicPlaylistsCache;
+        if (cachePromise && !force) return cachePromise;
+        cachePromise = (async () => {
+            try {
+                const snap = await firebase.firestore()
+                    .collection('mis_playlists')
+                    .where('privada', '==', false)
+                    .limit(300)
+                    .get();
+                const list = [];
+                snap.forEach(doc => {
+                    const d = doc.data() || {};
+                    list.push({
+                        id: doc.id,
+                        uid: d.uid || '',
+                        nombre: d.nombre || 'Playlist',
+                        canciones: Array.isArray(d.canciones) ? d.canciones : []
+                    });
+                });
+                publicPlaylistsCache = list;
+            } catch (e) {
+                console.warn('[BUSCADOR] Error cargando playlists públicas:', e);
+                publicPlaylistsCache = [];
+            } finally {
+                cachePromise = null;
+            }
+            return publicPlaylistsCache;
+        })();
+        return cachePromise;
+    }
+
+    /* -------- Fila de canción (formato lista) -------- */
+    function buildSongRow(item) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'search-row';
+
+        const thumb = document.createElement('div');
+        thumb.className = 'search-row-thumb';
+        const cover = getItemCover(item);
+        if (cover) {
+            const img = document.createElement('img');
+            img.src = cover;
+            img.alt = getItemTitle(item);
+            img.loading = 'lazy';
+            thumb.appendChild(img);
+        }
+        btn.appendChild(thumb);
+
+        const info = document.createElement('div');
+        info.className = 'search-row-info';
+
+        const title = document.createElement('span');
+        title.className = 'search-row-title';
+        title.textContent = getItemTitle(item);
+        info.appendChild(title);
+
+        const sub = document.createElement('span');
+        sub.className = 'search-row-sub';
+        sub.textContent = getItemSubtitle(item);
+        info.appendChild(sub);
+
+        btn.appendChild(info);
+
+        const play = document.createElement('span');
+        play.className = 'search-row-play';
+        play.textContent = '▶';
+        btn.appendChild(play);
+
+        btn.addEventListener('click', () => {
+            if (navigator.vibrate) { try { navigator.vibrate(10); } catch (_) {} }
+            // Reproducir la canción
+            item.click();
+            // Cerrar buscador
+            const input = $('search-input');
+            if (input) input.value = '';
+            const sr = $('search-results');
+            if (sr) { sr.innerHTML = ''; sr.style.display = 'none'; }
+            const sc = $('search-container');
+            if (sc) sc.classList.remove('visible');
+            const hv = $('home-view');
+            if (hv) hv.style.display = '';
+            document.querySelectorAll('#playlist .playlist-item').forEach(it => {
+                it.style.display = window.__showAllSongs ? 'flex' : 'none';
+            });
+        });
+
+        return btn;
+    }
+
+    /* -------- Sección "Géneros" con LISTA completa de canciones -------- */
+    function buildGenreSection(qNorm, qRaw) {
+        const items = Array.from(document.querySelectorAll('#playlist .playlist-item'));
+
+        // 1) Agrupar por género coincidente
+        const byGenre = new Map();
+        items.forEach(item => {
+            const genre = getItemGenre(item);
+            if (!genre) return;
+            if (!normalizeStr(genre).includes(qNorm)) return;
+            const key = normalizeStr(genre);
+            if (!byGenre.has(key)) {
+                byGenre.set(key, { name: genre, items: [] });
+            }
+            byGenre.get(key).items.push(item);
+        });
+
+        if (!byGenre.size) return null;
+
+        // 2) Construir sección con TODAS las canciones en lista
+        const sec = document.createElement('section');
+        sec.className = 'search-section search-section--genres';
+
+        // Título general
+        const h = document.createElement('h3');
+        h.className = 'search-section-title';
+        h.textContent = 'Canciones del género "' + qRaw + '"';
+        sec.appendChild(h);
+
+        // Recorrer cada género encontrado y añadir sub-título + sus canciones
+        byGenre.forEach(g => {
+            // Sub-título por género (por si la búsqueda coincide con varios)
+            if (byGenre.size > 1) {
+                const sub = document.createElement('div');
+                sub.className = 'search-section-title';
+                sub.style.fontSize = '14px';
+                sub.style.marginTop = '6px';
+                sub.style.color = '#ff2a2a';
+                sub.textContent = '🎵 ' + g.name + ' (' + g.items.length + ')';
+                sec.appendChild(sub);
+            }
+
+            // TODAS las canciones del género, en formato lista
+            g.items.forEach(item => {
+                sec.appendChild(buildSongRow(item));
+            });
+        });
+
+        return sec;
+    }
+
+    /* -------- Sección "Playlists públicas" en formato lista -------- */
+    function buildPublicPlaylistSection(qNorm, playlists) {
+        if (!playlists || !playlists.length) return null;
+        const currentUid = firebase.auth().currentUser?.uid || '';
+
+        const filtered = playlists.filter(pl => normalizeStr(pl.nombre).includes(qNorm));
+        if (!filtered.length) return null;
+
+        const sec = document.createElement('section');
+        sec.className = 'search-section search-section--public-playlists';
+
+        const h = document.createElement('h3');
+        h.className = 'search-section-title';
+        h.textContent = 'Playlists públicas';
+        sec.appendChild(h);
+
+        filtered.forEach(pl => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'search-row';
+
+            // Portada: primera canción de la playlist
+            const thumb = document.createElement('div');
+            thumb.className = 'search-row-thumb';
+            const firstSong = pl.canciones[0];
+            let cover = '';
+            if (firstSong) {
+                const localIt = Array.from(document.querySelectorAll('#playlist .playlist-item'))
+                    .find(it => getItemTitle(it) === firstSong.titulo);
+                if (localIt) cover = getItemCover(localIt);
+                if (!cover && firstSong.portada) cover = firstSong.portada;
+            }
+            if (cover) {
+                const img = document.createElement('img');
+                img.src = cover;
+                img.alt = pl.nombre;
+                img.loading = 'lazy';
+                thumb.appendChild(img);
+            }
+            btn.appendChild(thumb);
+
+            // Info: nombre + número de canciones
+            const info = document.createElement('div');
+            info.className = 'search-row-info';
+
+            const name = document.createElement('span');
+            name.className = 'search-row-title';
+            name.textContent = pl.nombre;
+            info.appendChild(name);
+
+            const sub = document.createElement('span');
+            sub.className = 'search-row-sub';
+            const n = pl.canciones.length;
+            sub.textContent = (pl.uid === currentUid ? 'Tu playlist · ' : 'Pública · ') +
+                n + (n === 1 ? ' canción' : ' canciones');
+            info.appendChild(sub);
+
+            btn.appendChild(info);
+
+            const play = document.createElement('span');
+            play.className = 'search-row-play';
+            play.textContent = '▶';
+            btn.appendChild(play);
+
+            btn.addEventListener('click', () => {
+                if (navigator.vibrate) { try { navigator.vibrate(10); } catch (_) {} }
+                const plView = {
+                    id: pl.id,
+                    nombre: pl.nombre,
+                    canciones: pl.canciones.map(c => {
+                        const localIt = Array.from(document.querySelectorAll('#playlist .playlist-item'))
+                            .find(it => getItemTitle(it) === c.titulo);
+                        return {
+                            titulo: c.titulo,
+                            portada: (localIt && getItemCover(localIt)) || c.portada || '',
+                            subtitulo: (localIt && localIt.querySelector('.item-subtitle')?.textContent.trim()) || c.subtitulo || ''
+                        };
+                    }),
+                    isOwner: pl.uid === currentUid,
+                    esMiPlaylist: pl.uid === currentUid,
+                    privada: false,
+                    esPublica: true
+                };
+                const input = $('search-input');
+                if (input) input.value = '';
+                const sr = $('search-results');
+                if (sr) { sr.innerHTML = ''; sr.style.display = 'none'; }
+                const sc = $('search-container');
+                if (sc) sc.classList.remove('visible');
+                const hv = $('home-view');
+                if (hv) hv.style.display = '';
+                document.querySelectorAll('#playlist .playlist-item').forEach(it => {
+                    it.style.display = window.__showAllSongs ? 'flex' : 'none';
+                });
+                if (typeof window.__openPlaylistView === 'function') {
+                    window.__openPlaylistView(plView);
+                }
+            });
+
+            sec.appendChild(btn);
+        });
+
+        return sec;
+    }
+
+    /* -------- Añadir secciones extra al buscador -------- */
+    async function addExtraSections(q) {
+        const container = $('search-results');
+        if (!container || !q) return;
+
+        const qNorm = normalizeStr(q);
+        if (!qNorm) return;
+
+        const existing = container.querySelector(
+            '.search-section--genres, .search-section--public-playlists'
+        );
+        if (existing && lastRenderedQ === q) return;
+
+        // Eliminar las secciones anteriores (para evitar duplicados)
+        container.querySelectorAll(
+            '.search-section--genres, .search-section--public-playlists'
+        ).forEach(el => el.remove());
+
+        // Cargar géneros desde Firestore (canciones nuevas)
+        // y playlists públicas en paralelo
+        await Promise.all([
+            cargarGenerosDesdeFirestore(false).catch(() => {}),
+            cargarPlaylistsPublicas(false).catch(() => {})
+        ]);
+
+        const genreSec = buildGenreSection(qNorm, q);
+        const plSec = buildPublicPlaylistSection(qNorm, publicPlaylistsCache || []);
+
+        if (genreSec || plSec) {
+            const emptyEl = container.querySelector('.search-empty');
+            if (emptyEl) emptyEl.remove();
+        }
+
+        if (genreSec) container.appendChild(genreSec);
+        if (plSec) container.appendChild(plSec);
+
+        if (genreSec || plSec) {
+            container.style.display = 'block';
+        }
+
+        lastRenderedQ = q;
+    }
+
+    function schedule(q) {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+            debounceTimer = null;
+            addExtraSections(q).catch(() => {});
+        }, 260);
+    }
+
+    function init() {
+        if (typeof firebase === 'undefined' || !firebase.auth) { setTimeout(init, 300); return; }
+        const container = $('search-results');
+        const input = $('search-input');
+        if (!container || !input) { setTimeout(init, 300); return; }
+
+        // Precargar mapas
+        cargarGenerosDesdeFirestore(false).catch(() => {});
+        cargarPlaylistsPublicas().catch(() => {});
+
+        // Refrescar el mapa al enfocar el buscador (canciones nuevas)
+        if (!window.__genreRefreshHook) {
+            window.__genreRefreshHook = true;
+            input.addEventListener('focus', () => {
+                cargarGenerosDesdeFirestore(true).catch(() => {});
+            });
+        }
+
+        if (!searchObserver) {
+            searchObserver = new MutationObserver(() => {
+                const q = (input.value || '').trim();
+                if (!q) {
+                    lastRenderedQ = '';
+                    return;
+                }
+                schedule(q);
+            });
+            searchObserver.observe(container, { childList: true, subtree: false });
+        }
+
+        if (input.dataset.genreSearchReady !== '1') {
+            input.dataset.genreSearchReady = '1';
+            input.addEventListener('input', () => {
+                const q = (input.value || '').trim();
+                if (!q) lastRenderedQ = '';
+            });
+        }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+})();
+
 /* ============================================================
    34. SISTEMA DE RECOMENDACIONES PERSONALIZADAS
    ------------------------------------------------------------
