@@ -7718,3 +7718,288 @@ document.addEventListener('DOMContentLoaded', () => {
         init();
     }
 })();
+/* ============================================================
+   36. COLABORADORES EN EL REPRODUCTOR FULLSCREEN
+   ------------------------------------------------------------
+   - Detecta colaboradores desde el título/subtítulo usando
+     los patrones "ft", "feat", "featuring", "con" y "&".
+   - Los busca en el catálogo existente de artistas.
+   - Los muestra con animación en la esquina superior izquierda
+     del reproductor fullscreen.
+   - Al tocar uno, abre el perfil del artista.
+   - NO modifica ninguna función existente (secciones 1 a 35).
+   ============================================================ */
+(function () {
+    'use strict';
+
+    const COLLAB_SPLIT = /\s+(?:ft\.?|feat\.?|featuring|con|&)\s+/i;
+    let currentSignature = '';
+    let containerEl = null;
+    let lastActiveItem = null;
+
+    function $(id) { return document.getElementById(id); }
+
+    function norm(s) {
+        if (typeof normalizeStr === 'function') return normalizeStr(s);
+        return String(s || '').toLowerCase().normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+    }
+
+    function getItemTitle(item) {
+        return item ? (item.querySelector('.item-title')?.textContent.trim() || '') : '';
+    }
+    function getItemSubtitle(item) {
+        return item ? (item.querySelector('.item-subtitle')?.textContent.trim() || '') : '';
+    }
+    function getItemCover(item) {
+        if (!item) return '';
+        const img = item.querySelector('.thumbnail img');
+        return img ? (img.getAttribute('src') || '') : '';
+    }
+
+    /* Obtiene todos los artistas de un item */
+    function getItemArtists(item) {
+        const sub = getItemSubtitle(item);
+        const idx = sub.indexOf('·');
+        const namePart = (idx === -1 ? sub : sub.slice(0, idx)).trim();
+        if (!namePart) return [];
+        const parts = namePart.split(COLLAB_SPLIT).map(s => s.trim()).filter(Boolean);
+        return parts.length ? parts : [namePart];
+    }
+
+    /* Recoge candidatos a colaborador desde subtítulo y título */
+    function extractCollaborators(item) {
+        if (!item) return [];
+        const sub = getItemSubtitle(item);
+        const title = getItemTitle(item);
+
+        const subIdx = sub.indexOf('·');
+        const subNames = (subIdx === -1 ? sub : sub.slice(0, subIdx)).trim();
+        const subArtists = subNames
+            ? subNames.split(COLLAB_SPLIT).map(s => s.trim()).filter(Boolean)
+            : [];
+        const mainArtist = subArtists[0] || '';
+
+        const candidates = [];
+        // Colaboradores del subtítulo (todos menos el primero)
+        subArtists.slice(1).forEach(n => candidates.push(n));
+
+        // Colaboradores del título (todo lo que venga después del primer "ft/feat/con/&")
+        if (COLLAB_SPLIT.test(title)) {
+            const titleParts = title.split(COLLAB_SPLIT).map(s => s.trim()).filter(Boolean);
+            titleParts.slice(1).forEach(n => candidates.push(n));
+        }
+
+        // Filtrar el artista principal y duplicados
+        const nMain = norm(mainArtist);
+        const seen = new Set();
+        const result = [];
+        candidates.forEach(name => {
+            const n = norm(name);
+            if (!n || n === nMain || seen.has(n)) return;
+            seen.add(n);
+            result.push(name);
+        });
+        return result;
+    }
+
+    /* Busca el item que representa a un artista (para su portada) */
+    function findArtistItem(name) {
+        const target = norm(name);
+        if (!target) return null;
+        const pl = $('playlist');
+        if (!pl) return null;
+        const items = pl.querySelectorAll('.playlist-item');
+        for (const it of items) {
+            const artists = getItemArtists(it);
+            for (const a of artists) {
+                if (norm(a) === target) {
+                    return { item: it, cover: getItemCover(it), name: a };
+                }
+            }
+        }
+        return null;
+    }
+
+    function buildSignature(item) {
+        if (!item) return '';
+        return getItemTitle(item) + '||' + getItemSubtitle(item);
+    }
+
+    function getActiveItem() {
+        const pl = $('playlist');
+        return pl ? pl.querySelector('.playlist-item.active') : null;
+    }
+
+    /* Crea el contenedor dentro del fullscreen */
+    function ensureContainer() {
+        if (containerEl && containerEl.isConnected) return containerEl;
+        const fsPlayer = $('fs-player');
+        if (!fsPlayer) return null;
+
+        containerEl = document.createElement('div');
+        containerEl.className = 'fs-collabs';
+        containerEl.id = 'fs-collabs';
+        containerEl.setAttribute('aria-hidden', 'true');
+        fsPlayer.appendChild(containerEl);
+        return containerEl;
+    }
+
+    function clearCollaborators() {
+        if (containerEl) {
+            containerEl.innerHTML = '';
+            containerEl.classList.remove('visible');
+            containerEl.setAttribute('aria-hidden', 'true');
+        }
+    }
+
+    /* Renderiza los colaboradores de la canción activa */
+    function renderCollaborators() {
+        const item = getActiveItem();
+        if (!item) { clearCollaborators(); lastActiveItem = null; return; }
+
+        const sig = buildSignature(item);
+        const itemChanged = item !== lastActiveItem;
+        if (sig === currentSignature && !itemChanged) return;
+
+        currentSignature = sig;
+        lastActiveItem = item;
+
+        const candidates = extractCollaborators(item);
+        if (!candidates.length) { clearCollaborators(); return; }
+
+        const found = [];
+        candidates.forEach(name => {
+            const artist = findArtistItem(name);
+            if (artist) found.push(artist);
+        });
+
+        if (!found.length) { clearCollaborators(); return; }
+
+        const box = ensureContainer();
+        if (!box) return;
+
+        box.innerHTML = '';
+        box.setAttribute('aria-hidden', 'false');
+        box.classList.add('visible');
+
+        const label = document.createElement('div');
+        label.className = 'fs-collabs-label';
+        label.textContent = found.length === 1 ? 'Colaborador' : 'Colaboradores';
+        box.appendChild(label);
+
+        const row = document.createElement('div');
+        row.className = 'fs-collabs-row';
+        box.appendChild(row);
+
+        found.forEach((artist, i) => {
+            const card = document.createElement('button');
+            card.type = 'button';
+            card.className = 'fs-collab';
+            card.style.setProperty('--delay', (i * 90) + 'ms');
+            card.setAttribute('aria-label', 'Ver perfil de ' + artist.name);
+
+            const av = document.createElement('div');
+            av.className = 'fs-collab-avatar';
+            if (artist.cover) {
+                const img = document.createElement('img');
+                img.src = artist.cover;
+                img.alt = artist.name;
+                img.loading = 'lazy';
+                av.appendChild(img);
+            } else {
+                av.textContent = (artist.name.trim()[0] || '?').toUpperCase();
+            }
+            card.appendChild(av);
+
+            const nameEl = document.createElement('span');
+            nameEl.className = 'fs-collab-name';
+            nameEl.textContent = artist.name;
+            card.appendChild(nameEl);
+
+            card.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} }
+                if (typeof window.__openArtistProfile === 'function') {
+                    const fsPlayer = $('fs-player');
+                    if (fsPlayer) {
+                        fsPlayer.classList.remove('visible');
+                        fsPlayer.setAttribute('aria-hidden', 'true');
+                    }
+                    setTimeout(() => window.__openArtistProfile(artist.name), 80);
+                }
+            });
+
+            row.appendChild(card);
+        });
+    }
+
+    /* Observar la apertura/cierre del fullscreen */
+    function watchFullscreen() {
+        const fsPlayer = $('fs-player');
+        if (!fsPlayer) { setTimeout(watchFullscreen, 300); return; }
+        if (fsPlayer.dataset.collabWatch === '1') return;
+        fsPlayer.dataset.collabWatch = '1';
+
+        let lastVisible = false;
+        const obs = new MutationObserver(() => {
+            const visible = fsPlayer.classList.contains('visible');
+            if (visible === lastVisible) return;
+            lastVisible = visible;
+            if (visible) {
+                currentSignature = '';
+                lastActiveItem = null;
+                setTimeout(renderCollaborators, 120);
+                setTimeout(renderCollaborators, 400);
+                setTimeout(renderCollaborators, 800);
+            } else {
+                clearCollaborators();
+            }
+        });
+        obs.observe(fsPlayer, { attributes: true, attributeFilter: ['class'] });
+    }
+
+    /* Observar cambios en el título del reproductor (mini) */
+    function watchPlayerTitle() {
+        const titleEl = document.getElementById('player-title');
+        if (!titleEl) { setTimeout(watchPlayerTitle, 300); return; }
+        if (titleEl.dataset.collabWatch === '1') return;
+        titleEl.dataset.collabWatch = '1';
+        const obs = new MutationObserver(() => {
+            const fsPlayer = $('fs-player');
+            if (fsPlayer && fsPlayer.classList.contains('visible')) {
+                currentSignature = '';
+                setTimeout(renderCollaborators, 120);
+            }
+        });
+        obs.observe(titleEl, { childList: true, characterData: true, subtree: true });
+    }
+
+    /* Observar cambios en la clase "active" de la playlist */
+    function watchPlaylist() {
+        const pl = $('playlist');
+        if (!pl) { setTimeout(watchPlaylist, 300); return; }
+        if (pl.dataset.collabWatch === '1') return;
+        pl.dataset.collabWatch = '1';
+        const obs = new MutationObserver(() => {
+            const fsPlayer = $('fs-player');
+            if (fsPlayer && fsPlayer.classList.contains('visible')) {
+                setTimeout(renderCollaborators, 80);
+            }
+        });
+        obs.observe(pl, { subtree: true, attributes: true, attributeFilter: ['class'] });
+    }
+
+    function boot() {
+        watchFullscreen();
+        watchPlayerTitle();
+        watchPlaylist();
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', boot);
+    } else {
+        boot();
+    }
+})();
