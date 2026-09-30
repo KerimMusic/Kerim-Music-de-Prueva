@@ -6295,52 +6295,556 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 })();
 /* ============================================================
-   33. BUSCADOR AVANZADO: GÉNERO + PLAYLISTS PÚBLICAS
+   31. CHAT ESTILO WHATSAPP / MESSENGER
    ------------------------------------------------------------
-   - Añade al buscador (search-input) resultados por:
-       · Género musical (última parte del .item-subtitle tras "·")
-       · Playlists públicas (mis_playlists donde privada == false)
-   - NO modifica la sección 17. Se apoya en un observer sobre
-     #search-results para añadir secciones al final.
+   - Auto-scroll al fondo cuando:
+       · Se abre la conversación
+       · Llega un mensaje nuevo
+       · Se envía un mensaje
+       · Se carga una imagen
+       · Se redimensiona el viewport (teclado móvil)
+   - Solo auto-scroll si el usuario está cerca del fondo
+     (no interrumpe si está leyendo mensajes antiguos).
+   - Los mensajes más recientes quedan SIEMPRE abajo.
+   - NO modifica ninguna función existente (secciones 1 a 30).
    ============================================================ */
 (function () {
     'use strict';
 
     const $ = (id) => document.getElementById(id);
-    let publicCache = null;
-    let publicPromise = null;
-    let enrichTimer = null;
 
-    function norm(s) {
-        return String(s || '')
-            .toLowerCase()
-            .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '')
-            .trim();
+    let autoScroll = true;      // true = auto-scroll activo
+    let chatObserver = null;    // observer del contenedor de mensajes
+    let isBound = false;        // evita doble binding
+
+    /* ---------- ¿El usuario está cerca del fondo? ---------- */
+    function isNearBottom(el, threshold) {
+        if (!el) return true;
+        const t = typeof threshold === 'number' ? threshold : 100;
+        return (el.scrollHeight - el.scrollTop - el.clientHeight) <= t;
     }
 
-    function getGenre(item) {
+    /* ---------- Forzar scroll al fondo (instantáneo) ---------- */
+    function scrollToBottom() {
+        const scroll = $('chat-scroll');
+        if (!scroll) return;
+        try {
+            scroll.scrollTop = scroll.scrollHeight;
+        } catch (_) {}
+    }
+
+    /* ---------- Scroll con múltiples reintentos (por si el DOM tarda) ---------- */
+    function forceScrollWithRetries() {
+        scrollToBottom();
+        requestAnimationFrame(() => {
+            scrollToBottom();
+            requestAnimationFrame(scrollToBottom);
+        });
+        setTimeout(scrollToBottom, 50);
+        setTimeout(scrollToBottom, 150);
+        setTimeout(scrollToBottom, 350);
+        setTimeout(scrollToBottom, 600);
+    }
+
+    /* ---------- Detectar posición manual del usuario ---------- */
+    function bindScrollListener() {
+        const scroll = $('chat-scroll');
+        if (!scroll || scroll.dataset.waScroll === '1') return;
+        scroll.dataset.waScroll = '1';
+        scroll.addEventListener('scroll', () => {
+            autoScroll = isNearBottom(scroll, 120);
+        }, { passive: true });
+    }
+
+    /* ---------- Observar cambios en los mensajes ---------- */
+    function bindMessagesObserver() {
+        const container = $('chat-messages');
+        if (!container || chatObserver) return;
+
+        chatObserver = new MutationObserver(() => {
+            const view = $('chat-view');
+            if (!view || !view.classList.contains('visible')) return;
+            if (!autoScroll) return;   // respeta si el usuario está leyendo arriba
+            forceScrollWithRetries();
+        });
+        chatObserver.observe(container, {
+            childList: true,
+            subtree: true,
+            characterData: true
+        });
+    }
+
+    /* ---------- Auto-scroll cuando cargan imágenes ---------- */
+    function bindImageLoader() {
+        const container = $('chat-messages');
+        if (!container || container.dataset.waImgs === '1') return;
+        container.dataset.waImgs = '1';
+
+        container.addEventListener('load', (e) => {
+            if (e.target && e.target.tagName === 'IMG' && autoScroll) {
+                scrollToBottom();
+            }
+        }, true);
+    }
+
+    /* ---------- Auto-scroll cuando cambia el viewport (teclado móvil) ---------- */
+    function bindViewportResize() {
+        const handler = () => {
+            if (autoScroll) setTimeout(scrollToBottom, 80);
+        };
+        window.addEventListener('resize', handler);
+        if (window.visualViewport) {
+            try { window.visualViewport.addEventListener('resize', handler); } catch (_) {}
+        }
+    }
+
+    /* ---------- Auto-scroll al pulsar Enter o botón enviar ---------- */
+    function bindComposer() {
+        const btn = $('chat-send');
+        if (btn && btn.dataset.waSend !== '1') {
+            btn.dataset.waSend = '1';
+            btn.addEventListener('click', () => {
+                autoScroll = true;
+                setTimeout(scrollToBottom, 60);
+                setTimeout(scrollToBottom, 200);
+                setTimeout(scrollToBottom, 450);
+            });
+        }
+        const input = $('chat-input');
+        if (input && input.dataset.waSend !== '1') {
+            input.dataset.waSend = '1';
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    autoScroll = true;
+                    setTimeout(scrollToBottom, 60);
+                    setTimeout(scrollToBottom, 200);
+                    setTimeout(scrollToBottom, 450);
+                }
+            });
+        }
+    }
+
+    /* ---------- Detectar apertura / cierre del chat ---------- */
+    function watchChatView() {
+        const view = $('chat-view');
+        if (!view) { setTimeout(watchChatView, 300); return; }
+        if (view.dataset.waView === '1') return;
+        view.dataset.waView = '1';
+
+        let lastVisible = false;
+        const obs = new MutationObserver(() => {
+            const visible = view.classList.contains('visible');
+            if (visible === lastVisible) return;
+            lastVisible = visible;
+
+            if (visible) {
+                // ---- Chat ABIERTO ----
+                autoScroll = true;
+                bindScrollListener();
+                bindMessagesObserver();
+                bindImageLoader();
+                bindComposer();
+                // Múltiples reintentos: el DOM y las imágenes tardan en pintar
+                forceScrollWithRetries();
+            } else {
+                // ---- Chat CERRADO ----
+                autoScroll = true;   // reset para la próxima apertura
+            }
+        });
+        obs.observe(view, { attributes: true, attributeFilter: ['class'] });
+    }
+
+    /* ---------- Init ---------- */
+    function init() {
+        if (isBound) return;
+        isBound = true;
+        watchChatView();
+        bindViewportResize();
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+})();
+/* ============================================================
+   32. PRIVACIDAD DEL CORREO
+   ------------------------------------------------------------
+   - Agrega un selector "Público / Privado" dentro del modal
+     "Editar nombre" (sin modificar el HTML existente: se
+     inyecta dinámicamente).
+   - Guarda el campo `email_privado` en Firestore:
+       · false → correo visible para otros usuarios
+       · true  → correo oculto para otros usuarios
+   - Persiste al cerrar sesión / volver a entrar.
+   - Oculta el correo en TODOS los buscadores de usuarios
+     (compartir playlist y nuevo mensaje) cuando el usuario
+     lo tenga en privado.
+   - NO modifica ninguna función existente (secciones 1 a 31).
+   ============================================================ */
+(function () {
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    // Cache local: uid → { email, privado }
+    let privacyCache = new Map();
+    let cacheLoading = null;
+    let privacidadActual = false; // del usuario actual
+
+    /* ---------- Cargar cache de privacidad de todos los usuarios ---------- */
+    async function cargarCachePrivacidad(force) {
+        if (!force && privacyCache.size > 0) return privacyCache;
+        if (cacheLoading && !force) return cacheLoading;
+        cacheLoading = (async () => {
+            try {
+                const snap = await firebase.firestore()
+                    .collection('historial_usuarios').limit(2000).get();
+                privacyCache = new Map();
+                snap.forEach(doc => {
+                    const d = doc.data() || {};
+                    const email = (d.email || '').toLowerCase();
+                    if (email) {
+                        privacyCache.set(email, {
+                            uid: doc.id,
+                            privado: d.email_privado === true
+                        });
+                    }
+                });
+            } catch (e) {
+                console.warn('[PRIVACIDAD] Error cargando cache:', e);
+            } finally {
+                cacheLoading = null;
+            }
+            return privacyCache;
+        })();
+        return cacheLoading;
+    }
+
+    /* ---------- Ocultar correos privados en un contenedor ---------- */
+    function ocultarEmailsPrivados(root) {
+        if (!root) return;
+
+        // 1) Compartir playlist (.share-user-sub) — contiene "email" o "Texto · email"
+        root.querySelectorAll('.share-user-row').forEach(row => {
+            const sub = row.querySelector('.share-user-sub');
+            if (!sub) return;
+            const original = sub.textContent || '';
+            const textoNorm = original.toLowerCase();
+
+            let modificado = original;
+            privacyCache.forEach((info, email) => {
+                if (info.privado && email && textoNorm.includes(email)) {
+                    modificado = modificado.replace(new RegExp(email, 'gi'), '🔒 Correo privado');
+                }
+            });
+            if (modificado !== original) {
+                sub.innerHTML = modificado
+                    .replace(/🔒 Correo privado/g, '<span class="email-hidden-badge">🔒 Correo privado</span>');
+            }
+        });
+
+        // 2) Nuevo mensaje (.newmsg-row-email) — solo el email
+        root.querySelectorAll('.newmsg-row').forEach(row => {
+            const emailEl = row.querySelector('.newmsg-row-email');
+            if (!emailEl) return;
+            const texto = (emailEl.textContent || '').trim().toLowerCase();
+            if (!texto) return;
+            const info = privacyCache.get(texto);
+            if (info && info.privado) {
+                emailEl.innerHTML = '<span class="email-hidden-badge">🔒 Correo privado</span>';
+            }
+        });
+    }
+
+    /* ---------- Aplicar filtro a todos los contenedores abiertos ---------- */
+    function aplicarFiltroEnVistas() {
+        const shareResults = $('share-modal-results');
+        if (shareResults) ocultarEmailsPrivados(shareResults);
+        const shareRecent = $('share-modal-recent');
+        if (shareRecent) ocultarEmailsPrivados(shareRecent);
+        const newmsgList = $('newmsg-list');
+        if (newmsgList) ocultarEmailsPrivados(newmsgList);
+    }
+
+    /* ---------- Observar contenedores de buscadores en tiempo real ---------- */
+    function observarBuscadores() {
+        // share-modal-results
+        const shareResults = $('share-modal-results');
+        if (shareResults && shareResults.dataset.privObs !== '1') {
+            shareResults.dataset.privObs = '1';
+            const obs = new MutationObserver(() => ocultarEmailsPrivados(shareResults));
+            obs.observe(shareResults, { childList: true, subtree: true });
+        }
+        // share-modal-recent
+        const shareRecent = $('share-modal-recent');
+        if (shareRecent && shareRecent.dataset.privObs !== '1') {
+            shareRecent.dataset.privObs = '1';
+            const obs = new MutationObserver(() => ocultarEmailsPrivados(shareRecent));
+            obs.observe(shareRecent, { childList: true, subtree: true });
+        }
+        // newmsg-list
+        const newmsgList = $('newmsg-list');
+        if (newmsgList && newmsgList.dataset.privObs !== '1') {
+            newmsgList.dataset.privObs = '1';
+            const obs = new MutationObserver(() => ocultarEmailsPrivados(newmsgList));
+            obs.observe(newmsgList, { childList: true, subtree: true });
+        }
+    }
+
+    /* ---------- Inyectar el bloque de privacidad en el modal name-modal ---------- */
+    function inyectarBloquePrivacidad() {
+        const modal = $('name-modal');
+        if (!modal) return false;
+        const box = modal.querySelector('.mp-modal-box');
+        if (!box) return false;
+        if (box.querySelector('.name-email-privacy')) return true; // ya inyectado
+
+        const bloque = document.createElement('div');
+        bloque.className = 'name-email-privacy';
+        bloque.innerHTML = `
+            <span class="name-email-privacy-label">Privacidad del correo</span>
+            <div class="name-email-privacy-options">
+                <button type="button" class="name-email-privacy-btn" data-value="publico">Público</button>
+                <button type="button" class="name-email-privacy-btn" data-value="privado">Privado</button>
+            </div>
+            <span class="name-email-privacy-hint">
+                Público: otros verán tu correo · Privado: otros no verán tu correo.
+            </span>
+        `;
+
+        // Insertar justo antes del status (o al final del modal-box)
+        const status = box.querySelector('#name-modal-status');
+        const actions = box.querySelector('.mp-modal-actions');
+        if (status) {
+            box.insertBefore(bloque, status);
+        } else if (actions) {
+            box.insertBefore(bloque, actions);
+        } else {
+            box.appendChild(bloque);
+        }
+
+        // Bind de los botones
+        bloque.querySelectorAll('.name-email-privacy-btn').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const value = btn.dataset.value;
+                const esPrivado = value === 'privado';
+                if (esPrivado === privacidadActual) return; // no change
+                setBotonActivo(esPrivado);
+                await guardarPrivacidad(esPrivado);
+            });
+        });
+
+        return true;
+    }
+
+    /* ---------- Marcar botón activo ---------- */
+    function setBotonActivo(esPrivado) {
+        privacidadActual = esPrivado;
+        const modal = $('name-modal');
+        if (!modal) return;
+        modal.querySelectorAll('.name-email-privacy-btn').forEach(btn => {
+            const val = btn.dataset.value;
+            const active = (val === 'privado' && esPrivado) || (val === 'publico' && !esPrivado);
+            btn.classList.toggle('active', active);
+        });
+    }
+
+    /* ---------- Leer privacidad desde Firestore del usuario actual ---------- */
+    async function cargarPrivacidadActual() {
+        const user = firebase.auth().currentUser;
+        if (!user) return false;
+        try {
+            const doc = await firebase.firestore()
+                .collection('historial_usuarios').doc(user.uid).get();
+            const d = doc.exists ? (doc.data() || {}) : {};
+            privacidadActual = d.email_privado === true;
+        } catch (e) {
+            console.warn('[PRIVACIDAD] Error leyendo:', e);
+            privacidadActual = false;
+        }
+        setBotonActivo(privacidadActual);
+        return privacidadActual;
+    }
+
+    /* ---------- Guardar privacidad en Firestore ---------- */
+    async function guardarPrivacidad(esPrivado) {
+        const user = firebase.auth().currentUser;
+        if (!user) return;
+        try {
+            await firebase.firestore()
+                .collection('historial_usuarios').doc(user.uid)
+                .set({ email_privado: !!esPrivado }, { merge: true });
+            console.log('✅ [PRIVACIDAD] Guardado: email_privado =', esPrivado);
+
+            // Refrescar cache local
+            await cargarCachePrivacidad(true);
+
+            // Re-aplicar filtros en vistas abiertas
+            aplicarFiltroEnVistas();
+
+            // Feedback visual breve
+            const status = $('name-modal-status');
+            if (status) {
+                status.textContent = esPrivado
+                    ? '🔒 Correo ahora es privado'
+                    : '🌐 Correo ahora es público';
+                status.classList.remove('error');
+                status.classList.add('ok');
+                setTimeout(() => {
+                    if (status.textContent.includes('Correo ahora')) {
+                        status.textContent = '';
+                        status.classList.remove('ok');
+                    }
+                }, 1800);
+            }
+        } catch (e) {
+            console.warn('[PRIVACIDAD] Error guardando:', e);
+            const status = $('name-modal-status');
+            if (status) {
+                status.textContent = 'No se pudo guardar la privacidad.';
+                status.classList.remove('ok');
+                status.classList.add('error');
+            }
+        }
+    }
+
+    /* ---------- Detectar apertura del modal name-modal ---------- */
+    function observarModal() {
+        const modal = $('name-modal');
+        if (!modal) { setTimeout(observarModal, 300); return; }
+        if (modal.dataset.privWatch === '1') return;
+        modal.dataset.privWatch = '1';
+
+        const obs = new MutationObserver(async () => {
+            if (modal.classList.contains('visible')) {
+                inyectarBloquePrivacidad();
+                await cargarCachePrivacidad(false);
+                await cargarPrivacidadActual();
+                // Refrescar filtros por si había buscadores abiertos antes
+                aplicarFiltroEnVistas();
+            }
+        });
+        obs.observe(modal, { attributes: true, attributeFilter: ['class'] });
+    }
+
+    /* ---------- Observar apertura de buscadores (aplicar filtro al abrir) ---------- */
+    function observarVistasBuscadores() {
+        const shareModal = $('share-modal');
+        if (shareModal && shareModal.dataset.privWatchView !== '1') {
+            shareModal.dataset.privWatchView = '1';
+            const obs = new MutationObserver(async () => {
+                if (shareModal.classList.contains('visible')) {
+                    await cargarCachePrivacidad(false);
+                    observarBuscadores();
+                    setTimeout(aplicarFiltroEnVistas, 150);
+                    setTimeout(aplicarFiltroEnVistas, 500);
+                }
+            });
+            obs.observe(shareModal, { attributes: true, attributeFilter: ['class'] });
+        }
+        const newmsgView = $('newmsg-view');
+        if (newmsgView && newmsgView.dataset.privWatchView !== '1') {
+            newmsgView.dataset.privWatchView = '1';
+            const obs = new MutationObserver(async () => {
+                if (newmsgView.classList.contains('visible')) {
+                    await cargarCachePrivacidad(false);
+                    observarBuscadores();
+                    setTimeout(aplicarFiltroEnVistas, 150);
+                    setTimeout(aplicarFiltroEnVistas, 500);
+                }
+            });
+            obs.observe(newmsgView, { attributes: true, attributeFilter: ['class'] });
+        }
+    }
+
+    /* ---------- Init ---------- */
+    function init() {
+        if (typeof firebase === 'undefined' || !firebase.auth) {
+            setTimeout(init, 300);
+            return;
+        }
+
+        // Observar cuando el usuario cierra/abre sesión
+        firebase.auth().onAuthStateChanged(user => {
+            if (user) {
+                cargarCachePrivacidad(true).catch(() => {});
+                observarModal();
+                observarVistasBuscadores();
+            } else {
+                privacyCache = new Map();
+                privacidadActual = false;
+            }
+        });
+
+        // También correr por si ya hay sesión
+        if (firebase.auth().currentUser) {
+            cargarCachePrivacidad(true).catch(() => {});
+            observarModal();
+            observarVistasBuscadores();
+        }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+})();
+/* ============================================================
+   33. BÚSQUEDA POR GÉNERO Y PLAYLISTS PÚBLICAS
+   ------------------------------------------------------------
+   - Amplía los resultados del buscador (sección 17) añadiendo:
+       · Una sección "Géneros" con todas las canciones cuyo
+         género (parte después del "·" del subtítulo) coincida.
+       · Una sección "Playlists públicas" consultando Firestore
+         (`mis_playlists` con `privada: false`).
+   - NO modifica la sección 17: se engancha mediante un
+     MutationObserver al contenedor `#search-results`.
+   ============================================================ */
+(function () {
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let publicPlaylistsCache = null;
+    let cachePromise = null;
+    let searchObserver = null;
+    let debounceTimer = null;
+    let lastRenderedQ = '';
+
+    function normalizeStr(s) {
+        return String(s || '').toLowerCase()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9]/g, '');
+    }
+
+    function getItemTitle(item) {
+        return item.querySelector('.item-title')?.textContent.trim() || '';
+    }
+    function getItemCover(item) {
+        return item.querySelector('.thumbnail img')?.src || '';
+    }
+    function getItemGenre(item) {
         const sub = item.querySelector('.item-subtitle')?.textContent || '';
-        const parts = sub.split('·').map(s => s.trim()).filter(Boolean);
-        if (parts.length < 2) return '';
-        const last = parts[parts.length - 1];
-        if (/^subido$/i.test(last)) return '';
-        return last;
+        const idx = sub.indexOf('·');
+        if (idx === -1) return '';
+        const genre = sub.slice(idx + 1).trim();
+        if (!genre || genre.toLowerCase() === 'subido') return '';
+        return genre;
     }
-    function getCover(item)  { return item.querySelector('.thumbnail img')?.src || ''; }
-    function getTitle(item)  { return item.querySelector('.item-title')?.textContent.trim() || ''; }
-    function getSubtitle(it) { return it.querySelector('.item-subtitle')?.textContent.trim() || ''; }
 
-    /* ---------- Cache de playlists públicas ---------- */
-    async function loadPublicPlaylists() {
-        if (publicCache) return publicCache;
-        if (publicPromise) return publicPromise;
-        publicPromise = (async () => {
+    async function cargarPlaylistsPublicas(force) {
+        if (!force && publicPlaylistsCache) return publicPlaylistsCache;
+        if (cachePromise && !force) return cachePromise;
+        cachePromise = (async () => {
             try {
                 const snap = await firebase.firestore()
                     .collection('mis_playlists')
                     .where('privada', '==', false)
-                    .limit(500).get();
+                    .limit(300)
+                    .get();
                 const list = [];
                 snap.forEach(doc => {
                     const d = doc.data() || {};
@@ -6351,337 +6855,397 @@ document.addEventListener('DOMContentLoaded', () => {
                         canciones: Array.isArray(d.canciones) ? d.canciones : []
                     });
                 });
-                publicCache = list;
-                return list;
+                publicPlaylistsCache = list;
             } catch (e) {
-                console.warn('[BUSQUEDA] Error playlists públicas:', e);
-                publicCache = [];
-                return [];
+                console.warn('[BUSCADOR] Error cargando playlists públicas:', e);
+                publicPlaylistsCache = [];
             } finally {
-                publicPromise = null;
+                cachePromise = null;
             }
+            return publicPlaylistsCache;
         })();
-        return publicPromise;
+        return cachePromise;
     }
 
-    function ensureContainer() {
-        let el = $('search-results');
-        if (el) return el;
-        const pl = $('playlist');
-        if (!pl) return null;
-        el = document.createElement('div');
-        el.id = 'search-results';
-        el.className = 'search-results';
-        el.style.display = 'none';
-        pl.appendChild(el);
-        return el;
-    }
+    function buildGenreSection(qNorm) {
+        const items = Array.from(document.querySelectorAll('#playlist .playlist-item'));
+        const map = new Map();
+        items.forEach(item => {
+            const genre = getItemGenre(item);
+            if (!genre) return;
+            if (!normalizeStr(genre).includes(qNorm)) return;
+            const key = normalizeStr(genre);
+            if (!map.has(key)) {
+                map.set(key, { name: genre, cover: getItemCover(item), items: [] });
+            }
+            map.get(key).items.push(item);
+        });
+        if (!map.size) return null;
 
-    function buildSection(title) {
         const sec = document.createElement('section');
-        sec.className = 'search-section';
+        sec.className = 'search-section search-section--genres';
         const h = document.createElement('h3');
         h.className = 'search-section-title';
-        h.textContent = title;
+        h.textContent = 'Géneros';
         sec.appendChild(h);
+
+        const grid = document.createElement('div');
+        grid.className = 'search-card-grid';
+        Array.from(map.values()).slice(0, 6).forEach(g => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'search-card';
+            btn.setAttribute('aria-label', g.name);
+
+            const thumb = document.createElement('div');
+            thumb.className = 'search-card-thumb';
+            if (g.cover) {
+                const img = document.createElement('img');
+                img.src = g.cover; img.alt = g.name; img.loading = 'lazy';
+                thumb.appendChild(img);
+            }
+            btn.appendChild(thumb);
+
+            const name = document.createElement('span');
+            name.className = 'search-card-title';
+            name.textContent = g.name;
+            btn.appendChild(name);
+
+            const sub = document.createElement('span');
+            sub.className = 'search-card-sub';
+            sub.textContent = g.items.length + (g.items.length === 1 ? ' canción' : ' canciones');
+            btn.appendChild(sub);
+
+            btn.addEventListener('click', () => {
+                if (navigator.vibrate) { try { navigator.vibrate(10); } catch (_) {} }
+                // Reproducir la primera canción del género y activar filtro
+                if (typeof setArtistFilter === 'function') {
+                    setArtistFilter(g.items, g.name);
+                } else {
+                    window.__artistFilter = g.items.slice();
+                    window.__artistFilterName = g.name;
+                }
+                if (g.items[0]) g.items[0].click();
+                // Cerrar buscador
+                const input = $('search-input');
+                if (input) input.value = '';
+                const sr = $('search-results');
+                if (sr) { sr.innerHTML = ''; sr.style.display = 'none'; }
+                const sc = $('search-container');
+                if (sc) sc.classList.remove('visible');
+                const hv = $('home-view');
+                if (hv) hv.style.display = '';
+                document.querySelectorAll('#playlist .playlist-item').forEach(it => {
+                    it.style.display = window.__showAllSongs ? 'flex' : 'none';
+                });
+            });
+
+            grid.appendChild(btn);
+        });
+        sec.appendChild(grid);
         return sec;
     }
 
-    function closeSearchView() {
-        const input = $('search-input');
-        if (input) input.value = '';
-        const res = $('search-results');
-        if (res) { res.innerHTML = ''; res.style.display = 'none'; }
-        const sc = $('search-container');
-        if (sc) sc.classList.remove('visible');
-        const hv = $('home-view');
-        if (hv) hv.style.display = '';
-    }
+    function buildPublicPlaylistSection(qNorm, playlists) {
+        if (!playlists || !playlists.length) return null;
+        const currentUid = firebase.auth().currentUser?.uid || '';
 
-    function buildSongRow(item) {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'search-row';
-        const thumb = document.createElement('div');
-        thumb.className = 'search-row-thumb';
-        const cover = getCover(item);
-        if (cover) {
-            const img = document.createElement('img');
-            img.src = cover; img.alt = getTitle(item); img.loading = 'lazy';
-            thumb.appendChild(img);
-        }
-        btn.appendChild(thumb);
-        const info = document.createElement('div');
-        info.className = 'search-row-info';
-        const t = document.createElement('span');
-        t.className = 'search-row-title';
-        t.textContent = getTitle(item);
-        info.appendChild(t);
-        const s = document.createElement('span');
-        s.className = 'search-row-sub';
-        s.textContent = getSubtitle(item);
-        info.appendChild(s);
-        btn.appendChild(info);
-        const p = document.createElement('span');
-        p.className = 'search-row-play';
-        p.textContent = '▶';
-        btn.appendChild(p);
-        btn.addEventListener('click', () => {
-            closeSearchView();
-            setTimeout(() => item.click(), 30);
-        });
-        return btn;
-    }
+        const filtered = playlists.filter(pl => normalizeStr(pl.nombre).includes(qNorm));
+        if (!filtered.length) return null;
 
-    function buildPlaylistRow(pl) {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'search-row search-row--playlist';
-        const thumb = document.createElement('div');
-        thumb.className = 'search-row-thumb';
-        const first = (pl.canciones && pl.canciones[0]) || null;
-        const cover = first ? (first.portada || '') : '';
-        if (cover) {
-            const img = document.createElement('img');
-            img.src = cover; img.alt = pl.nombre; img.loading = 'lazy';
-            thumb.appendChild(img);
-        }
-        btn.appendChild(thumb);
-        const info = document.createElement('div');
-        info.className = 'search-row-info';
-        const t = document.createElement('span');
-        t.className = 'search-row-title';
-        t.textContent = pl.nombre;
-        info.appendChild(t);
-        const s = document.createElement('span');
-        s.className = 'search-row-sub';
-        const n = pl.canciones.length;
-        s.textContent = 'Playlist pública · ' + n + ' canción' + (n === 1 ? '' : 'es');
-        info.appendChild(s);
-        btn.appendChild(info);
-        const p = document.createElement('span');
-        p.className = 'search-row-play';
-        p.textContent = '▶';
-        btn.appendChild(p);
-        btn.addEventListener('click', () => {
-            closeSearchView();
-            const user = firebase.auth().currentUser;
-            const isOwner = !!(user && pl.uid === user.uid);
-            const view = {
-                id: pl.id,
-                nombre: pl.nombre,
-                canciones: pl.canciones.map(c => ({
-                    titulo: c.titulo,
-                    portada: c.portada || '',
-                    subtitulo: c.subtitulo || ''
-                })),
-                isOwner,
-                esMiPlaylist: isOwner,
-                privada: false,
-                esPublica: true
-            };
-            if (typeof window.__openPlaylistView === 'function') {
-                window.__openPlaylistView(view);
+        const sec = document.createElement('section');
+        sec.className = 'search-section search-section--public-playlists';
+        const h = document.createElement('h3');
+        h.className = 'search-section-title';
+        h.textContent = 'Playlists públicas';
+        sec.appendChild(h);
+
+        const grid = document.createElement('div');
+        grid.className = 'search-card-grid';
+
+        filtered.slice(0, 6).forEach(pl => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'search-card';
+            btn.setAttribute('aria-label', pl.nombre);
+
+            const thumb = document.createElement('div');
+            thumb.className = 'search-card-thumb';
+            const firstSong = pl.canciones[0];
+            let cover = '';
+            if (firstSong) {
+                const localIt = Array.from(document.querySelectorAll('#playlist .playlist-item'))
+                    .find(it => getItemTitle(it) === firstSong.titulo);
+                if (localIt) cover = getItemCover(localIt);
+                if (!cover && firstSong.portada) cover = firstSong.portada;
             }
-        });
-        return btn;
-    }
+            if (cover) {
+                const img = document.createElement('img');
+                img.src = cover; img.alt = pl.nombre; img.loading = 'lazy';
+                thumb.appendChild(img);
+            }
+            btn.appendChild(thumb);
 
-    async function enrich(q) {
-        const c = $('search-results');
-        if (!c) return;
-        if (c.dataset.enriching === '1') return;
-        if (c.querySelector('[data-enriched="1"]')) return;
-        const nq = norm(q);
-        if (!nq) return;
-        const pl = $('playlist');
-        if (!pl) return;
+            const name = document.createElement('span');
+            name.className = 'search-card-title';
+            name.textContent = pl.nombre;
+            btn.appendChild(name);
 
-        c.dataset.enriching = '1';
-        try {
-            // 1. Canciones por género
-            const genreMatches = [];
-            pl.querySelectorAll('.playlist-item').forEach(it => {
-                const g = getGenre(it);
-                if (g && norm(g).includes(nq)) genreMatches.push(it);
+            const sub = document.createElement('span');
+            sub.className = 'search-card-sub';
+            const n = pl.canciones.length;
+            sub.textContent = (pl.uid === currentUid ? 'Tu playlist · ' : 'Pública · ') +
+                n + (n === 1 ? ' canción' : ' canciones');
+            btn.appendChild(sub);
+
+            btn.addEventListener('click', () => {
+                if (navigator.vibrate) { try { navigator.vibrate(10); } catch (_) {} }
+                const plView = {
+                    id: pl.id,
+                    nombre: pl.nombre,
+                    canciones: pl.canciones.map(c => {
+                        const localIt = Array.from(document.querySelectorAll('#playlist .playlist-item'))
+                            .find(it => getItemTitle(it) === c.titulo);
+                        return {
+                            titulo: c.titulo,
+                            portada: (localIt && getItemCover(localIt)) || c.portada || '',
+                            subtitulo: (localIt && localIt.querySelector('.item-subtitle')?.textContent.trim()) || c.subtitulo || ''
+                        };
+                    }),
+                    isOwner: pl.uid === currentUid,
+                    esMiPlaylist: pl.uid === currentUid,
+                    privada: false,
+                    esPublica: true
+                };
+                // Cerrar buscador
+                const input = $('search-input');
+                if (input) input.value = '';
+                const sr = $('search-results');
+                if (sr) { sr.innerHTML = ''; sr.style.display = 'none'; }
+                const sc = $('search-container');
+                if (sc) sc.classList.remove('visible');
+                const hv = $('home-view');
+                if (hv) hv.style.display = '';
+                document.querySelectorAll('#playlist .playlist-item').forEach(it => {
+                    it.style.display = window.__showAllSongs ? 'flex' : 'none';
+                });
+                if (typeof window.__openPlaylistView === 'function') {
+                    window.__openPlaylistView(plView);
+                }
             });
 
-            // 2. Playlists públicas por nombre
-            const pubs = await loadPublicPlaylists();
-            const plMatches = pubs.filter(p => norm(p.nombre).includes(nq));
+            grid.appendChild(btn);
+        });
+        sec.appendChild(grid);
+        return sec;
+    }
 
-            if (!genreMatches.length && !plMatches.length) return;
+    async function addExtraSections(q) {
+        const container = $('search-results');
+        if (!container || !q) return;
 
-            const wrap = document.createElement('div');
-            wrap.dataset.enriched = '1';
+        const qNorm = normalizeStr(q);
+        if (!qNorm) return;
 
-            if (genreMatches.length) {
-                const sec = buildSection('Canciones por género');
-                genreMatches.slice(0, 12).forEach(it => sec.appendChild(buildSongRow(it)));
-                wrap.appendChild(sec);
-            }
-            if (plMatches.length) {
-                const sec = buildSection('Playlists públicas');
-                plMatches.slice(0, 12).forEach(p => sec.appendChild(buildPlaylistRow(p)));
-                wrap.appendChild(sec);
-            }
+        const existing = container.querySelector(
+            '.search-section--genres, .search-section--public-playlists'
+        );
+        if (existing && lastRenderedQ === q) return;
 
-            // Quitar el "Sin resultados" si la sección 17 lo puso pero nosotros sí tenemos
-            const empty = c.querySelector('.search-empty');
-            if (empty) empty.remove();
+        // Eliminar las secciones anteriores
+        container.querySelectorAll(
+            '.search-section--genres, .search-section--public-playlists'
+        ).forEach(el => el.remove());
 
-            // Si la sección 17 no añadió ninguna sección base, ocultar home/items
-            if (!c.querySelector('.search-section')) {
-                const hv = $('home-view');
-                if (hv) hv.style.display = 'none';
-                pl.querySelectorAll('.playlist-item').forEach(it => { it.style.display = 'none'; });
-            }
+        const genreSec = buildGenreSection(qNorm);
 
-            c.appendChild(wrap);
-            c.style.display = 'block';
-        } finally {
-            c.dataset.enriching = '0';
+        const playlists = await cargarPlaylistsPublicas();
+        const plSec = buildPublicPlaylistSection(qNorm, playlists);
+
+        // Si hay alguna sección nueva, quitar el "Sin resultados"
+        if (genreSec || plSec) {
+            const emptyEl = container.querySelector('.search-empty');
+            if (emptyEl) emptyEl.remove();
         }
+
+        if (genreSec) container.appendChild(genreSec);
+        if (plSec) container.appendChild(plSec);
+
+        // Asegurar que el contenedor esté visible
+        if (genreSec || plSec) {
+            container.style.display = 'block';
+        }
+
+        lastRenderedQ = q;
+    }
+
+    function schedule(q) {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+            debounceTimer = null;
+            addExtraSections(q).catch(() => {});
+        }, 260);
     }
 
     function init() {
         if (typeof firebase === 'undefined' || !firebase.auth) { setTimeout(init, 300); return; }
+        const container = $('search-results');
         const input = $('search-input');
-        const container = ensureContainer();
-        if (!input || !container) { setTimeout(init, 300); return; }
-        if (container.dataset.enrichReady === '1') return;
-        container.dataset.enrichReady = '1';
+        if (!container || !input) { setTimeout(init, 300); return; }
 
-        // Debounce propio (más largo que el de la sección 17 = 70ms)
-        input.addEventListener('input', () => {
-            if (enrichTimer) clearTimeout(enrichTimer);
-            const q = (input.value || '').trim();
-            if (!q) {
-                container.querySelectorAll('[data-enriched="1"]').forEach(el => el.remove());
-                return;
-            }
-            enrichTimer = setTimeout(() => {
-                enrichTimer = null;
-                enrich(q);
-            }, 220);
-        });
+        cargarPlaylistsPublicas().catch(() => {});
 
-        // Observer: cuando la sección 17 re-renderiza, enriquecemos de nuevo
-        const obs = new MutationObserver(() => {
-            if (container.dataset.enriching === '1') return;
-            if (container.querySelector('[data-enriched="1"]')) return;
-            const q = (input.value || '').trim();
-            if (!q) return;
-            if (enrichTimer) clearTimeout(enrichTimer);
-            enrichTimer = setTimeout(() => {
-                enrichTimer = null;
-                const q2 = (input.value || '').trim();
-                if (!q2) return;
-                enrich(q2);
-            }, 180);
-        });
-        obs.observe(container, { childList: true });
+        if (!searchObserver) {
+            searchObserver = new MutationObserver(() => {
+                const q = (input.value || '').trim();
+                if (!q) {
+                    lastRenderedQ = '';
+                    return;
+                }
+                schedule(q);
+            });
+            searchObserver.observe(container, { childList: true, subtree: false });
+        }
+
+        if (input.dataset.genreSearchReady !== '1') {
+            input.dataset.genreSearchReady = '1';
+            input.addEventListener('input', () => {
+                const q = (input.value || '').trim();
+                if (!q) lastRenderedQ = '';
+            });
+        }
     }
 
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
-    else init();
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
 })();
 
 /* ============================================================
-   34. SISTEMA DE RECOMENDACIONES MUSICALES
+   34. SISTEMA DE RECOMENDACIONES PERSONALIZADAS
    ------------------------------------------------------------
-   - Rastrea géneros y artistas de las canciones que el usuario
-     reproduce (via click en .playlist-item).
-   - Guarda los contadores en historial_usuarios/{uid}.musica_prefs
-     con escritura diferida (batch cada 8s).
-   - Genera una sección dinámica "Recomendado para ti" en home-view
-     puntuando cada canción según:
-        · Género afín al usuario (peso 5 - rank)
-        · Artista afín al usuario (peso 7 - rank)
-        · Excluye las ya reproducidas (historial)
-   - No modifica ninguna función existente (secciones 1 a 33).
+   - Analiza la actividad musical del usuario:
+       · Historial de reproducciones (historial_usuarios.canciones)
+       · Canciones completadas (historial_usuarios.canciones_completadas)
+   - Genera un perfil de gustos (géneros y artistas preferidos).
+   - Puntúa cada canción del catálogo que el usuario NO ha
+     escuchado y muestra las mejores como "Recomendado para ti".
+   - Se actualiza al terminar cada canción y cada 60 segundos.
+   - No modifica ninguna sección existente.
    ============================================================ */
 (function () {
     'use strict';
 
     const $ = (id) => document.getElementById(id);
-    const COLLECTION = 'historial_usuarios';
 
-    let queue = { generos: {}, artistas: {} };
-    let flushTimer = null;
-    let currentUser = null;
-    let isBooted = false;
+    let refreshTimer = null;
 
-    function norm(s) {
-        return String(s || '')
-            .toLowerCase()
-            .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '')
-            .trim();
+    function getItemTitle(item) {
+        return item.querySelector('.item-title')?.textContent.trim() || '';
+    }
+    function getItemCover(item) {
+        return item.querySelector('.thumbnail img')?.src || '';
+    }
+    function getItemSubtitle(item) {
+        return item.querySelector('.item-subtitle')?.textContent.trim() || '';
+    }
+    function parseParts(item) {
+        const sub = getItemSubtitle(item);
+        const idx = sub.indexOf('·');
+        if (idx === -1) return { artist: sub, genre: '' };
+        return {
+            artist: sub.slice(0, idx).trim(),
+            genre: sub.slice(idx + 1).trim()
+        };
+    }
+    function getAllItems() {
+        return Array.from(document.querySelectorAll('#playlist .playlist-item'));
     }
 
-    function parseItem(item) {
-        const title = item.querySelector('.item-title')?.textContent.trim() || '';
-        const sub = item.querySelector('.item-subtitle')?.textContent || '';
-        const parts = sub.split('·').map(s => s.trim()).filter(Boolean);
-        const artista = parts[0] || '';
-        let genero = parts.length >= 2 ? parts[parts.length - 1] : '';
-        if (/^subido$/i.test(genero)) genero = '';
-        return { title, artista, genero };
+    function buildProfile() {
+        const user = firebase.auth().currentUser;
+        if (!user) return null;
+
+        const historial = (typeof window.__getHistorialCache === 'function')
+            ? (window.__getHistorialCache() || []) : [];
+        const playlists = (typeof window.__getPlaylistsCache === 'function')
+            ? (window.__getPlaylistsCache() || []) : [];
+
+        const playedTitles = new Set();
+        historial.forEach(h => { if (h && h.titulo) playedTitles.add(h.titulo); });
+        playlists.forEach(pl => pl.canciones.forEach(c => {
+            if (c && c.titulo) playedTitles.add(c.titulo);
+        }));
+
+        const allItems = getAllItems();
+        const genreCounts = new Map();
+        const artistCounts = new Map();
+
+        playedTitles.forEach(title => {
+            const item = allItems.find(it => getItemTitle(it) === title);
+            if (!item) return;
+            const parts = parseParts(item);
+            if (parts.genre && parts.genre.toLowerCase() !== 'subido') {
+                genreCounts.set(parts.genre, (genreCounts.get(parts.genre) || 0) + 1);
+            }
+            if (parts.artist) {
+                artistCounts.set(parts.artist, (artistCounts.get(parts.artist) || 0) + 1);
+            }
+        });
+
+        return { playedTitles, genreCounts, artistCounts };
     }
 
-    /* ---------- Registro de reproducciones ---------- */
-    function trackPlay(item) {
-        if (!item) return;
-        const { artista, genero } = parseItem(item);
-        if (genero) queue.generos[genero] = (queue.generos[genero] || 0) + 1;
-        if (artista) queue.artistas[artista] = (queue.artistas[artista] || 0) + 1;
-        scheduleFlush();
+    function scoreSongs(profile) {
+        const allItems = getAllItems();
+        const scored = [];
+
+        allItems.forEach(item => {
+            const title = getItemTitle(item);
+            if (profile.playedTitles.has(title)) return;
+
+            const parts = parseParts(item);
+            let score = 0;
+
+            if (parts.genre && profile.genreCounts.has(parts.genre)) {
+                score += profile.genreCounts.get(parts.genre) * 3;
+            }
+            if (parts.artist && profile.artistCounts.has(parts.artist)) {
+                score += profile.artistCounts.get(parts.artist) * 5;
+            }
+            // Match parcial de artista (variantes)
+            if (parts.artist) {
+                profile.artistCounts.forEach((count, artist) => {
+                    if (artist === parts.artist) return;
+                    const n1 = artist.toLowerCase();
+                    const n2 = parts.artist.toLowerCase();
+                    if (n1 && n2 && (n1.includes(n2) || n2.includes(n1))) {
+                        score += count * 2;
+                    }
+                });
+            }
+
+            if (score > 0) {
+                score += Math.random() * 0.5;
+                scored.push({ item, score });
+            }
+        });
+
+        scored.sort((a, b) => b.score - a.score);
+        return scored.slice(0, 12).map(s => s.item);
     }
 
-    function scheduleFlush() {
-        if (flushTimer) clearTimeout(flushTimer);
-        flushTimer = setTimeout(flushPrefs, 8000);
-    }
-
-    async function flushPrefs() {
-        flushTimer = null;
-        if (!currentUser) return;
-        const g = { ...queue.generos };
-        const a = { ...queue.artistas };
-        if (!Object.keys(g).length && !Object.keys(a).length) return;
-        queue = { generos: {}, artistas: {} };
-        try {
-            const ref = firebase.firestore().collection(COLLECTION).doc(currentUser.uid);
-            const snap = await ref.get();
-            const data = snap.exists ? snap.data() : {};
-            const prev = data.musica_prefs || { generos: {}, artistas: {} };
-            const newPrefs = {
-                generos:  { ...(prev.generos  || {}) },
-                artistas: { ...(prev.artistas || {}) },
-                ultima_actualizacion: firebase.firestore.FieldValue.serverTimestamp()
-            };
-            for (const k in g) newPrefs.generos[k]  = (newPrefs.generos[k]  || 0) + g[k];
-            for (const k in a) newPrefs.artistas[k] = (newPrefs.artistas[k] || 0) + a[k];
-            await ref.set({ musica_prefs: newPrefs }, { merge: true });
-            console.log('🎯 [RECS] Preferencias guardadas');
-        } catch (e) {
-            console.warn('[RECS] Error flush:', e);
-        }
-    }
-
-    /* ---------- Sección dinámica en home-view ---------- */
     function ensureSection() {
-        let sec = $('sec-recommendations');
-        if (sec) return { sec, carousel: $('carousel-recommendations') };
+        let sec = $('sec-recommended');
+        if (sec) return sec;
         const homeView = $('home-view');
         if (!homeView) return null;
-        const template = $('sec-maybe') || $('sec-top') || $('sec-artists');
 
         sec = document.createElement('section');
-        sec.id = 'sec-recommendations';
-        sec.className = template ? template.className : 'home-section';
-        sec.style.display = 'none';
+        sec.className = 'home-section';
+        sec.id = 'sec-recommended';
 
         const h = document.createElement('h2');
         h.className = 'home-section-title';
@@ -6690,26 +7254,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const carousel = document.createElement('div');
         carousel.className = 'home-carousel';
-        carousel.id = 'carousel-recommendations';
+        carousel.id = 'carousel-recommended';
         sec.appendChild(carousel);
 
-        const anchor = $('sec-maybe') || $('sec-top') || $('sec-artists');
-        if (anchor && anchor.parentNode === homeView) {
-            homeView.insertBefore(sec, anchor.nextSibling);
-        } else {
+        // Insertar al inicio de home-view
+        if (homeView.firstChild) {
             homeView.insertBefore(sec, homeView.firstChild);
+        } else {
+            homeView.appendChild(sec);
         }
-        return { sec, carousel };
+        return sec;
     }
 
-    function buildCard(item) {
-        const title = item.querySelector('.item-title')?.textContent.trim() || '';
-        const cover = item.querySelector('.thumbnail img')?.src || '';
-        const sub = item.querySelector('.item-subtitle')?.textContent.trim() || '';
+    function makeSongCard(item) {
+        const title = getItemTitle(item);
+        const cover = getItemCover(item);
+        const sub = getItemSubtitle(item);
+
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'home-card';
         btn.setAttribute('aria-label', title);
+
         const thumb = document.createElement('div');
         thumb.className = 'home-card-thumb';
         if (cover) {
@@ -6718,315 +7284,290 @@ document.addEventListener('DOMContentLoaded', () => {
             thumb.appendChild(img);
         }
         btn.appendChild(thumb);
+
         const t = document.createElement('span');
         t.className = 'home-card-title';
         t.textContent = title;
         btn.appendChild(t);
+
         if (sub) {
             const s = document.createElement('span');
             s.className = 'home-card-sub';
             s.textContent = sub;
             btn.appendChild(s);
         }
+
         btn.addEventListener('click', () => item.click());
         return btn;
     }
 
-    /* ---------- Cálculo de recomendaciones ---------- */
-    async function computeRecommendations() {
-        if (!currentUser) return [];
-        let prefs = { generos: {}, artistas: {} };
-        try {
-            const snap = await firebase.firestore()
-                .collection(COLLECTION).doc(currentUser.uid).get();
-            prefs = (snap.data() && snap.data().musica_prefs) || prefs;
-        } catch (e) { /* silencioso */ }
+    function render() {
+        const sec = ensureSection();
+        if (!sec) return;
+        const carousel = sec.querySelector('#carousel-recommended');
+        if (!carousel) return;
 
-        const topG = Object.entries(prefs.generos || {})
-            .sort((a, b) => b[1] - a[1]).slice(0, 5).map(x => x[0]);
-        const topA = Object.entries(prefs.artistas || {})
-            .sort((a, b) => b[1] - a[1]).slice(0, 5).map(x => x[0]);
-
-        if (!topG.length && !topA.length) return [];
-
-        const playedSet = new Set(
-            (window.__getHistorialCache?.() || []).map(c => norm(c.titulo))
-        );
-        const pl = $('playlist');
-        if (!pl) return [];
-
-        const scored = [];
-        pl.querySelectorAll('.playlist-item').forEach(item => {
-            const { title, artista, genero } = parseItem(item);
-            if (!title) return;
-            if (playedSet.has(norm(title))) return;
-            let score = 0;
-            const gi = topG.findIndex(g => norm(g) === norm(genero));
-            if (gi >= 0) score += (5 - gi);
-            const ai = topA.findIndex(a => norm(a) === norm(artista));
-            if (ai >= 0) score += (7 - ai);
-            if (score > 0) scored.push({ item, score });
-        });
-        scored.sort((a, b) => b.score - a.score);
-        return scored.slice(0, 12).map(s => s.item);
-    }
-
-    async function renderRecommendations() {
-        const els = ensureSection();
-        if (!els) return;
-        const { sec, carousel } = els;
-        const items = await computeRecommendations();
-        carousel.innerHTML = '';
-        if (!items.length) { sec.style.display = 'none'; return; }
-        sec.style.display = '';
-        items.forEach(it => carousel.appendChild(buildCard(it)));
-    }
-
-    /* ---------- Detección de reproducciones ---------- */
-    function detectPlays() {
-        const pl = $('playlist');
-        if (pl && pl.dataset.recsListen !== '1') {
-            pl.dataset.recsListen = '1';
-            pl.addEventListener('click', (e) => {
-                const item = e.target.closest('.playlist-item');
-                if (item) {
-                    trackPlay(item);
-                    setTimeout(renderRecommendations, 1500);
-                }
-            });
+        const profile = buildProfile();
+        if (!profile || profile.playedTitles.size < 2) {
+            sec.style.display = 'none';
+            return;
         }
+
+        const recommended = scoreSongs(profile);
+        if (!recommended.length) {
+            sec.style.display = 'none';
+            return;
+        }
+
+        carousel.innerHTML = '';
+        recommended.forEach(item => carousel.appendChild(makeSongCard(item)));
+        sec.style.display = '';
     }
 
-    /* ---------- Init ---------- */
     function init() {
         if (typeof firebase === 'undefined' || !firebase.auth) { setTimeout(init, 300); return; }
-        if (isBooted) return;
-        isBooted = true;
 
-        firebase.auth().onAuthStateChanged(user => {
-            currentUser = user;
-            if (user) {
-                detectPlays();
-                let tries = 0;
-                (function loop() {
-                    tries++;
-                    const has = document.querySelectorAll('#playlist .playlist-item').length > 0;
-                    if (has || tries > 30) {
-                        renderRecommendations();
-                        return;
-                    }
-                    setTimeout(loop, 300);
-                })();
-            } else {
-                const sec = $('sec-recommendations');
-                if (sec) sec.style.display = 'none';
+        let tries = 0;
+        (function loop() {
+            tries++;
+            const homeView = $('home-view');
+            const items = document.querySelectorAll('#playlist .playlist-item');
+            if (homeView && items.length > 0) {
+                render();
+                return;
             }
-        });
+            if (tries < 40) setTimeout(loop, 250);
+        })();
+
+        const audio = document.getElementById('audio-player');
+        if (audio && audio.dataset.recReady !== '1') {
+            audio.dataset.recReady = '1';
+            audio.addEventListener('ended', () => {
+                setTimeout(render, 2000);
+            });
+        }
+
+        if (refreshTimer) clearInterval(refreshTimer);
+        refreshTimer = setInterval(() => {
+            const view = $('home-view');
+            if (view && view.offsetParent !== null) {
+                render();
+            }
+        }, 60000);
     }
 
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
-    else init();
-
-    // Exponer para re-render desde otras secciones
-    window.__renderRecommendations = renderRecommendations;
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
 })();
 
 /* ============================================================
-   35. ELIMINAR PLAYLIST (desde Editar)
+   35. ELIMINAR PLAYLIST DESDE "EDITAR"
    ------------------------------------------------------------
-   - Inyecta un botón "Eliminar playlist" en el header de
-     #playlist-view, visible solo cuando:
-        · El modal está en modo edición (clase .edit-mode)
-        · La playlist actual es del usuario (esMiPlaylist === true)
-   - Al pulsarlo, muestra un modal de confirmación.
-   - Al confirmar:
-        · Borra el documento en mis_playlists/{id}
-        · Borra los shares en playlists_compartidas (de == uid && playlistId == id)
-        · Cierra el playlist-view
-   - No modifica las secciones 1 a 34.
+   - Cuando el usuario entra al modo Editar de una playlist
+     que le pertenece (esMiPlaylist), se inyecta un botón
+     "Eliminar playlist" en el footer.
+   - Al pulsarlo se muestra un modal de confirmación.
+   - Al confirmar, se elimina la playlist completa de Firestore
+     (`mis_playlists/{id}`) y sus shares (`playlists_compartidas`).
+   - NO modifica la sección 18 (Vista de "Tu Playlist").
    ============================================================ */
 (function () {
     'use strict';
 
     const $ = (id) => document.getElementById(id);
-    const COLLECTION = 'mis_playlists';
+
     let deleteBtn = null;
-    let confirmModal = null;
+    let confirmBackdrop = null;
 
-    function escHtml(s) {
-        return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
-            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-        }[c]));
+    function getCurrentPlaylist() {
+        return window.__currentOpenPlaylist || null;
     }
 
-    /* ---------- Modal de confirmación ---------- */
-    function ensureConfirmModal() {
-        if (confirmModal) return confirmModal;
-        const modal = document.createElement('div');
-        modal.className = 'mp-modal';
-        modal.id = 'pv-delete-modal';
-        modal.setAttribute('aria-hidden', 'true');
-        modal.innerHTML =
-            '<div class="mp-modal-backdrop" id="pv-delete-backdrop"></div>' +
-            '<div class="mp-modal-box" role="dialog" aria-modal="true">' +
-                '<div class="mp-modal-header">' +
-                    '<h2 class="mp-modal-title" style="text-align:left;">Eliminar playlist</h2>' +
-                    '<button class="mp-modal-close" id="pv-delete-close" type="button" aria-label="Cerrar">&times;</button>' +
-                '</div>' +
-                '<p class="pv-del-confirm-msg" id="pv-delete-msg">' +
-                    '¿Seguro que quieres eliminar esta playlist? Esta acción no se puede deshacer.' +
-                '</p>' +
-                '<p class="mp-modal-status" id="pv-delete-status"></p>' +
-                '<div class="mp-modal-actions">' +
-                    '<button class="mp-modal-btn mp-modal-btn-cancel" id="pv-delete-cancel" type="button">Cancelar</button>' +
-                    '<button class="mp-modal-btn mp-modal-btn-confirm" id="pv-delete-confirm" type="button">Eliminar</button>' +
-                '</div>' +
-            '</div>';
-        document.body.appendChild(modal);
+    function canDelete(pl) {
+        if (!pl) return false;
+        // Solo las playlists personalizadas guardadas en `mis_playlists`
+        return pl.esMiPlaylist === true && !!pl.id;
+    }
 
-        function close() {
-            modal.classList.remove('visible');
-            modal.setAttribute('aria-hidden', 'true');
-            const st = $('pv-delete-status');
-            if (st) { st.textContent = ''; st.classList.remove('ok'); }
-        }
-        $('pv-delete-close').addEventListener('click', close);
-        $('pv-delete-cancel').addEventListener('click', close);
-        $('pv-delete-backdrop').addEventListener('click', close);
+    async function deletePlaylistFromFirestore(pl) {
+        if (!pl || !pl.id) throw new Error('Playlist sin id');
 
-        $('pv-delete-confirm').addEventListener('click', async () => {
-            const pl = window.__currentOpenPlaylist;
-            if (!pl || !pl.esMiPlaylist) { close(); return; }
-            const st = $('pv-delete-status');
-            const btn = $('pv-delete-confirm');
-            if (btn) { btn.disabled = true; btn.textContent = 'Eliminando…'; }
-            if (st) { st.textContent = 'Eliminando…'; st.classList.add('ok'); }
+        // 1) Eliminar de mis_playlists
+        try {
+            await firebase.firestore().collection('mis_playlists').doc(pl.id).delete();
+        } catch (e) { console.warn('[DEL] mis_playlists:', e); }
 
-            try {
-                const user = firebase.auth().currentUser;
-                // 1. Eliminar la playlist
-                await firebase.firestore().collection(COLLECTION).doc(pl.id).delete();
-                // 2. Eliminar shares de esta playlist
-                if (user) {
-                    try {
-                        const snap = await firebase.firestore()
-                            .collection('playlists_compartidas')
-                            .where('de', '==', user.uid)
-                            .where('playlistId', '==', pl.id)
-                            .get();
-                        if (!snap.empty) {
-                            const batch = firebase.firestore().batch();
-                            snap.forEach(doc => batch.delete(doc.ref));
-                            await batch.commit();
-                        }
-                    } catch (e) { console.warn('[DEL] Error borrando shares:', e); }
+        // 2) Eliminar de playlists_compartidas (como emisor)
+        try {
+            const user = firebase.auth().currentUser;
+            if (user) {
+                const snap = await firebase.firestore()
+                    .collection('playlists_compartidas')
+                    .where('de', '==', user.uid)
+                    .where('playlistId', '==', pl.id)
+                    .get();
+                if (!snap.empty) {
+                    const batch = firebase.firestore().batch();
+                    snap.forEach(d => batch.delete(d.ref));
+                    await batch.commit();
                 }
-                // 3. Cerrar modales y vista
-                close();
-                const pv = $('playlist-view');
-                if (pv) {
-                    pv.classList.remove('visible', 'edit-mode');
-                    pv.setAttribute('aria-hidden', 'true');
-                }
-                window.__currentOpenPlaylist = null;
-                // Refrescar recomendaciones por si había esa playlist referenciada
-                if (typeof window.__renderRecommendations === 'function') {
-                    try { window.__renderRecommendations(); } catch (_) {}
-                }
-            } catch (e) {
-                console.warn('[DEL] Error eliminando:', e);
-                if (st) { st.textContent = 'No se pudo eliminar.'; st.classList.remove('ok'); }
-            } finally {
-                if (btn) { btn.disabled = false; btn.textContent = 'Eliminar'; }
             }
+        } catch (e) { console.warn('[DEL] compartidas:', e); }
+    }
+
+    function showConfirm(message, onYes) {
+        if (confirmBackdrop) return;
+        confirmBackdrop = document.createElement('div');
+        confirmBackdrop.className = 'conv-menu-backdrop';
+        confirmBackdrop.innerHTML = `
+            <div class="conv-confirm-box" role="dialog" aria-modal="true">
+                <div class="conv-confirm-title">¿Eliminar playlist?</div>
+                <div class="conv-confirm-sub"></div>
+                <div class="conv-confirm-actions">
+                    <button type="button" class="no" data-action="no">Cancelar</button>
+                    <button type="button" class="yes" data-action="yes">Eliminar</button>
+                </div>
+            </div>
+        `;
+        const subEl = confirmBackdrop.querySelector('.conv-confirm-sub');
+        if (subEl) subEl.textContent = message;
+
+        document.body.appendChild(confirmBackdrop);
+        requestAnimationFrame(() => confirmBackdrop.classList.add('visible'));
+
+        confirmBackdrop.addEventListener('click', (e) => {
+            const t = e.target.closest('[data-action]');
+            if (!t) {
+                if (e.target === confirmBackdrop) closeConfirm();
+                return;
+            }
+            const action = t.dataset.action;
+            closeConfirm();
+            if (action === 'yes') { try { onYes(); } catch (_) {} }
         });
-
-        confirmModal = modal;
-        return modal;
     }
 
-    function openConfirm() {
-        const modal = ensureConfirmModal();
-        const pl = window.__currentOpenPlaylist;
-        if (!pl) return;
-        const msg = $('pv-delete-msg');
-        if (msg) {
-            msg.innerHTML = '¿Seguro que quieres eliminar <strong>' +
-                escHtml(pl.nombre || 'esta playlist') +
-                '</strong>? Esta acción no se puede deshacer.';
-        }
-        modal.classList.add('visible');
-        modal.setAttribute('aria-hidden', 'false');
+    function closeConfirm() {
+        if (!confirmBackdrop) return;
+        confirmBackdrop.classList.remove('visible');
+        const el = confirmBackdrop;
+        confirmBackdrop = null;
+        setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 250);
     }
 
-    /* ---------- Inyección del botón Eliminar ---------- */
     function injectDeleteButton() {
         const view = $('playlist-view');
         if (!view) return false;
-        const pvEdit = $('pv-edit');
-        if (!pvEdit || !pvEdit.parentNode) return false;
-        if (document.getElementById('pv-delete-btn')) {
-            deleteBtn = document.getElementById('pv-delete-btn');
-            return true;
-        }
+        const footer = view.querySelector('.pv-footer');
+        if (!footer) return false;
+        if (footer.querySelector('#pv-delete-playlist')) return true;
 
         const btn = document.createElement('button');
-        btn.id = 'pv-delete-btn';
         btn.type = 'button';
-        btn.className = 'pv-delete-btn';
-        btn.setAttribute('aria-label', 'Eliminar playlist');
-        btn.innerHTML =
-            '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" ' +
-            'stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
-                '<polyline points="3 6 5 6 21 6"/>' +
-                '<path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>' +
-                '<path d="M10 11v6M14 11v6"/>' +
-                '<path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>' +
-            '</svg>' +
-            '<span>Eliminar<br>playlist</span>';
-        btn.style.display = 'none';
-        btn.addEventListener('click', () => {
-            if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} }
-            openConfirm();
+        btn.id = 'pv-delete-playlist';
+        btn.className = 'pv-delete-playlist';
+        btn.textContent = 'Eliminar playlist';
+
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const pl = getCurrentPlaylist();
+            if (!pl || !canDelete(pl)) return;
+            if (navigator.vibrate) { try { navigator.vibrate(15); } catch (_) {} }
+            showConfirm(
+                'Se eliminará la playlist "' + (pl.nombre || '') +
+                '" y todos sus elementos. Esta acción no se puede deshacer.',
+                async () => {
+                    try {
+                        await deletePlaylistFromFirestore(pl);
+                        // Cerrar la vista
+                        view.classList.remove('visible', 'edit-mode');
+                        view.setAttribute('aria-hidden', 'true');
+                        window.__currentOpenPlaylist = null;
+                        // Refrescar home
+                        if (typeof window.__buildListenAgain === 'function') {
+                            try { window.__buildListenAgain(); } catch (_) {}
+                        }
+                        // Refrescar Mi Playlist si está abierto
+                        if (typeof window.__openMiPlaylistView === 'function') {
+                            // El listener de Firestore actualizará la lista
+                        }
+                        // Toast breve
+                        let toast = document.getElementById('omega-toast');
+                        if (!toast) {
+                            toast = document.createElement('div');
+                            toast.id = 'omega-toast';
+                            document.body.appendChild(toast);
+                        }
+                        toast.textContent = '✓ Playlist eliminada';
+                        toast.classList.remove('visible');
+                        void toast.offsetWidth;
+                        toast.classList.add('visible');
+                        clearTimeout(toast._omegaModeTimer);
+                        toast._omegaModeTimer = setTimeout(() => {
+                            toast.classList.remove('visible');
+                        }, 1800);
+                    } catch (err) {
+                        console.error('Error eliminando playlist:', err);
+                        alert('No se pudo eliminar la playlist.');
+                    }
+                }
+            );
         });
-        pvEdit.parentNode.insertBefore(btn, pvEdit.nextSibling);
+
+        // Insertarlo al final del footer
+        footer.appendChild(btn);
         deleteBtn = btn;
         return true;
     }
 
-    function updateButtonVisibility() {
+    function removeDeleteButton() {
+        if (deleteBtn && deleteBtn.parentNode) {
+            deleteBtn.parentNode.removeChild(deleteBtn);
+        }
+        deleteBtn = null;
+    }
+
+    function updateVisibility() {
         const view = $('playlist-view');
-        if (!view || !deleteBtn) return;
-        const inEdit = view.classList.contains('edit-mode');
-        const pl = window.__currentOpenPlaylist;
-        const canDelete = !!(pl && pl.esMiPlaylist === true);
-        deleteBtn.style.display = (inEdit && canDelete) ? '' : 'none';
+        if (!view) return;
+        const isEdit = view.classList.contains('edit-mode');
+        const isVisible = view.classList.contains('visible');
+        const pl = getCurrentPlaylist();
+
+        if (isEdit && isVisible && canDelete(pl)) {
+            injectDeleteButton();
+        } else {
+            removeDeleteButton();
+        }
     }
 
     function init() {
         if (typeof firebase === 'undefined' || !firebase.auth) { setTimeout(init, 300); return; }
         const view = $('playlist-view');
         if (!view) { setTimeout(init, 300); return; }
-        if (view.dataset.delReady === '1') return;
-        view.dataset.delReady = '1';
+        if (view.dataset.delWatch === '1') return;
+        view.dataset.delWatch = '1';
 
-        let tries = 0;
-        (function wait() {
-            tries++;
-            if (injectDeleteButton()) return;
-            if (tries < 40) setTimeout(wait, 200);
-        })();
-
-        const obs = new MutationObserver(updateButtonVisibility);
+        const obs = new MutationObserver(() => updateVisibility());
         obs.observe(view, { attributes: true, attributeFilter: ['class'] });
 
-        document.addEventListener('click', (e) => {
-            if (e.target.closest('#pv-edit')) {
-                setTimeout(updateButtonVisibility, 60);
-            }
-        });
+        // También observamos el footer por si se agrega después
+        const footer = view.querySelector('.pv-footer');
+        if (footer) {
+            const obsF = new MutationObserver(() => updateVisibility());
+            obsF.observe(footer, { childList: true });
+        }
+
+        setTimeout(updateVisibility, 300);
     }
 
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
-    else init();
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
 })();
