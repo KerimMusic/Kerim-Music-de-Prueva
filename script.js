@@ -966,14 +966,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /* ============================================================
    4. GESTOR DE ANUNCIOS (FIREBASE) ✨ ACTUALIZADO
-   ------------------------------------------------------------
-   - Se cargan exclusivamente desde Firestore: colección "anuncios".
-   - Contadores diarios en la colección "anuncios_vistas".
-   - Ciclo: cada 6 canciones → 3 anuncios aleatorios.
-   - Botón "Omitir" SOLO en el tercer anuncio del ciclo.
-   - Los anuncios que alcanzan su límite diario se excluyen.
-   - NUEVO: Duración (días) → el anuncio expira tras ese período.
-   - NUEVO: Repeticiones por día → tope diario por anuncio.
    ============================================================ */
 (function () {
     'use strict';
@@ -1011,51 +1003,23 @@ document.addEventListener('DOMContentLoaded', () => {
         return y + '-' + m + '-' + day;
     }
 
-    /* ============================================================
-       ✨ normalizeAd — ACTUALIZADO
-       Añade: repeticionesPorDia, duracionDias y fechaInicio
-       Mantiene compatibilidad con campos antiguos.
-       ============================================================ */
     function normalizeAd(doc) {
         const d = doc.data() || {};
-
-        // ===== NUEVO: Repeticiones por día =====
         const repeticionesPorDia = Number(
-            d.repeticionesPorDia     ??
-            d.repeticiones_por_dia   ??
-            d.repeticiones           ??
-            d.vecesPorDia            ??
-            d.limiteDiario           ??
-            d.limite                 ??
-            d.veces                  ??
-            0
+            d.repeticionesPorDia ?? d.repeticiones_por_dia ?? d.repeticiones ??
+            d.vecesPorDia ?? d.limiteDiario ?? d.limite ?? d.veces ?? 0
         ) || 0;
-
-        // ===== NUEVO: Duración en días =====
         const duracionDias = Number(
-            d.duracionDias      ??
-            d.duracion_dias     ??
-            d.duracion          ??
-            d.duration          ??
-            0
+            d.duracionDias ?? d.duracion_dias ?? d.duracion ?? d.duration ?? 0
         ) || 0;
-
-        // ===== NUEVO: Fecha de inicio para calcular expiración =====
         let fechaInicio = null;
-        const rawFecha =
-            d.fechaInicio   || d.fecha_inicio  ||
-            d.inicio        || d.startDate     ||
-            d.creado        || d.createdAt     ||
-            d.fecha         || null;
-
+        const rawFecha = d.fechaInicio || d.fecha_inicio || d.inicio || d.startDate ||
+                         d.creado || d.createdAt || d.fecha || null;
         if (rawFecha) {
-            if (typeof rawFecha.toDate === 'function') {
-                fechaInicio = rawFecha.toDate();
-            } else if (rawFecha instanceof Date) {
-                fechaInicio = rawFecha;
-            } else if (typeof rawFecha === 'number') {
-                fechaInicio = new Date(rawFecha);
-            } else if (typeof rawFecha === 'string') {
+            if (typeof rawFecha.toDate === 'function') fechaInicio = rawFecha.toDate();
+            else if (rawFecha instanceof Date) fechaInicio = rawFecha;
+            else if (typeof rawFecha === 'number') fechaInicio = new Date(rawFecha);
+            else if (typeof rawFecha === 'string') {
                 const parsed = new Date(rawFecha);
                 if (!isNaN(parsed.getTime())) fechaInicio = parsed;
             } else if (typeof rawFecha === 'object' && typeof rawFecha.seconds === 'number') {
@@ -1063,23 +1027,17 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             if (fechaInicio && isNaN(fechaInicio.getTime())) fechaInicio = null;
         }
-
         return {
-            id:                 doc.id,
-            titulo:             d.titulo || d.title || d.nombre || 'Anuncio',
-            audio:              d.audio  || d.audioUrl || d.music || d.musica || '',
-            imagen:             d.imagen || d.imagenUrl || d.image || d.url || d.portada || '',
-            video:              d.video  || d.videoUrl || '',
-
-            // Compatibilidad: vecesPorDia sigue existiendo.
-            vecesPorDia:        repeticionesPorDia,
+            id: doc.id,
+            titulo: d.titulo || d.title || d.nombre || 'Anuncio',
+            audio: d.audio || d.audioUrl || d.music || d.musica || '',
+            imagen: d.imagen || d.imagenUrl || d.image || d.url || d.portada || '',
+            video: d.video || d.videoUrl || '',
+            vecesPorDia: repeticionesPorDia,
             repeticionesPorDia: repeticionesPorDia,
-
-            // Nuevos campos
-            duracionDias:       duracionDias,
-            fechaInicio:        fechaInicio,
-
-            activo:             d.activo !== false
+            duracionDias: duracionDias,
+            fechaInicio: fechaInicio,
+            activo: d.activo !== false
         };
     }
 
@@ -1124,9 +1082,9 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const ref = firebase.firestore().collection('anuncios_vistas').doc(docId);
             await ref.set({
-                adId:        adId,
-                fecha:       hoy,
-                count:       firebase.firestore.FieldValue.increment(1),
+                adId: adId,
+                fecha: hoy,
+                count: firebase.firestore.FieldValue.increment(1),
                 actualizado: firebase.firestore.FieldValue.serverTimestamp()
             }, { merge: true });
         } catch (e) {
@@ -1134,31 +1092,19 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ============================================================
-       ✨ adDisponible — ACTUALIZADO
-       Verifica:
-         1) Activo y con media
-         2) Duración (días) — expira tras el período
-         3) Repeticiones por día — tope diario
-       ============================================================ */
     function adDisponible(ad) {
         if (!ad || ad.activo === false) return false;
-        if (!ad.audio && !ad.video)     return false;
-
-        // ===== NUEVO: Verificar Duración (días) =====
+        if (!ad.audio && !ad.video) return false;
         if (ad.duracionDias > 0 && ad.fechaInicio) {
             const MS_POR_DIA = 24 * 60 * 60 * 1000;
-            const expiraEn   = ad.fechaInicio.getTime() + (ad.duracionDias * MS_POR_DIA);
-            if (Date.now() >= expiraEn) return false; // ⏰ Expirado
+            const expiraEn = ad.fechaInicio.getTime() + (ad.duracionDias * MS_POR_DIA);
+            if (Date.now() >= expiraEn) return false;
         }
-
-        // ===== Repeticiones por día =====
         const limite = ad.repeticionesPorDia || ad.vecesPorDia || 0;
         if (limite > 0) {
             const vistas = dailyViewsCache[ad.id] || 0;
-            if (vistas >= limite) return false; // 🚫 Límite diario alcanzado
+            if (vistas >= limite) return false;
         }
-
         return true;
     }
 
@@ -1193,7 +1139,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function cleanupAdMedia() {
         if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
-        if (adTimeout)         { clearTimeout(adTimeout); adTimeout = null; }
+        if (adTimeout) { clearTimeout(adTimeout); adTimeout = null; }
         if (currentAdMedia) {
             try {
                 currentAdMedia.pause();
@@ -1222,13 +1168,8 @@ document.addEventListener('DOMContentLoaded', () => {
         ensureOverlay();
         adPlaying = true;
         adOnComplete = onEnd;
-
         const allowSkip = (indexInCycle === totalInCycle - 1);
-
-        if (adCounter) {
-            adCounter.textContent = (indexInCycle + 1) + ' / ' + totalInCycle;
-        }
-
+        if (adCounter) adCounter.textContent = (indexInCycle + 1) + ' / ' + totalInCycle;
         adMedia.innerHTML = '';
         if (currentAdMedia) {
             try {
@@ -1238,7 +1179,6 @@ document.addEventListener('DOMContentLoaded', () => {
             } catch (_) {}
             currentAdMedia = null;
         }
-
         let mediaEl = null;
         if (ad.video) {
             mediaEl = document.createElement('video');
@@ -1265,10 +1205,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
         currentAdMedia = mediaEl;
-
         overlay.classList.add('visible');
         overlay.setAttribute('aria-hidden', 'false');
-
         if (allowSkip) {
             adSkip.style.display = '';
             adSkip.disabled = true;
@@ -1290,9 +1228,7 @@ document.addEventListener('DOMContentLoaded', () => {
             adSkip.style.display = 'none';
             adSkip.disabled = true;
         }
-
         incrementarVista(ad.id);
-
         if (mediaEl) {
             mediaEl.addEventListener('ended', finalizarAnuncio, { once: true });
             mediaEl.addEventListener('error', () => {
@@ -1317,10 +1253,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (isAdPlaying) return;
         isAdPlaying = true;
         try { audioPlayer.pause(); } catch (_) {}
-
         await cargarAnuncios();
         await cargarVistasDelDia();
-
         const seleccion = seleccionarAnuncios(ADS_PER_CYCLE);
         if (!seleccion.length) {
             console.log('[ADS] No hay anuncios disponibles');
@@ -1328,7 +1262,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (onComplete) onComplete();
             return;
         }
-
         let idx = 0;
         function siguiente() {
             if (idx >= seleccion.length) {
@@ -1385,7 +1318,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         ensureOverlay();
         bindSkip();
-
         cargarAnuncios().catch(function () {});
 
         document.addEventListener('visibilitychange', function () {
@@ -7783,6 +7715,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /* ============================================================
    36. COLABORADORES EN EL REPRODUCTOR FULLSCREEN
+   ------------------------------------------------------------
+   ✅ CORREGIDO: ahora lee el campo "colaboradores" (array) desde
+      historial_usuarios/{uid}/canciones/{songId}.
+   ✅ Fallback: si no hay datos en Firestore, usa el parseo de texto.
+   ✅ Si el colaborador coincide con un artista de la playlist,
+      usa su portada y abre su perfil al tocarlo.
    ============================================================ */
 (function () {
     'use strict';
@@ -7791,6 +7729,12 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentSignature = '';
     let containerEl = null;
     let lastActiveItem = null;
+
+    /* ---------- Cache de colaboradores desde Firestore ---------- */
+    // Map< tituloNormalizado, [ "Sain Nt", "Artista 2", ... ] >
+    let collabsFromFirestore = new Map();
+    let firestoreLoadedForUid = null;
+    let firestoreLoadPromise = null;
 
     function $(id) { return document.getElementById(id); }
 
@@ -7821,7 +7765,74 @@ document.addEventListener('DOMContentLoaded', () => {
         return parts.length ? parts : [namePart];
     }
 
-    function extractCollaborators(item) {
+    /* ============================================================
+       CARGA DESDE FIRESTORE
+       historial_usuarios/{uid}/canciones/{songId}
+       campo: colaboradores (array de strings)
+       ============================================================ */
+    async function cargarColaboradoresDesdeFirestore(force) {
+        const user = (typeof firebase !== 'undefined' && firebase.auth)
+            ? firebase.auth().currentUser : null;
+        if (!user) return collabsFromFirestore;
+
+        if (!force && firestoreLoadedForUid === user.uid) return collabsFromFirestore;
+        if (firestoreLoadPromise && !force) return firestoreLoadPromise;
+
+        firestoreLoadPromise = (async () => {
+            const map = new Map();
+            try {
+                const snap = await firebase.firestore()
+                    .collection('historial_usuarios')
+                    .doc(user.uid)
+                    .collection('canciones')
+                    .get();
+
+                snap.forEach(doc => {
+                    const d = doc.data() || {};
+
+                    // Nombre del documento de canción (puede variar según la app de origen)
+                    const titulo = d.titulo || d.title || d.nombre || d.name || '';
+
+                    // Campo principal: colaboradores (array de strings)
+                    const raw = d.colaboradores;
+                    const colaboradores = Array.isArray(raw)
+                        ? raw.map(c => String(c == null ? '' : c).trim()).filter(Boolean)
+                        : [];
+
+                    if (titulo && colaboradores.length) {
+                        map.set(norm(titulo), colaboradores);
+                    }
+                });
+
+                collabsFromFirestore = map;
+                firestoreLoadedForUid = user.uid;
+                console.log('[COLLAB-FS] Colaboradores cargados:', map.size);
+            } catch (e) {
+                console.warn('[COLLAB-FS] Error cargando colaboradores:', e);
+            } finally {
+                firestoreLoadPromise = null;
+            }
+            return map;
+        })();
+
+        return firestoreLoadPromise;
+    }
+
+    function getCollaboratorsFromFirestore(item) {
+        if (!item) return null;
+        const title = getItemTitle(item);
+        if (!title) return null;
+        const key = norm(title);
+        if (!key) return null;
+        const arr = collabsFromFirestore.get(key);
+        if (Array.isArray(arr) && arr.length) return arr.slice();
+        return null;
+    }
+
+    /* ============================================================
+       FALLBACK: parseo por texto (solo si no hay datos en Firestore)
+       ============================================================ */
+    function extractCollaboratorsFromText(item) {
         if (!item) return [];
         const sub = getItemSubtitle(item);
         const title = getItemTitle(item);
@@ -7853,6 +7864,19 @@ document.addEventListener('DOMContentLoaded', () => {
         return result;
     }
 
+    /* ============================================================
+       EXTRACCIÓN PRINCIPAL
+       1) Firestore → campo "colaboradores"
+       2) Fallback → parseo de texto
+       ============================================================ */
+    function extractCollaborators(item) {
+        if (!item) return [];
+        const fromFs = getCollaboratorsFromFirestore(item);
+        if (fromFs && fromFs.length) return fromFs;
+        return extractCollaboratorsFromText(item);
+    }
+
+    /* ---------- Matching contra artistas ya presentes en la playlist ---------- */
     function findArtistItem(name) {
         const target = norm(name);
         if (!target) return null;
@@ -7872,7 +7896,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function buildSignature(item) {
         if (!item) return '';
-        return getItemTitle(item) + '||' + getItemSubtitle(item);
+        const fsColabs = getCollaboratorsFromFirestore(item);
+        const fsKey = fsColabs ? fsColabs.join('|') : '';
+        return getItemTitle(item) + '||' + getItemSubtitle(item) + '||' + fsKey;
     }
 
     function getActiveItem() {
@@ -7915,13 +7941,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const candidates = extractCollaborators(item);
         if (!candidates.length) { clearCollaborators(); return; }
 
-        const found = [];
-        candidates.forEach(name => {
+        const found = candidates.map(name => {
             const artist = findArtistItem(name);
-            if (artist) found.push(artist);
+            if (artist) return artist;
+            return { item: null, cover: '', name: name };
         });
-
-        if (!found.length) { clearCollaborators(); return; }
 
         const box = ensureContainer();
         if (!box) return;
@@ -7968,7 +7992,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 e.preventDefault();
                 e.stopPropagation();
                 if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} }
-                if (typeof window.__openArtistProfile === 'function') {
+                // Solo abrimos perfil si el colaborador existe como artista en la playlist
+                if (artist.item && typeof window.__openArtistProfile === 'function') {
                     const fsPlayer = $('fs-player');
                     if (fsPlayer) {
                         fsPlayer.classList.remove('visible');
@@ -7980,6 +8005,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
             row.appendChild(card);
         });
+    }
+
+    /* ---------- Wrapper async: asegura que Firestore esté cargado antes de pintar ---------- */
+    async function renderCollaboratorsAsync() {
+        await cargarColaboradoresDesdeFirestore(false).catch(() => {});
+        renderCollaborators();
     }
 
     function watchFullscreen() {
@@ -7996,9 +8027,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (visible) {
                 currentSignature = '';
                 lastActiveItem = null;
-                setTimeout(renderCollaborators, 120);
-                setTimeout(renderCollaborators, 400);
-                setTimeout(renderCollaborators, 800);
+                setTimeout(() => renderCollaboratorsAsync(), 120);
+                setTimeout(() => renderCollaboratorsAsync(), 400);
+                setTimeout(() => renderCollaboratorsAsync(), 800);
             } else {
                 clearCollaborators();
             }
@@ -8015,7 +8046,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const fsPlayer = $('fs-player');
             if (fsPlayer && fsPlayer.classList.contains('visible')) {
                 currentSignature = '';
-                setTimeout(renderCollaborators, 120);
+                setTimeout(() => renderCollaboratorsAsync(), 120);
             }
         });
         obs.observe(titleEl, { childList: true, characterData: true, subtree: true });
@@ -8029,13 +8060,24 @@ document.addEventListener('DOMContentLoaded', () => {
         const obs = new MutationObserver(() => {
             const fsPlayer = $('fs-player');
             if (fsPlayer && fsPlayer.classList.contains('visible')) {
-                setTimeout(renderCollaborators, 80);
+                setTimeout(() => renderCollaboratorsAsync(), 80);
             }
         });
         obs.observe(pl, { subtree: true, attributes: true, attributeFilter: ['class'] });
     }
 
     function boot() {
+        // Cargar la primera vez y recargar al cambiar de usuario
+        if (typeof firebase !== 'undefined' && firebase.auth) {
+            firebase.auth().onAuthStateChanged(user => {
+                if (user) {
+                    cargarColaboradoresDesdeFirestore(true).catch(() => {});
+                } else {
+                    collabsFromFirestore = new Map();
+                    firestoreLoadedForUid = null;
+                }
+            });
+        }
         watchFullscreen();
         watchPlayerTitle();
         watchPlaylist();
