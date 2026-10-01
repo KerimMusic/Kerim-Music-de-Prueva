@@ -965,14 +965,15 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 /* ============================================================
-   4. GESTOR DE ANUNCIOS (FIREBASE) ✨ NUEVO
+   4. GESTOR DE ANUNCIOS (FIREBASE) ✨ ACTUALIZADO
    ------------------------------------------------------------
-   - Se eliminan los anuncios hardcodeados.
    - Se cargan exclusivamente desde Firestore: colección "anuncios".
    - Contadores diarios en la colección "anuncios_vistas".
    - Ciclo: cada 6 canciones → 3 anuncios aleatorios.
    - Botón "Omitir" SOLO en el tercer anuncio del ciclo.
    - Los anuncios que alcanzan su límite diario se excluyen.
+   - NUEVO: Duración (días) → el anuncio expira tras ese período.
+   - NUEVO: Repeticiones por día → tope diario por anuncio.
    ============================================================ */
 (function () {
     'use strict';
@@ -1010,16 +1011,75 @@ document.addEventListener('DOMContentLoaded', () => {
         return y + '-' + m + '-' + day;
     }
 
+    /* ============================================================
+       ✨ normalizeAd — ACTUALIZADO
+       Añade: repeticionesPorDia, duracionDias y fechaInicio
+       Mantiene compatibilidad con campos antiguos.
+       ============================================================ */
     function normalizeAd(doc) {
         const d = doc.data() || {};
+
+        // ===== NUEVO: Repeticiones por día =====
+        const repeticionesPorDia = Number(
+            d.repeticionesPorDia     ??
+            d.repeticiones_por_dia   ??
+            d.repeticiones           ??
+            d.vecesPorDia            ??
+            d.limiteDiario           ??
+            d.limite                 ??
+            d.veces                  ??
+            0
+        ) || 0;
+
+        // ===== NUEVO: Duración en días =====
+        const duracionDias = Number(
+            d.duracionDias      ??
+            d.duracion_dias     ??
+            d.duracion          ??
+            d.duration          ??
+            0
+        ) || 0;
+
+        // ===== NUEVO: Fecha de inicio para calcular expiración =====
+        let fechaInicio = null;
+        const rawFecha =
+            d.fechaInicio   || d.fecha_inicio  ||
+            d.inicio        || d.startDate     ||
+            d.creado        || d.createdAt     ||
+            d.fecha         || null;
+
+        if (rawFecha) {
+            if (typeof rawFecha.toDate === 'function') {
+                fechaInicio = rawFecha.toDate();
+            } else if (rawFecha instanceof Date) {
+                fechaInicio = rawFecha;
+            } else if (typeof rawFecha === 'number') {
+                fechaInicio = new Date(rawFecha);
+            } else if (typeof rawFecha === 'string') {
+                const parsed = new Date(rawFecha);
+                if (!isNaN(parsed.getTime())) fechaInicio = parsed;
+            } else if (typeof rawFecha === 'object' && typeof rawFecha.seconds === 'number') {
+                fechaInicio = new Date(rawFecha.seconds * 1000);
+            }
+            if (fechaInicio && isNaN(fechaInicio.getTime())) fechaInicio = null;
+        }
+
         return {
-            id:          doc.id,
-            titulo:      d.titulo || d.title || d.nombre || 'Anuncio',
-            audio:       d.audio  || d.audioUrl || d.music || d.musica || '',
-            imagen:      d.imagen || d.imagenUrl || d.image || d.url || d.portada || '',
-            video:       d.video  || d.videoUrl || '',
-            vecesPorDia: Number(d.vecesPorDia ?? d.limiteDiario ?? d.limite ?? d.veces ?? 0) || 0,
-            activo:      d.activo !== false
+            id:                 doc.id,
+            titulo:             d.titulo || d.title || d.nombre || 'Anuncio',
+            audio:              d.audio  || d.audioUrl || d.music || d.musica || '',
+            imagen:             d.imagen || d.imagenUrl || d.image || d.url || d.portada || '',
+            video:              d.video  || d.videoUrl || '',
+
+            // Compatibilidad: vecesPorDia sigue existiendo.
+            vecesPorDia:        repeticionesPorDia,
+            repeticionesPorDia: repeticionesPorDia,
+
+            // Nuevos campos
+            duracionDias:       duracionDias,
+            fechaInicio:        fechaInicio,
+
+            activo:             d.activo !== false
         };
     }
 
@@ -1074,14 +1134,31 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    /* ============================================================
+       ✨ adDisponible — ACTUALIZADO
+       Verifica:
+         1) Activo y con media
+         2) Duración (días) — expira tras el período
+         3) Repeticiones por día — tope diario
+       ============================================================ */
     function adDisponible(ad) {
         if (!ad || ad.activo === false) return false;
         if (!ad.audio && !ad.video)     return false;
-        const limite = ad.vecesPorDia || 0;
+
+        // ===== NUEVO: Verificar Duración (días) =====
+        if (ad.duracionDias > 0 && ad.fechaInicio) {
+            const MS_POR_DIA = 24 * 60 * 60 * 1000;
+            const expiraEn   = ad.fechaInicio.getTime() + (ad.duracionDias * MS_POR_DIA);
+            if (Date.now() >= expiraEn) return false; // ⏰ Expirado
+        }
+
+        // ===== Repeticiones por día =====
+        const limite = ad.repeticionesPorDia || ad.vecesPorDia || 0;
         if (limite > 0) {
             const vistas = dailyViewsCache[ad.id] || 0;
-            if (vistas >= limite) return false;
+            if (vistas >= limite) return false; // 🚫 Límite diario alcanzado
         }
+
         return true;
     }
 
