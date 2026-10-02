@@ -8089,3 +8089,81 @@ document.addEventListener('DOMContentLoaded', () => {
         boot();
     }
 })();
+/* ============================================================
+   37. CONEXIÓN DE LA BARRA DE NAVEGACIÓN INFERIOR
+   ============================================================ */
+(function () {
+    'use strict';
+
+    function init() {
+        const bnMensajes = document.getElementById('bn-mensajes');
+        const bnBeats = document.getElementById('bn-beatsmusic');
+        const bnPlaylists = document.getElementById('bn-playlists');
+
+        // 1. Mensajes -> Abre la vista de mensajes
+        if (bnMensajes && bnMensajes.dataset.bnReady !== '1') {
+            bnMensajes.dataset.bnReady = '1';
+            bnMensajes.addEventListener('click', () => {
+                if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} }
+                const link = document.getElementById('mensajes-link');
+                if (link) link.click();
+            });
+        }
+
+        // 2. BeatsMusic -> Vuelve al inicio y limpia búsquedas
+        if (bnBeats && bnBeats.dataset.bnReady !== '1') {
+            bnBeats.dataset.bnReady = '1';
+            bnBeats.addEventListener('click', () => {
+                if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} }
+
+                // Limpiar búsqueda
+                const searchInput = document.getElementById('search-input');
+                if (searchInput) {
+                    searchInput.value = '';
+                    searchInput.dispatchEvent(new Event('input'));
+                }
+                const searchContainer = document.getElementById('search-container');
+                if (searchContainer) searchContainer.classList.remove('visible');
+
+                // Scroll al inicio
+                const playlist = document.getElementById('playlist');
+                if (playlist) {
+                    try { playlist.scrollTo({ top: 0, behavior: 'smooth' }); }
+                    catch (_) { playlist.scrollTop = 0; }
+                }
+
+                // Cerrar cualquier vista interna abierta
+                ['playlist-view', 'artist-profile', 'album-view', 'mi-playlist-view',
+                 'mensajes-view', 'chat-view', 'newmsg-view'].forEach(id => {
+                    const v = document.getElementById(id);
+                    if (v && v.classList.contains('visible')) {
+                        v.classList.remove('visible');
+                        v.setAttribute('aria-hidden', 'true');
+                    }
+                });
+
+                // Restaurar vista normal de la playlist principal
+                const homeView = document.getElementById('home-view');
+                if (homeView) homeView.style.display = '';
+                const searchResults = document.getElementById('search-results');
+                if (searchResults) { searchResults.innerHTML = ''; searchResults.style.display = 'none'; }
+            });
+        }
+
+        // 3. Mi Playlists -> Abre la vista de Mis Playlists
+        if (bnPlaylists && bnPlaylists.dataset.bnReady !== '1') {
+            bnPlaylists.dataset.bnReady = '1';
+            bnPlaylists.addEventListener('click', () => {
+                if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} }
+                const link = document.getElementById('mi-playlist-link');
+                if (link) link.click();
+            });
+        }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+})();
