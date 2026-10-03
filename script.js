@@ -8100,7 +8100,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const bnBeats = document.getElementById('bn-beatsmusic');
         const bnPlaylists = document.getElementById('bn-playlists');
 
-        // 1. Mensajes -> Abre la vista de mensajes
         if (bnMensajes && bnMensajes.dataset.bnReady !== '1') {
             bnMensajes.dataset.bnReady = '1';
             bnMensajes.addEventListener('click', () => {
@@ -8110,29 +8109,16 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        // 2. BeatsMusic -> Vuelve al inicio y limpia búsquedas
         if (bnBeats && bnBeats.dataset.bnReady !== '1') {
             bnBeats.dataset.bnReady = '1';
             bnBeats.addEventListener('click', () => {
                 if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} }
-
-                // Limpiar búsqueda
                 const searchInput = document.getElementById('search-input');
-                if (searchInput) {
-                    searchInput.value = '';
-                    searchInput.dispatchEvent(new Event('input'));
-                }
-                const searchContainer = document.getElementById('search-container');
-                if (searchContainer) searchContainer.classList.remove('visible');
-
-                // Scroll al inicio
+                if (searchInput) { searchInput.value = ''; searchInput.dispatchEvent(new Event('input')); }
+                const sc = document.getElementById('search-container');
+                if (sc) sc.classList.remove('visible');
                 const playlist = document.getElementById('playlist');
-                if (playlist) {
-                    try { playlist.scrollTo({ top: 0, behavior: 'smooth' }); }
-                    catch (_) { playlist.scrollTop = 0; }
-                }
-
-                // Cerrar cualquier vista interna abierta
+                if (playlist) { try { playlist.scrollTo({ top: 0, behavior: 'smooth' }); } catch (_) { playlist.scrollTop = 0; } }
                 ['playlist-view', 'artist-profile', 'album-view', 'mi-playlist-view',
                  'mensajes-view', 'chat-view', 'newmsg-view'].forEach(id => {
                     const v = document.getElementById(id);
@@ -8141,16 +8127,13 @@ document.addEventListener('DOMContentLoaded', () => {
                         v.setAttribute('aria-hidden', 'true');
                     }
                 });
-
-                // Restaurar vista normal de la playlist principal
                 const homeView = document.getElementById('home-view');
                 if (homeView) homeView.style.display = '';
-                const searchResults = document.getElementById('search-results');
-                if (searchResults) { searchResults.innerHTML = ''; searchResults.style.display = 'none'; }
+                const sr = document.getElementById('search-results');
+                if (sr) { sr.innerHTML = ''; sr.style.display = 'none'; }
             });
         }
 
-        // 3. Mi Playlists -> Abre la vista de Mis Playlists
         if (bnPlaylists && bnPlaylists.dataset.bnReady !== '1') {
             bnPlaylists.dataset.bnReady = '1';
             bnPlaylists.addEventListener('click', () => {
@@ -8161,9 +8144,475 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+    else init();
+})();
+
+/* ============================================================
+   38. DESCARGAS OFFLINE CON INDEXEDDB + ESTADO DEL BOTÓN #fs-like
+   ============================================================ */
+(function () {
+    'use strict';
+
+    const DB_NAME = 'OmegaBeatsOffline';
+    const DB_VERSION = 1;
+    const STORE_NAME = 'canciones';
+
+    function normId(str) {
+        return String(str || '').toLowerCase()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9]/g, '_');
+    }
+
+    /* ---------- INDEXEDDB ---------- */
+    let dbPromise = null;
+    function openDB() {
+        if (dbPromise) return dbPromise;
+        dbPromise = new Promise((resolve, reject) => {
+            const req = indexedDB.open(DB_NAME, DB_VERSION);
+            req.onupgradeneeded = (e) => {
+                const db = e.target.result;
+                if (!db.objectStoreNames.contains(STORE_NAME)) {
+                    db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+                }
+            };
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        });
+        return dbPromise;
+    }
+    async function dbPut(rec) {
+        const db = await openDB();
+        return new Promise((res, rej) => {
+            const tx = db.transaction(STORE_NAME, 'readwrite');
+            tx.objectStore(STORE_NAME).put(rec);
+            tx.oncomplete = () => res();
+            tx.onerror = () => rej(tx.error);
+        });
+    }
+    async function dbGet(id) {
+        const db = await openDB();
+        return new Promise((res, rej) => {
+            const tx = db.transaction(STORE_NAME, 'readonly');
+            const r = tx.objectStore(STORE_NAME).get(id);
+            r.onsuccess = () => res(r.result);
+            r.onerror = () => rej(r.error);
+        });
+    }
+    async function dbDelete(id) {
+        const db = await openDB();
+        return new Promise((res, rej) => {
+            const tx = db.transaction(STORE_NAME, 'readwrite');
+            tx.objectStore(STORE_NAME).delete(id);
+            tx.oncomplete = () => res();
+            tx.onerror = () => rej(tx.error);
+        });
+    }
+
+    /* ---------- DESCARGA ---------- */
+    async function downloadSong(song) {
+        if (!song || !song.titulo || !song.audioUrl) throw new Error('Datos incompletos');
+        const id = normId(song.titulo);
+        const audioResp = await fetch(song.audioUrl, { mode: 'cors' });
+        if (!audioResp.ok) throw new Error('HTTP ' + audioResp.status);
+        const audioBlob = await audioResp.blob();
+        let portadaBlob = null;
+        if (song.portada && !song.portada.startsWith('blob:')) {
+            try {
+                const pResp = await fetch(song.portada, { mode: 'cors' });
+                if (pResp.ok) portadaBlob = await pResp.blob();
+            } catch (_) {}
+        }
+        const rec = {
+            id,
+            titulo: song.titulo,
+            portada: portadaBlob,
+            audio: audioBlob,
+            urlOriginal: song.audioUrl,
+            tamaño: audioBlob.size + (portadaBlob ? portadaBlob.size : 0),
+            fechaDescarga: Date.now()
+        };
+        await dbPut(rec);
+        return rec;
+    }
+    async function isDownloaded(titulo) {
+        const rec = await dbGet(normId(titulo));
+        return !!rec;
+    }
+    async function deleteDownload(titulo) {
+        await dbDelete(normId(titulo));
+        revokeBlob(titulo);
+    }
+
+    /* ---------- BLOB URLS ---------- */
+    const blobCache = new Map();
+    async function getBlobUrl(titulo) {
+        const id = normId(titulo);
+        if (blobCache.has(id)) return blobCache.get(id);
+        const rec = await dbGet(id);
+        if (!rec || !rec.audio) return null;
+        const url = URL.createObjectURL(rec.audio);
+        blobCache.set(id, url);
+        return url;
+    }
+    function revokeBlob(titulo) {
+        const id = normId(titulo);
+        if (blobCache.has(id)) {
+            try { URL.revokeObjectURL(blobCache.get(id)); } catch (_) {}
+            blobCache.delete(id);
+        }
+    }
+
+    /* ---------- APLICAR BLOB LOCAL A ITEMS ---------- */
+    async function applyLocalSrcToItem(item) {
+        if (!item) return;
+        const titulo = item.querySelector('.item-title')?.textContent.trim() || '';
+        if (!titulo) return;
+        const url = await getBlobUrl(titulo);
+        if (url) {
+            if (!item.dataset.remoteSrc) item.dataset.remoteSrc = item.dataset.src || '';
+            item.dataset.src = url;
+            item.dataset.offline = '1';
+        }
+    }
+    async function applyLocalSrcToAll() {
+        const items = document.querySelectorAll('#playlist .playlist-item');
+        for (const it of items) await applyLocalSrcToItem(it);
+    }
+    function findItemByTitle(titulo) {
+        const n = normId(titulo);
+        for (const it of document.querySelectorAll('#playlist .playlist-item')) {
+            const t = it.querySelector('.item-title')?.textContent.trim() || '';
+            if (normId(t) === n) return it;
+        }
+        return null;
+    }
+
+    /* ---------- DATOS DE LA CANCIÓN ACTIVA ---------- */
+    function getActiveItem() {
+        return document.querySelector('#playlist .playlist-item.active');
+    }
+    function getActiveSongData() {
+        const it = getActiveItem();
+        if (!it) return null;
+        const titulo = it.querySelector('.item-title')?.textContent.trim() || '';
+        if (!titulo) return null;
+        return {
+            titulo,
+            audioUrl: it.dataset.remoteSrc || it.dataset.src || '',
+            portada: it.querySelector('.thumbnail img')?.src || '',
+            subtitulo: it.querySelector('.item-subtitle')?.textContent.trim() || ''
+        };
+    }
+
+    /* ---------- PLAYLISTS QUE CONTIENEN LA CANCIÓN ---------- */
+    async function getPlaylistsContaining(titulo) {
+        const user = firebase.auth().currentUser;
+        if (!user || !titulo) return [];
+        try {
+            const snap = await firebase.firestore().collection('mis_playlists')
+                .where('uid', '==', user.uid).get();
+            const out = [];
+            snap.forEach(doc => {
+                const d = doc.data() || {};
+                const canciones = Array.isArray(d.canciones) ? d.canciones : [];
+                if (canciones.some(c => c.titulo === titulo)) {
+                    out.push({ id: doc.id, nombre: d.nombre || 'Playlist', canciones });
+                }
+            });
+            return out;
+        } catch (e) { return []; }
+    }
+
+    /* ---------- BOTÓN #fs-like ---------- */
+    const fsLikeBtn = document.getElementById('fs-like');
+
+    async function updateFsLikeButton() {
+        if (!fsLikeBtn) return;
+        const song = getActiveSongData();
+        const span = fsLikeBtn.querySelector('span');
+        if (!song) {
+            fsLikeBtn.classList.remove('downloaded', 'processing');
+            if (span) span.textContent = 'Me Gusta';
+            return;
+        }
+        const downloaded = await isDownloaded(song.titulo);
+        if (downloaded) {
+            fsLikeBtn.classList.add('downloaded');
+            fsLikeBtn.classList.remove('processing');
+            if (span) span.textContent = 'En tu playlist';
+        } else {
+            fsLikeBtn.classList.remove('downloaded', 'processing');
+            if (span) span.textContent = 'Me Gusta';
+        }
+    }
+
+    /* ---------- MODAL: ELEGIR PLAYLIST PARA ELIMINAR ---------- */
+    function showRemovePickerModal(playlists, titulo, onPick) {
+        const backdrop = document.createElement('div');
+        backdrop.className = 'mp-modal visible';
+        backdrop.innerHTML = `
+            <div class="mp-modal-backdrop"></div>
+            <div class="mp-modal-box" role="dialog" aria-modal="true">
+                <div class="mp-modal-header">
+                    <h2 class="mp-modal-title">¿De cuál playlist eliminar?</h2>
+                    <button class="mp-modal-close" type="button" aria-label="Cerrar">&times;</button>
+                </div>
+                <div class="mp-add-list" id="remove-pl-list"></div>
+                <p class="mp-modal-status" id="remove-pl-status"></p>
+            </div>
+        `;
+        document.body.appendChild(backdrop);
+
+        const list   = backdrop.querySelector('#remove-pl-list');
+        const status = backdrop.querySelector('#remove-pl-status');
+
+        playlists.forEach(pl => {
+            const row = document.createElement('button');
+            row.type = 'button';
+            row.className = 'mp-add-row';
+            const n = pl.canciones.length;
+            row.innerHTML = `
+                <div class="mp-add-row-thumb"></div>
+                <div class="mp-add-row-info">
+                    <span class="mp-add-row-name"></span>
+                    <span class="mp-add-row-sub">${n} ${n === 1 ? 'canción' : 'canciones'}</span>
+                </div>
+            `;
+            row.querySelector('.mp-add-row-name').textContent = pl.nombre;
+            row.addEventListener('click', async () => {
+                row.disabled = true;
+                status.textContent = 'Eliminando…';
+                status.classList.remove('ok');
+                try {
+                    await onPick(pl);
+                    status.textContent = '✓ Eliminada';
+                    status.classList.add('ok');
+                    setTimeout(() => backdrop.remove(), 650);
+                } catch (e) {
+                    status.textContent = 'Error: ' + (e.message || 'intenta de nuevo');
+                    row.disabled = false;
+                }
+            });
+            list.appendChild(row);
+        });
+
+        const close = () => backdrop.remove();
+        backdrop.querySelector('.mp-modal-close').addEventListener('click', close);
+        backdrop.querySelector('.mp-modal-backdrop').addEventListener('click', close);
+    }
+
+    /* ---------- ACCIÓN: ELIMINAR ---------- */
+    async function handleRemoveFlow() {
+        const song = getActiveSongData();
+        if (!song) return;
+
+        const playlists = await getPlaylistsContaining(song.titulo);
+        if (!playlists.length) {
+            await deleteDownload(song.titulo);
+            const it = getActiveItem();
+            if (it && it.dataset.remoteSrc) {
+                it.dataset.src = it.dataset.remoteSrc;
+                delete it.dataset.remoteSrc;
+                delete it.dataset.offline;
+            }
+            await updateFsLikeButton();
+            return;
+        }
+
+        showRemovePickerModal(playlists, song.titulo, async (pl) => {
+            const nuevas = pl.canciones.filter(c => c.titulo !== song.titulo);
+            await firebase.firestore().collection('mis_playlists').doc(pl.id)
+                .update({ canciones: nuevas });
+
+            const otras = await getPlaylistsContaining(song.titulo);
+            if (otras.length === 0) {
+                await deleteDownload(song.titulo);
+                const it = getActiveItem();
+                if (it && it.dataset.remoteSrc) {
+                    it.dataset.src = it.dataset.remoteSrc;
+                    delete it.dataset.remoteSrc;
+                    delete it.dataset.offline;
+                }
+            }
+            await updateFsLikeButton();
+        });
+    }
+
+    /* ---------- OBSERVER: éxito al agregar → descargar ---------- */
+    function watchAddModalStatus() {
+        const statusEl = document.getElementById('mp-add-status');
+        if (!statusEl || statusEl.dataset.offlineWatched === '1') return;
+        statusEl.dataset.offlineWatched = '1';
+
+        let lastText = '';
+        const obs = new MutationObserver(async () => {
+            const txt = (statusEl.textContent || '').trim();
+            if (txt === lastText) return;
+            lastText = txt;
+
+            const ok = txt.startsWith('✓ Añadida a') || txt === 'Ya está en esta playlist';
+            if (!ok) return;
+
+            const song = getActiveSongData();
+            if (!song || !song.audioUrl) return;
+
+            if (fsLikeBtn) {
+                fsLikeBtn.classList.add('processing');
+                const s = fsLikeBtn.querySelector('span');
+                if (s) s.textContent = 'Descargando…';
+            }
+
+            try {
+                await downloadSong(song);
+                await applyLocalSrcToItem(getActiveItem());
+            } catch (err) {
+                console.warn('[OFFLINE] Error al descargar:', err);
+            }
+            await updateFsLikeButton();
+        });
+        obs.observe(statusEl, { childList: true, characterData: true, subtree: true });
+    }
+
+    /* ---------- HOOK: click en #fs-like ---------- */
+    function hookFsLike() {
+        if (!fsLikeBtn || fsLikeBtn.dataset.offlineHooked === '1') return;
+        fsLikeBtn.dataset.offlineHooked = '1';
+
+        fsLikeBtn.addEventListener('click', async (e) => {
+            const song = getActiveSongData();
+            if (!song) return;
+            const downloaded = await isDownloaded(song.titulo);
+            if (downloaded) {
+                e.stopImmediatePropagation();
+                e.preventDefault();
+                e.stopPropagation();
+                await handleRemoveFlow();
+            }
+        }, true);
+    }
+
+    /* ---------- OBSERVER: cambio de canción activa ---------- */
+    function watchActiveSong() {
+        const playlist = document.getElementById('playlist');
+        if (!playlist || playlist.dataset.offlineActiveWatcher === '1') return;
+        playlist.dataset.offlineActiveWatcher = '1';
+        const obs = new MutationObserver(() => updateFsLikeButton());
+        obs.observe(playlist, { subtree: true, attributes: true, attributeFilter: ['class'] });
+    }
+
+    /* ---------- OBSERVER: nuevos items en la playlist ---------- */
+    function watchPlaylistItems() {
+        const playlist = document.getElementById('playlist');
+        if (!playlist || playlist.dataset.offlineItemsWatcher === '1') return;
+        playlist.dataset.offlineItemsWatcher = '1';
+        const obs = new MutationObserver((muts) => {
+            muts.forEach(m => {
+                m.addedNodes.forEach(n => {
+                    if (n.nodeType !== 1) return;
+                    if (n.classList && n.classList.contains('playlist-item')) {
+                        applyLocalSrcToItem(n);
+                    } else if (n.querySelectorAll) {
+                        n.querySelectorAll('.playlist-item').forEach(applyLocalSrcToItem);
+                    }
+                });
+            });
+        });
+        obs.observe(playlist, { childList: true, subtree: true });
+    }
+
+    /* ---------- EDICIÓN EN "MI PLAYLIST" (botón ×) ---------- */
+    const pendingDeletes = new Set();
+
+    function watchEditRemove() {
+        const view = document.getElementById('playlist-view');
+        if (!view || view.dataset.offlineEditWatcher === '1') return;
+        view.dataset.offlineEditWatcher = '1';
+
+        const obs = new MutationObserver(() => {
+            if (!view.classList.contains('edit-mode')) return;
+            view.querySelectorAll('.pv-row-remove').forEach(btn => {
+                if (btn.dataset.offlineHooked === '1') return;
+                btn.dataset.offlineHooked = '1';
+                btn.addEventListener('click', () => {
+                    const row = btn.closest('.pv-row');
+                    const titulo = row?.dataset.title;
+                    if (titulo) pendingDeletes.add(titulo);
+                }, true);
+            });
+        });
+        obs.observe(view, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+
+        const saveBtn = document.getElementById('pv-save');
+        if (saveBtn && saveBtn.dataset.offlineEditSave !== '1') {
+            saveBtn.dataset.offlineEditSave = '1';
+            saveBtn.addEventListener('click', () => {
+                if (!pendingDeletes.size) return;
+                setTimeout(async () => {
+                    for (const titulo of Array.from(pendingDeletes)) {
+                        try {
+                            const otras = await getPlaylistsContaining(titulo);
+                            if (otras.length === 0) {
+                                await deleteDownload(titulo);
+                                const it = findItemByTitle(titulo);
+                                if (it && it.dataset.remoteSrc) {
+                                    it.dataset.src = it.dataset.remoteSrc;
+                                    delete it.dataset.remoteSrc;
+                                    delete it.dataset.offline;
+                                }
+                            }
+                        } catch (_) {}
+                    }
+                    pendingDeletes.clear();
+                    await updateFsLikeButton();
+                }, 1600);
+            });
+        }
+
+        const cancelBtn = document.getElementById('pv-cancel');
+        if (cancelBtn && cancelBtn.dataset.offlineEditCancel !== '1') {
+            cancelBtn.dataset.offlineEditCancel = '1';
+            cancelBtn.addEventListener('click', () => pendingDeletes.clear());
+        }
+    }
+
+    /* ---------- INICIALIZACIÓN ---------- */
+    async function boot() {
+        if (typeof firebase === 'undefined' || !firebase.auth) {
+            setTimeout(boot, 300);
+            return;
+        }
+
+        firebase.auth().onAuthStateChanged(async (user) => {
+            if (!user) return;
+            let tries = 0;
+            while (document.querySelectorAll('#playlist .playlist-item').length === 0 && tries < 40) {
+                await new Promise(r => setTimeout(r, 200));
+                tries++;
+            }
+            await applyLocalSrcToAll();
+            await updateFsLikeButton();
+        });
+
+        hookFsLike();
+        watchAddModalStatus();
+        watchActiveSong();
+        watchPlaylistItems();
+        watchEditRemove();
+
+        const fsPlayer = document.getElementById('fs-player');
+        if (fsPlayer && fsPlayer.dataset.offlineFsWatcher !== '1') {
+            fsPlayer.dataset.offlineFsWatcher = '1';
+            const obsFS = new MutationObserver(() => {
+                if (fsPlayer.classList.contains('visible')) updateFsLikeButton();
+            });
+            obsFS.observe(fsPlayer, { attributes: true, attributeFilter: ['class'] });
+        }
+    }
+
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
+        document.addEventListener('DOMContentLoaded', boot);
     } else {
-        init();
+        boot();
     }
 })();
