@@ -2313,7 +2313,7 @@ button:active { opacity: 0.72; }
 .player { bottom: 75px !important; }
 
 .artist-profile, .playlist-view, .album-view, .mi-playlist-view,
-.mensajes-view, .chat-view, .newmsg-view {
+.mensajes-view, .chat-view, .newmsg-view, .stats-view {
     bottom: 156px !important;
 }
 
@@ -2400,3 +2400,154 @@ textarea {
     touch-action: auto;
     pointer-events: auto;
 }
+
+/* ============================================================
+   39. VISTA DE ESTADÍSTICAS DE HORAS ESCUCHANDO MÚSICA
+   ============================================================ */
+.stats-view {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 81px;
+    background: #000000;
+    z-index: 36;
+    display: flex;
+    flex-direction: column;
+    transform: translateY(110%);
+    visibility: hidden;
+    transition: transform 0.42s cubic-bezier(0.22, 1, 0.36, 1), visibility 0.42s;
+    overflow: hidden;
+}
+.stats-view.visible { transform: translateY(0); visibility: visible; }
+
+.st-header {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 16px 10px;
+}
+.st-back {
+    flex-shrink: 0;
+    width: 36px; height: 36px;
+    border: none;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.08);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+.st-back:active { transform: scale(0.9); background: rgba(255,255,255,0.18); }
+
+.st-title {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    font-size: clamp(16px, 4.6vw, 20px);
+    font-weight: 900;
+    color: #ffffff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.2;
+}
+
+.st-scroll {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 8px 20px 30px;
+    touch-action: pan-y;
+    overscroll-behavior: contain;
+}
+
+.st-hero {
+    background: linear-gradient(135deg, #1c0303 0%, #0a0a0a 100%);
+    border: 1px solid #2a1212;
+    border-radius: 20px;
+    padding: 26px 22px;
+    text-align: center;
+    margin-bottom: 24px;
+    box-shadow: 0 12px 32px rgba(255, 42, 42, 0.12),
+                inset 0 0 40px rgba(255, 42, 42, 0.05);
+}
+.st-hero-label {
+    font-size: 13px;
+    font-weight: 700;
+    color: #ff2a2a;
+    letter-spacing: 0.4px;
+    margin-bottom: 12px;
+}
+.st-hero-month {
+    font-size: 14px;
+    color: #b3b3b3;
+    font-weight: 600;
+    margin-bottom: 8px;
+    text-transform: capitalize;
+}
+.st-hero-time {
+    font-size: clamp(32px, 9vw, 42px);
+    font-weight: 900;
+    color: #ffffff;
+    letter-spacing: -0.5px;
+    line-height: 1.1;
+}
+
+.st-history-header {
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 2.4px;
+    color: #ff2a2a;
+    text-transform: uppercase;
+    padding: 4px 4px 10px;
+    border-bottom: 1px solid #1a1a1a;
+    margin-bottom: 12px;
+}
+
+.st-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.st-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px;
+    background: #0d0d0d;
+    border: 1px solid #1a1a1a;
+    border-radius: 14px;
+}
+.st-row-icon {
+    width: 42px; height: 42px;
+    border-radius: 50%;
+    background: rgba(255, 42, 42, 0.10);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.st-row-icon svg { width: 22px; height: 22px; }
+
+.st-row-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+.st-row-month {
+    font-size: 15px;
+    font-weight: 800;
+    color: #ffffff;
+    text-transform: capitalize;
+}
+.st-row-time {
+    font-size: 13px;
+    font-weight: 700;
+    color: #ff2a2a;
+}
+
+.st-empty { text-align: center; padding: 40px 20px; }
+.st-empty-title { font-size: 16px; font-weight: 800; color: #ffffff; margin-bottom: 6px; }
+.st-empty-sub   { font-size: 13px; color: #999999; }
