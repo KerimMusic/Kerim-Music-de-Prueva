@@ -2327,3 +2327,76 @@ button:active { opacity: 0.72; }
         border-radius: 0 0 12px 12px;
     }
 }
+/* ============================================================
+   FIX: SCROLL TÁCTIL FLUIDO EN MÓVILES
+   Permite deslizar desde cualquier punto, incluido sobre portadas.
+   No modifica diseño ni lógica existente.
+   ============================================================ */
+
+/* --- Contenedores con scroll vertical: gesto fluido desde cualquier punto --- */
+.playlist,
+.home-view,
+.search-results,
+.pv-scroll,
+.ap-scroll,
+.av-scroll,
+.mp-scroll,
+.msg-scroll,
+.newmsg-scroll,
+.chat-scroll,
+.share-modal-results,
+.mp-add-list {
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+}
+
+/* --- Items de la lista y sus hijos: permitir scroll vertical aunque toquen la portada --- */
+.playlist-item,
+.playlist-item *,
+.thumbnail,
+.thumbnail img,
+.item-info,
+.item-title,
+.item-subtitle,
+.Album,
+.item-plays {
+    touch-action: pan-y;
+}
+
+/* --- Carruseles horizontales: permitir tanto pan-x como pan-y (antes solo pan-x) --- */
+.home-carousel,
+.home-carousel *,
+.av-carousel,
+.av-carousel * {
+    touch-action: pan-x pan-y;
+}
+
+/* --- Todas las imágenes: no capturan el gesto táctil ni permiten arrastre nativo --- */
+img {
+    -webkit-user-drag: none;
+    user-drag: none;
+    pointer-events: none;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+/* --- El reproductor fullscreen conserva su sistema de gestos --- */
+.fs-player,
+.fs-player * {
+    touch-action: none;
+}
+
+/* --- La barra de progreso sí necesita su propio touch (seek) --- */
+.progress-bar,
+.progress-bar * {
+    touch-action: none;
+    pointer-events: auto;
+}
+
+/* --- Inputs y textareas recuperan el comportamiento táctil normal --- */
+input,
+textarea {
+    touch-action: auto;
+    pointer-events: auto;
+}
