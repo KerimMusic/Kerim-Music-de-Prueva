@@ -2314,3 +2314,96 @@ button:active { opacity: 0.72; }
         border-radius: 0 0 12px 12px;
     }
 }
+/* ============================================================
+   BOTTOM NAVIGATION BAR (AGREGADO)
+   ============================================================ */
+.bottom-nav {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 75px;
+    background: #000000;
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    border-top: 1px solid #1a1a1a;
+    z-index: 100;
+    padding-bottom: env(safe-area-inset-bottom);
+    box-sizing: border-box;
+}
+
+.bn-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    background: none;
+    border: none;
+    color: #ffffff;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    width: 33.33%;
+    transition: transform 0.2s ease;
+    padding: 8px 0;
+}
+
+.bn-item:active { transform: scale(0.9); }
+
+.bn-icon {
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+}
+
+.bn-icon svg { width: 100%; height: 100%; }
+
+.bn-label {
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    text-align: center;
+}
+
+.player { bottom: 75px !important; }
+
+.artist-profile, .playlist-view, .album-view, .mi-playlist-view,
+.mensajes-view, .chat-view, .newmsg-view {
+    bottom: 156px !important;
+}
+
+.playlist { padding-bottom: 200px !important; }
+
+@media (min-width: 451px) {
+    .bottom-nav {
+        max-width: 450px;
+        left: 50%;
+        transform: translateX(-50%);
+        border-radius: 0 0 12px 12px;
+    }
+}
+
+/* ============================================================
+   BOTÓN #fs-like CON ESTADO OFFLINE (AGREGADO)
+   ============================================================ */
+.fs-like.downloaded { color: #4ade80; }
+.fs-like.downloaded svg { stroke: #4ade80; fill: #4ade80; }
+
+.fs-like.processing { opacity: 0.55; pointer-events: none; }
+.fs-like.processing svg { animation: fs-like-spin 1s linear infinite; }
+
+@keyframes fs-like-spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+
+#remove-pl-list .mp-add-row-thumb {
+    background: linear-gradient(135deg, #3a1a1a 0%, #1a1a1a 100%);
+}
