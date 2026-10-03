@@ -658,6 +658,7 @@ button:active { opacity: 0.72; }
     color: #ffffff;
     font-size: 14px;
     font-weight: 700;
+    transition: color 0.25s ease, transform 0.15s ease;
 }
 
 .fs-like:active { transform: scale(0.92); }
@@ -669,10 +670,53 @@ button:active { opacity: 0.72; }
     stroke-width: 2;
     stroke-linecap: round;
     stroke-linejoin: round;
+    transition: stroke 0.25s ease, fill 0.25s ease, transform 0.25s ease;
 }
 
 .fs-like.active { color: #ff2a2a; }
 .fs-like.active svg { fill: #ff2a2a; stroke: #ff2a2a; }
+
+/* ============================================================
+   ESTADOS DEL BOTÓN #fs-like (DESCARGA OFFLINE)
+   ============================================================ */
+
+/* Estado DESCARGADA: check verde grande */
+.fs-like.downloaded {
+    color: #4ade80 !important;
+}
+.fs-like.downloaded svg {
+    width: 46px;
+    height: 46px;
+    fill: none;
+}
+.fs-like.downloaded svg polyline {
+    stroke: #4ade80 !important;
+    stroke-width: 3.2;
+    fill: none;
+}
+.fs-like.downloaded span {
+    color: #4ade80 !important;
+}
+
+/* Estado DESCARGANDO: spinner rojo */
+.fs-like.processing {
+    opacity: 0.9;
+    pointer-events: none;
+    color: #ff2a2a !important;
+}
+.fs-like.processing svg {
+    stroke: #ff2a2a !important;
+    fill: none !important;
+    animation: fs-like-spin 0.9s linear infinite;
+}
+.fs-like.processing span {
+    color: #ff2a2a !important;
+}
+
+@keyframes fs-like-spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
 
 #omega-toast {
     position: fixed;
@@ -1515,6 +1559,10 @@ button:active { opacity: 0.72; }
 .mp-add-row-name { font-size: 15px; font-weight: 700; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mp-add-row-sub { font-size: 12px; color: #999999; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+#remove-pl-list .mp-add-row-thumb {
+    background: linear-gradient(135deg, #3a1a1a 0%, #1a1a1a 100%);
+}
+
 .mp-share-vis {
     padding: 10px 4px 14px;
     margin-bottom: 8px;
@@ -1569,6 +1617,21 @@ button:active { opacity: 0.72; }
     border-radius: 50px;
     line-height: 1;
     vertical-align: middle;
+    transition: transform 0.2s ease, opacity 0.2s ease;
+    animation: badge-pop 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.submenu-link:has(#msg-badge[style*="inline-flex"]) {
+    display: flex !important;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+@keyframes badge-pop {
+    0%   { transform: scale(0.4); opacity: 0; }
+    60%  { transform: scale(1.15); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
 }
 
 .mensajes-view,
@@ -1741,8 +1804,16 @@ button:active { opacity: 0.72; }
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     padding: 14px 14px 8px;
+    display: flex;
+    flex-direction: column;
 }
-.chat-messages { display: flex; flex-direction: column; gap: 8px; }
+.chat-messages {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: auto;
+    width: 100%;
+}
 
 .chat-row { display: flex; }
 .chat-row--out { justify-content: flex-end; }
@@ -1798,6 +1869,20 @@ button:active { opacity: 0.72; }
 .chat-bubble-song-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .chat-bubble-song-title { font-size: 13px; font-weight: 800; color: inherit; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chat-bubble-song-sub { font-size: 11px; opacity: 0.75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.chat-seen-mark {
+    font-size: 10.5px;
+    color: rgba(255, 255, 255, 0.9);
+    text-align: right;
+    margin-top: 3px;
+    align-self: flex-end;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    opacity: 0.85;
+    transition: opacity 0.2s ease;
+    user-select: none;
+    pointer-events: none;
+}
 
 .chat-composer {
     flex-shrink: 0;
@@ -1948,63 +2033,9 @@ button:active { opacity: 0.72; }
     color: #999999;
     font-size: 14px;
 }
-/* ============================================================
-   REFUERZO VISUAL DEL BADGE DE MENSAJES
-   ============================================================ */
-#msg-badge {
-    transition: transform 0.2s ease, opacity 0.2s ease;
-}
 
-.submenu-link:has(#msg-badge[style*="inline-flex"]) {
-    display: flex !important;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-}
-
-#msg-badge {
-    animation: badge-pop 0.35s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-@keyframes badge-pop {
-    0%   { transform: scale(0.4); opacity: 0; }
-    60%  { transform: scale(1.15); opacity: 1; }
-    100% { transform: scale(1); opacity: 1; }
-}
 /* ============================================================
-   ESTADO "VISTO" EN MENSAJES
-   ============================================================ */
-.chat-seen-mark {
-    font-size: 10.5px;
-    color: rgba(255, 255, 255, 0.9);
-    text-align: right;
-    margin-top: 3px;
-    align-self: flex-end;
-    font-weight: 600;
-    letter-spacing: 0.2px;
-    opacity: 0.85;
-    transition: opacity 0.2s ease;
-    user-select: none;
-    pointer-events: none;
-}
-/* ============================================================
-   CHAT ESTILO WHATSAPP / MESSENGER
-   (solo se AGREGA comportamiento visual, no se modifica lo existente)
-   ------------------------------------------------------------
-   - Los mensajes se alinean al fondo cuando hay poco contenido.
-   - Cuando hay mucho contenido, el scroll funciona normal.
-   - El composer permanece fijo abajo.
-   ============================================================ */
-.chat-scroll {
-    display: flex;
-    flex-direction: column;
-}
-.chat-messages {
-    margin-top: auto;
-    width: 100%;
-}
-/* ============================================================
-   PRIVACIDAD DEL CORREO (dentro del modal Editar Nombre)
+   PRIVACIDAD DEL CORREO
    ============================================================ */
 .name-email-privacy {
     padding: 14px 4px 4px;
@@ -2027,10 +2058,7 @@ button:active { opacity: 0.72; }
     margin-top: 8px;
     line-height: 1.35;
 }
-.name-email-privacy-options {
-    display: flex;
-    gap: 8px;
-}
+.name-email-privacy-options { display: flex; gap: 8px; }
 .name-email-privacy-btn {
     flex: 1;
     background: #1a1a1a;
@@ -2051,14 +2079,13 @@ button:active { opacity: 0.72; }
     color: #ff2a2a;
     font-weight: 800;
 }
-
-/* Marca de "correo privado" en buscadores */
 .email-hidden-badge {
     color: #ff2a2a;
     font-weight: 700;
     font-style: italic;
     letter-spacing: 0.2px;
 }
+
 /* ============================================================
    33. BÚSQUEDA POR GÉNERO Y PLAYLISTS PÚBLICAS
    ============================================================ */
@@ -2096,6 +2123,7 @@ button:active { opacity: 0.72; }
         padding: 14px 12px;
     }
 }
+
 /* ============================================================
    36. COLABORADORES EN EL REPRODUCTOR FULLSCREEN
    ============================================================ */
@@ -2119,7 +2147,6 @@ button:active { opacity: 0.72; }
     transform: translateY(0);
     pointer-events: auto;
 }
-
 .fs-collabs-label {
     font-size: 9.5px;
     font-weight: 800;
@@ -2129,7 +2156,6 @@ button:active { opacity: 0.72; }
     padding-left: 4px;
     text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
 }
-
 .fs-collabs-row {
     display: flex;
     align-items: flex-start;
@@ -2137,7 +2163,6 @@ button:active { opacity: 0.72; }
     flex-wrap: wrap;
     max-width: 100%;
 }
-
 .fs-collab {
     display: flex;
     flex-direction: column;
@@ -2165,8 +2190,7 @@ button:active { opacity: 0.72; }
 
 .fs-collab-avatar {
     position: relative;
-    width: 54px;
-    height: 54px;
+    width: 54px; height: 54px;
     border-radius: 50%;
     overflow: visible;
     background: #2a2a2a;
@@ -2183,8 +2207,7 @@ button:active { opacity: 0.72; }
         0 8px 22px rgba(0, 0, 0, 0.65);
 }
 .fs-collab-avatar img {
-    width: 100%;
-    height: 100%;
+    width: 100%; height: 100%;
     object-fit: cover;
     display: block;
     border-radius: 50%;
@@ -2202,7 +2225,6 @@ button:active { opacity: 0.72; }
     0%, 100% { transform: scale(1);    opacity: 0.55; }
     50%      { transform: scale(1.12); opacity: 0.10; }
 }
-
 .fs-collab-name {
     font-size: 11px;
     font-weight: 700;
@@ -2217,8 +2239,9 @@ button:active { opacity: 0.72; }
     word-break: break-word;
     text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
 }
+
 /* ============================================================
-   CONTADOR DE ANUNCIOS (1 / 3, 2 / 3, 3 / 3)
+   CONTADOR DE ANUNCIOS
    ============================================================ */
 #ad-overlay .ad-counter {
     font-size: 11.5px;
@@ -2228,94 +2251,9 @@ button:active { opacity: 0.72; }
     text-transform: uppercase;
     margin-top: -10px;
 }
+
 /* ============================================================
-   BOTTOM NAVIGATION BAR (AGREGADO)
-   ============================================================ */
-.bottom-nav {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    width: 100%;
-    height: 75px;
-    background: #000000;
-    display: flex;
-    justify-content: space-around;
-    align-items: center;
-    border-top: 1px solid #1a1a1a;
-    z-index: 100;
-    padding-bottom: env(safe-area-inset-bottom);
-    box-sizing: border-box;
-}
-
-.bn-item {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    background: none;
-    border: none;
-    color: #ffffff;
-    font-family: inherit;
-    font-size: 12px;
-    font-weight: 700;
-    cursor: pointer;
-    width: 33.33%;
-    transition: transform 0.2s ease;
-    padding: 8px 0;
-}
-
-.bn-item:active {
-    transform: scale(0.9);
-}
-
-.bn-icon {
-    width: 30px;
-    height: 30px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    position: relative;
-}
-
-.bn-icon svg {
-    width: 100%;
-    height: 100%;
-}
-
-.bn-label {
-    color: #ffffff;
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.3px;
-    text-align: center;
-}
-
-/* Ajustes para que la barra no cubra elementos existentes */
-.player {
-    bottom: 75px !important;
-}
-
-.artist-profile, .playlist-view, .album-view, .mi-playlist-view,
-.mensajes-view, .chat-view, .newmsg-view {
-    bottom: 156px !important; /* 75px de la barra + 81px del reproductor */
-}
-
-.playlist {
-    padding-bottom: 200px !important;
-}
-
-/* Ajuste responsivo para tablets y escritorio */
-@media (min-width: 451px) {
-    .bottom-nav {
-        max-width: 450px;
-        left: 50%;
-        transform: translateX(-50%);
-        border-radius: 0 0 12px 12px;
-    }
-}
-/* ============================================================
-   BOTTOM NAVIGATION BAR (AGREGADO)
+   BOTTOM NAVIGATION BAR
    ============================================================ */
 .bottom-nav {
     position: absolute;
@@ -2388,22 +2326,4 @@ button:active { opacity: 0.72; }
         transform: translateX(-50%);
         border-radius: 0 0 12px 12px;
     }
-}
-
-/* ============================================================
-   BOTÓN #fs-like CON ESTADO OFFLINE (AGREGADO)
-   ============================================================ */
-.fs-like.downloaded { color: #4ade80; }
-.fs-like.downloaded svg { stroke: #4ade80; fill: #4ade80; }
-
-.fs-like.processing { opacity: 0.55; pointer-events: none; }
-.fs-like.processing svg { animation: fs-like-spin 1s linear infinite; }
-
-@keyframes fs-like-spin {
-    from { transform: rotate(0deg); }
-    to   { transform: rotate(360deg); }
-}
-
-#remove-pl-list .mp-add-row-thumb {
-    background: linear-gradient(135deg, #3a1a1a 0%, #1a1a1a 100%);
 }
