@@ -513,11 +513,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (!audioPlayer || !playlist) return;
 
-    /* ============================================================
-       DETECCIÓN DE CONEXIÓN Y REPRODUCCIÓN SEGURA (offline)
-       ============================================================ */
-
-    // ¿El item apunta a un recurso local (descargado offline / blob / data URL)?
     function esRecursoLocal(item) {
         if (!item) return false;
         if (item.dataset.offline === '1') return true;
@@ -525,19 +520,16 @@ document.addEventListener('DOMContentLoaded', () => {
         return src.startsWith('blob:') || src.startsWith('data:');
     }
 
-    // ¿Hay conexión a Internet?
     function hayConexion() {
         return navigator.onLine !== false;
     }
 
-    // ¿Se puede intentar reproducir este item?
     function puedeReproducir(item) {
         if (!item) return false;
-        if (esRecursoLocal(item)) return true;   // descargado → siempre permitido
-        return hayConexion();                    // remoto → sólo si hay red
+        if (esRecursoLocal(item)) return true;
+        return hayConexion();
     }
 
-    // Aviso visual tipo toast cuando falta conexión
     let _offlineToastTimer = null;
     function avisarSinConexion() {
         let toast = document.getElementById('omega-toast');
@@ -643,8 +635,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const title = getItemTitle(item);
         if (!src) { handleLoadError(item); return; }
 
-        // ⛔ Si es remoto y no hay Internet, no reproducimos nada.
-        //    Si es un blob descargado, sí se permite.
         if (!puedeReproducir(item)) {
             avisarSinConexion();
             return;
@@ -673,15 +663,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (currentTimeEl) currentTimeEl.textContent = '0:00';
         if (durationEl) durationEl.textContent = '0:00';
 
-        // ⛔ Si estamos offline y el item actual NO es local,
-        //    no reintentamos: eso evita el bucle de playRandomItem().
         if (!hayConexion() && currentItem && !esRecursoLocal(currentItem)) {
             avisarSinConexion();
             isSkipping = false;
             return;
         }
 
-        // Comportamiento original (con red disponible o con blob local)
         setTimeout(() => { isSkipping = false; playRandomItem(); }, 300);
     }
     audioPlayer.addEventListener('error', () => handleLoadError());
@@ -732,7 +719,6 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         if (audioPlayer.paused) {
-            // Verifica de nuevo: puede que la conexión se haya caído después
             if (!puedeReproducir(currentItem)) {
                 avisarSinConexion();
                 return;
@@ -855,6 +841,7 @@ document.addEventListener('DOMContentLoaded', () => {
         link.addEventListener('click', (e) => {
             if (link.id === 'logout-link') return;
             if (link.id === 'mi-playlist-link') return;
+            if (link.id === 'stats-link') return;
             closeSubmenu();
         });
     });
@@ -3900,13 +3887,14 @@ document.addEventListener('DOMContentLoaded', () => {
             'mi-playlist-view',
             'share-modal',
             'mp-create-modal',
-            'mp-add-modal'
+            'mp-add-modal',
+            'stats-view'
         ];
         ids.forEach(id => observeView(document.getElementById(id)));
 
         const closeButtons = [
             'pv-back', 'ap-close', 'av-back', 'mp-back',
-            'share-modal-close', 'mp-create-close', 'mp-add-close'
+            'share-modal-close', 'mp-create-close', 'mp-add-close', 'st-back'
         ];
         closeButtons.forEach(id => {
             const btn = document.getElementById(id);
@@ -3915,7 +3903,7 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.addEventListener('click', () => {
                 const parent = btn.closest(
                     '.playlist-view, .artist-profile, .album-view, .mi-playlist-view, ' +
-                    '.share-modal, .mp-modal'
+                    '.share-modal, .mp-modal, .stats-view'
                 );
                 if (parent) resetAllScrolls(parent);
             }, true);
@@ -8152,7 +8140,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const playlist = document.getElementById('playlist');
                 if (playlist) { try { playlist.scrollTo({ top: 0, behavior: 'smooth' }); } catch (_) { playlist.scrollTop = 0; } }
                 ['playlist-view', 'artist-profile', 'album-view', 'mi-playlist-view',
-                 'mensajes-view', 'chat-view', 'newmsg-view'].forEach(id => {
+                 'mensajes-view', 'chat-view', 'newmsg-view', 'stats-view'].forEach(id => {
                     const v = document.getElementById(id);
                     if (v && v.classList.contains('visible')) {
                         v.classList.remove('visible');
@@ -8714,5 +8702,324 @@ document.addEventListener('DOMContentLoaded', () => {
         document.addEventListener('DOMContentLoaded', boot);
     } else {
         boot();
+    }
+})();
+
+/* ============================================================
+   39. ESTADÍSTICAS DE HORAS ESCUCHANDO MÚSICA
+   - Rastrea el tiempo real con la música reproduciéndose.
+   - Deja de contar tras 5 min sin interacción.
+   - Guarda en historial_usuarios → campo "tiempo_escucha":
+        { "2026-10": <segundos>, "2026-09": <segundos>, ... }
+   - NO modifica el historial de canciones ni ninguna otra cosa.
+   ============================================================ */
+(function () {
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    const INACTIVITY_MS     = 5 * 60 * 1000;  // 5 min sin interacción → pausa
+    const TICK_MS           = 10000;          // chequeo cada 10 s
+    const SAVE_INTERVAL_MS  = 30000;          // guardar en Firestore cada 30 s
+    const MAX_TICK_DT_S     = 60;             // descarta ticks anómalos (> 1 min)
+
+    const MESES_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio',
+                      'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+    let audioPlayer    = null;
+    let currentUser    = null;
+    let tickTimer      = null;
+
+    let lastInteraction = Date.now();
+    let lastTickTime    = Date.now();
+    let lastSaveTime    = Date.now();
+
+    let pendingSeconds  = 0;
+    let mesesCache      = {};
+    let _dirty          = false;
+
+    /* ---------- Utilidades ---------- */
+    function monthKey(d) {
+        const date = d || new Date();
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        return y + '-' + m;
+    }
+
+    function monthLabel(key) {
+        const parts = String(key || '').split('-');
+        const y = parts[0];
+        const mi = parseInt(parts[1], 10) - 1;
+        if (isNaN(mi) || mi < 0 || mi > 11) return key;
+        return MESES_ES[mi] + ' ' + y;
+    }
+
+    function formatTime(seconds) {
+        const s = Math.max(0, Math.floor(seconds || 0));
+        const h = Math.floor(s / 3600);
+        const m = Math.floor((s % 3600) / 60);
+        if (h <= 0 && m <= 0) return '0 h 0 min';
+        return h + ' h ' + m + ' min';
+    }
+
+    /* ---------- Interacción del usuario ---------- */
+    function markInteraction() { lastInteraction = Date.now(); }
+
+    function attachInteractionListeners() {
+        ['click', 'touchstart', 'pointerdown', 'keydown', 'scroll', 'wheel']
+            .forEach(evt => document.addEventListener(evt, markInteraction, {
+                passive: true, capture: true
+            }));
+    }
+
+    /* ---------- Firestore ---------- */
+    async function loadMeses() {
+        if (!currentUser) { mesesCache = {}; return; }
+        try {
+            const ref  = firebase.firestore().collection('historial_usuarios').doc(currentUser.uid);
+            const snap = await ref.get();
+            if (snap.exists) {
+                const data = snap.data() || {};
+                mesesCache = (data.tiempo_escucha && typeof data.tiempo_escucha === 'object')
+                    ? Object.assign({}, data.tiempo_escucha)
+                    : {};
+            } else {
+                mesesCache = {};
+            }
+        } catch (e) {
+            console.warn('[STATS] No se pudo leer tiempo_escucha:', e);
+            mesesCache = {};
+        }
+        renderStats();
+    }
+
+    async function saveMeses() {
+        if (!currentUser) return;
+
+        if (pendingSeconds > 0) {
+            const key = monthKey();
+            mesesCache[key] = (mesesCache[key] || 0) + pendingSeconds;
+            pendingSeconds = 0;
+            _dirty = true;
+        }
+        if (!_dirty) return;
+
+        try {
+            const ref = firebase.firestore().collection('historial_usuarios').doc(currentUser.uid);
+            await ref.set({ tiempo_escucha: mesesCache }, { merge: true });
+            _dirty = false;
+        } catch (e) {
+            console.warn('[STATS] No se pudo guardar tiempo_escucha:', e);
+        }
+    }
+
+    /* ---------- Tick de acumulación ---------- */
+    function tick() {
+        const now = Date.now();
+        const dt  = (now - lastTickTime) / 1000;
+        lastTickTime = now;
+
+        if (!audioPlayer) return;
+        if (audioPlayer.paused) return;
+        if (!audioPlayer.currentTime || audioPlayer.currentTime <= 0) return;
+        if (audioPlayer.duration && audioPlayer.currentTime >= audioPlayer.duration - 0.5) return;
+
+        if (now - lastInteraction > INACTIVITY_MS) return;
+
+        if (dt > 0 && dt <= MAX_TICK_DT_S) {
+            pendingSeconds += dt;
+            _dirty = true;
+        }
+
+        if (now - lastSaveTime >= SAVE_INTERVAL_MS) {
+            lastSaveTime = now;
+            saveMeses().then(renderStats);
+        } else {
+            renderStats();
+        }
+    }
+
+    /* ---------- Render ---------- */
+    function renderStats() {
+        const curKey  = monthKey();
+        const curSecs = (mesesCache[curKey] || 0) + pendingSeconds;
+
+        const heroMonth = $('st-hero-month');
+        const heroTime  = $('st-hero-time');
+        if (heroMonth) heroMonth.textContent = monthLabel(curKey) + ' (este mes)';
+        if (heroTime)  heroTime.textContent  = formatTime(curSecs);
+
+        const list  = $('st-list');
+        const empty = $('st-empty');
+        if (!list) return;
+
+        list.innerHTML = '';
+
+        const keys = Object.keys(mesesCache)
+            .filter(k => k !== curKey && (mesesCache[k] || 0) > 0)
+            .sort()
+            .reverse();
+
+        if (!keys.length) {
+            if (empty) empty.style.display = '';
+            return;
+        }
+        if (empty) empty.style.display = 'none';
+
+        keys.forEach(k => {
+            const row = document.createElement('div');
+            row.className = 'st-row';
+            row.innerHTML =
+                '<div class="st-row-icon">' +
+                    '<svg viewBox="0 0 24 24" fill="none" stroke="#ff2a2a" ' +
+                         'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+                        '<circle cx="12" cy="12" r="10"/>' +
+                        '<polyline points="12 6 12 12 16 14"/>' +
+                    '</svg>' +
+                '</div>' +
+                '<div class="st-row-info">' +
+                    '<span class="st-row-month"></span>' +
+                    '<span class="st-row-time"></span>' +
+                '</div>';
+            row.querySelector('.st-row-month').textContent = monthLabel(k);
+            row.querySelector('.st-row-time').textContent  = formatTime(mesesCache[k]);
+            list.appendChild(row);
+        });
+    }
+
+    /* ---------- Apertura / cierre de la vista ---------- */
+    function closeOtherViews() {
+        ['playlist-view','artist-profile','album-view','mi-playlist-view',
+         'mensajes-view','chat-view','newmsg-view'].forEach(id => {
+            const v = $(id);
+            if (v && v.classList.contains('visible')) {
+                v.classList.remove('visible');
+                v.setAttribute('aria-hidden', 'true');
+            }
+        });
+    }
+
+    function openView() {
+        const view = $('stats-view');
+        if (!view) return;
+        closeOtherViews();
+        view.classList.add('visible');
+        view.setAttribute('aria-hidden', 'false');
+        const scroll = $('st-scroll');
+        if (scroll) scroll.scrollTop = 0;
+        renderStats();
+    }
+
+    function closeView() {
+        const view = $('stats-view');
+        if (!view) return;
+        view.classList.remove('visible');
+        view.setAttribute('aria-hidden', 'true');
+    }
+
+    function watchOtherViews() {
+        const ids = ['playlist-view','artist-profile','album-view','mi-playlist-view',
+                     'mensajes-view','chat-view','newmsg-view'];
+        ids.forEach(id => {
+            const el = $(id);
+            if (!el || el.dataset.statsWatch === '1') return;
+            el.dataset.statsWatch = '1';
+            const obs = new MutationObserver((muts) => {
+                for (const m of muts) {
+                    if (m.attributeName === 'class' && el.classList.contains('visible')) {
+                        closeView();
+                        break;
+                    }
+                }
+            });
+            obs.observe(el, { attributes: true, attributeFilter: ['class'] });
+        });
+    }
+
+    /* ---------- Init ---------- */
+    function init() {
+        if (typeof firebase === 'undefined' || !firebase.auth) {
+            setTimeout(init, 300);
+            return;
+        }
+
+        audioPlayer = $('audio-player');
+
+        const link = $('stats-link');
+        if (link && link.dataset.statsReady !== '1') {
+            link.dataset.statsReady = '1';
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const sm = $('submenu');
+                const so = $('submenu-overlay');
+                if (sm) sm.classList.remove('visible');
+                if (so) so.classList.remove('visible');
+                setTimeout(openView, 120);
+            });
+        }
+
+        const back = $('st-back');
+        if (back && back.dataset.statsReady !== '1') {
+            back.dataset.statsReady = '1';
+            back.addEventListener('click', closeView);
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'Escape') return;
+            const v = $('stats-view');
+            if (v && v.classList.contains('visible')) {
+                e.stopPropagation();
+                closeView();
+            }
+        }, true);
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') {
+                saveMeses();
+            } else {
+                lastTickTime = Date.now();
+            }
+        });
+        window.addEventListener('pagehide', () => { saveMeses(); });
+        window.addEventListener('beforeunload', () => { saveMeses(); });
+
+        attachInteractionListeners();
+
+        if (audioPlayer && audioPlayer.dataset.statsHook !== '1') {
+            audioPlayer.dataset.statsHook = '1';
+            ['play', 'pause', 'seeking', 'seeked', 'loadedmetadata'].forEach(evt => {
+                audioPlayer.addEventListener(evt, () => {
+                    markInteraction();
+                    lastTickTime = Date.now();
+                    if (evt === 'pause') saveMeses().then(renderStats);
+                });
+            });
+        }
+
+        firebase.auth().onAuthStateChanged(async (user) => {
+            if (user) {
+                currentUser = user;
+                lastTickTime = Date.now();
+                lastSaveTime = Date.now();
+                await loadMeses();
+                if (!tickTimer) tickTimer = setInterval(tick, TICK_MS);
+            } else {
+                if (currentUser) await saveMeses();
+                currentUser   = null;
+                mesesCache    = {};
+                pendingSeconds = 0;
+                _dirty = false;
+                if (tickTimer) { clearInterval(tickTimer); tickTimer = null; }
+            }
+        });
+
+        watchOtherViews();
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
     }
 })();
