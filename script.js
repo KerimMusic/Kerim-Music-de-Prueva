@@ -513,6 +513,51 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (!audioPlayer || !playlist) return;
 
+    /* ============================================================
+       DETECCIÓN DE CONEXIÓN Y REPRODUCCIÓN SEGURA (offline)
+       ============================================================ */
+
+    // ¿El item apunta a un recurso local (descargado offline / blob / data URL)?
+    function esRecursoLocal(item) {
+        if (!item) return false;
+        if (item.dataset.offline === '1') return true;
+        const src = item.dataset.src || '';
+        return src.startsWith('blob:') || src.startsWith('data:');
+    }
+
+    // ¿Hay conexión a Internet?
+    function hayConexion() {
+        return navigator.onLine !== false;
+    }
+
+    // ¿Se puede intentar reproducir este item?
+    function puedeReproducir(item) {
+        if (!item) return false;
+        if (esRecursoLocal(item)) return true;   // descargado → siempre permitido
+        return hayConexion();                    // remoto → sólo si hay red
+    }
+
+    // Aviso visual tipo toast cuando falta conexión
+    let _offlineToastTimer = null;
+    function avisarSinConexion() {
+        let toast = document.getElementById('omega-toast');
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.id = 'omega-toast';
+            toast.setAttribute('role', 'status');
+            toast.setAttribute('aria-live', 'polite');
+            document.body.appendChild(toast);
+        }
+        toast.textContent = 'Sin conexión a Internet';
+        toast.classList.remove('visible');
+        void toast.offsetWidth;
+        toast.classList.add('visible');
+        clearTimeout(_offlineToastTimer);
+        _offlineToastTimer = setTimeout(() => {
+            toast.classList.remove('visible');
+        }, 2000);
+    }
+
     let currentItem = null;
     let isSkipping  = false;
 
@@ -597,6 +642,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const cover = getItemCover(item);
         const title = getItemTitle(item);
         if (!src) { handleLoadError(item); return; }
+
+        // ⛔ Si es remoto y no hay Internet, no reproducimos nada.
+        //    Si es un blob descargado, sí se permite.
+        if (!puedeReproducir(item)) {
+            avisarSinConexion();
+            return;
+        }
+
         getAllItems().forEach(i => i.classList.remove('active'));
         item.classList.add('active');
         currentItem = item;
@@ -619,6 +672,16 @@ document.addEventListener('DOMContentLoaded', () => {
         updateIcon(false); updateProgress(0);
         if (currentTimeEl) currentTimeEl.textContent = '0:00';
         if (durationEl) durationEl.textContent = '0:00';
+
+        // ⛔ Si estamos offline y el item actual NO es local,
+        //    no reintentamos: eso evita el bucle de playRandomItem().
+        if (!hayConexion() && currentItem && !esRecursoLocal(currentItem)) {
+            avisarSinConexion();
+            isSkipping = false;
+            return;
+        }
+
+        // Comportamiento original (con red disponible o con blob local)
         setTimeout(() => { isSkipping = false; playRandomItem(); }, 300);
     }
     audioPlayer.addEventListener('error', () => handleLoadError());
@@ -663,9 +726,21 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('omega:prev', () => goPrevItem());
 
     playButton.addEventListener('click', () => {
-        if (!currentItem) { playRandomItem(); return; }
-        if (audioPlayer.paused) audioPlayer.play().catch(err => console.error('Error:', err));
-        else audioPlayer.pause();
+        if (!currentItem) {
+            if (!hayConexion()) { avisarSinConexion(); return; }
+            playRandomItem();
+            return;
+        }
+        if (audioPlayer.paused) {
+            // Verifica de nuevo: puede que la conexión se haya caído después
+            if (!puedeReproducir(currentItem)) {
+                avisarSinConexion();
+                return;
+            }
+            audioPlayer.play().catch(err => console.error('Error:', err));
+        } else {
+            audioPlayer.pause();
+        }
     });
     audioPlayer.addEventListener('play', () => updateIcon(true));
     audioPlayer.addEventListener('pause', () => updateIcon(false));
