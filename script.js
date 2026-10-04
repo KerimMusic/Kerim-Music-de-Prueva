@@ -9557,3 +9557,189 @@ document.addEventListener('DOMContentLoaded', () => {
         init();
     }
 })();
+/* ============================================================
+   42. ORDEN SECUENCIAL EN PERFIL, ÁLBUM Y PLAYLIST
+   ------------------------------------------------------------
+   - "Escuchar mi música"      (Perfil)   → 1 → 2 → 3 → ...
+   - "Escuchar todo el álbum"  (Álbum)    → 1 → 2 → 3 → ...
+   - "Escuchar esta playlist"  (Playlist) → 1 → 2 → 3 → ...
+   Si el usuario toca una canción concreta, arranca desde ella
+   y continúa con las siguientes en orden (lo garantiza la cola
+   de la sección 40). No toca el botón de aleatorio.
+   ============================================================ */
+(function () {
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+    const COLLAB_SPLIT = /\s+(?:ft\.?|feat\.?|featuring|con|&)\s+/i;
+
+    function norm(s) {
+        if (typeof normalizeStr === 'function') return normalizeStr(s);
+        return String(s || '').toLowerCase()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9]/g, '');
+    }
+
+    function findItemByTitle(title) {
+        const pl = $('playlist');
+        if (!pl || !title) return null;
+        const target = norm(title);
+        if (!target) return null;
+        for (const it of pl.querySelectorAll('.playlist-item')) {
+            const t = it.querySelector('.item-title')?.textContent.trim() || '';
+            if (norm(t) === target) return it;
+        }
+        return null;
+    }
+
+    function getArtistItemsFromDom(artistName) {
+        const target = norm(artistName);
+        if (!target) return [];
+        const pl = $('playlist');
+        if (!pl) return [];
+        return Array.from(pl.querySelectorAll('.playlist-item')).filter(item => {
+            const sub = item.querySelector('.item-subtitle')?.textContent || '';
+            const idx = sub.indexOf('·');
+            const namePart = (idx === -1 ? sub : sub.slice(0, idx)).trim();
+            if (!namePart) return false;
+            const parts = namePart.split(COLLAB_SPLIT).map(s => s.trim()).filter(Boolean);
+            return (parts.length ? parts : [namePart]).some(n => norm(n) === target);
+        });
+    }
+
+    function getAlbumItemsFromDom(albumName) {
+        if (!albumName) return [];
+        const pl = $('playlist');
+        if (!pl) return [];
+        const needle = albumName.trim().toLowerCase();
+        const items = [];
+        pl.querySelectorAll('.playlist-item').forEach(it => {
+            const alb = it.querySelector('.Album')?.textContent.trim() || '';
+            if (alb && alb.toLowerCase() === needle) items.push(it);
+        });
+        return items;
+    }
+
+    /* Reproduce la lista completa en orden, arrancando desde startItem
+       (o desde la primera si no se pasa). Marca la cola como activa
+       para que la sección 40 avance secuencialmente en "ended". */
+    function playSequentialFrom(items, type, id, startItem) {
+        if (!Array.isArray(items) || !items.length) return;
+        const target = startItem || items[0];
+
+        try {
+            if (typeof window.__setPlaybackQueue === 'function') {
+                window.__setPlaybackQueue(items, type, id || '', target);
+            } else {
+                window.__artistFilter     = items.slice();
+                window.__artistFilterName = id || '';
+            }
+        } catch (_) {}
+
+        // Saltamos la re-detección de contexto: la cola ya está fijada.
+        window.__queueAdvancing = true;
+        try { target.click(); }
+        catch (err) { console.warn('[SEQUENTIAL] Error al reproducir:', err); }
+        finally {
+            setTimeout(() => { window.__queueAdvancing = false; }, 0);
+        }
+    }
+
+    /* ---------- 1) PLAYLIST: "Escuchar esta playlist" ---------- */
+    function hookPlaylistPlayAll() {
+        const btn = $('pv-play-all');
+        if (!btn || btn.dataset.seqPlayAll === '1') return;
+        btn.dataset.seqPlayAll = '1';
+
+        btn.addEventListener('click', (e) => {
+            const pl = window.__currentOpenPlaylist;
+            if (!pl || !Array.isArray(pl.canciones) || !pl.canciones.length) return;
+            const items = pl.canciones
+                .map(c => findItemByTitle(c.titulo))
+                .filter(Boolean);
+            if (!items.length) return;
+
+            e.stopImmediatePropagation();
+            e.stopPropagation();
+            e.preventDefault();
+
+            playSequentialFrom(items, 'playlist', pl.id || pl.nombre, items[0]);
+        }, true);
+    }
+
+    /* ---------- 2) ÁLBUM: "Escuchar todo el álbum" ---------- */
+    function hookAlbumPlayAll() {
+        const btn = $('av-play-all');
+        if (!btn || btn.dataset.seqPlayAll === '1') return;
+        btn.dataset.seqPlayAll = '1';
+
+        btn.addEventListener('click', (e) => {
+            const albumName = ($('av-title')?.textContent || '').trim();
+            if (!albumName) return;
+            const items = getAlbumItemsFromDom(albumName);
+            if (!items.length) return;
+
+            e.stopImmediatePropagation();
+            e.stopPropagation();
+            e.preventDefault();
+
+            playSequentialFrom(items, 'album', albumName, items[0]);
+        }, true);
+    }
+
+    /* ---------- 3) PERFIL: "Escuchar mi música" ---------- */
+    /* La sección 5 y la 41 sobrescriben `ap-listen-btn.onclick`.
+       Encadenamos después de ambas para dejar la versión secuencial. */
+    function hookArtistListenButton(artistName) {
+        const btn = $('ap-listen-btn');
+        if (!btn) return;
+        btn.onclick = null;   // limpia la versión aleatoria previa
+
+        const handler = (e) => {
+            if (e) { e.preventDefault(); e.stopPropagation(); }
+            const items = getArtistItemsFromDom(artistName);
+            if (!items.length) return;
+            playSequentialFrom(items, 'artist', artistName, items[0]);
+        };
+        btn.onclick = handler;
+        // Por si algún otro código usa addEventListener en vez de onclick
+        btn.dataset.seqArtistBtn = '1';
+    }
+
+    // Envolvemos __openArtistProfile para reescribir el botón
+    // después de que la sección 41 lo haya tocado.
+    function wrapArtistProfile() {
+        const prev = window.__openArtistProfile;
+        if (typeof prev !== 'function' || prev.__seqWrapped) return;
+        const wrapped = function (artistName) {
+            prev.call(this, artistName);
+            // Sección 41 hace su override con setTimeout; esperamos un poco
+            // para quedar por encima.
+            setTimeout(() => hookArtistListenButton(artistName), 0);
+            setTimeout(() => hookArtistListenButton(artistName), 120);
+            setTimeout(() => hookArtistListenButton(artistName), 400);
+        };
+        wrapped.__seqWrapped = true;
+        window.__openArtistProfile = wrapped;
+    }
+
+    /* ---------- Init ---------- */
+    function init() {
+        hookPlaylistPlayAll();
+        hookAlbumPlayAll();
+        wrapArtistProfile();
+
+        // Reintentos por si el DOM se construye tarde
+        [500, 1500, 3000].forEach(ms => setTimeout(() => {
+            hookPlaylistPlayAll();
+            hookAlbumPlayAll();
+            wrapArtistProfile();
+        }, ms));
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+})();
