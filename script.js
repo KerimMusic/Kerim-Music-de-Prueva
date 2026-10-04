@@ -8170,7 +8170,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /* ============================================================
    38. DESCARGAS OFFLINE CON INDEXEDDB + ESTADO DEL BOTÓN #fs-like
-   (VERSIÓN MEJORADA - INDICADOR CLARO)
    ============================================================ */
 (function () {
     'use strict';
@@ -8707,21 +8706,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /* ============================================================
    39. ESTADÍSTICAS DE HORAS ESCUCHANDO MÚSICA
-   - Rastrea el tiempo real con la música reproduciéndose.
-   - Deja de contar tras 5 min sin interacción.
-   - Guarda en historial_usuarios → campo "tiempo_escucha":
-        { "2026-10": <segundos>, "2026-09": <segundos>, ... }
-   - NO modifica el historial de canciones ni ninguna otra cosa.
    ============================================================ */
 (function () {
     'use strict';
 
     const $ = (id) => document.getElementById(id);
 
-    const INACTIVITY_MS     = 5 * 60 * 1000;  // 5 min sin interacción → pausa
-    const TICK_MS           = 10000;          // chequeo cada 10 s
-    const SAVE_INTERVAL_MS  = 30000;          // guardar en Firestore cada 30 s
-    const MAX_TICK_DT_S     = 60;             // descarta ticks anómalos (> 1 min)
+    const INACTIVITY_MS     = 5 * 60 * 1000;
+    const TICK_MS           = 10000;
+    const SAVE_INTERVAL_MS  = 30000;
+    const MAX_TICK_DT_S     = 60;
 
     const MESES_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio',
                       'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
@@ -8738,7 +8732,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let mesesCache      = {};
     let _dirty          = false;
 
-    /* ---------- Utilidades ---------- */
     function monthKey(d) {
         const date = d || new Date();
         const y = date.getFullYear();
@@ -8762,7 +8755,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return h + ' h ' + m + ' min';
     }
 
-    /* ---------- Interacción del usuario ---------- */
     function markInteraction() { lastInteraction = Date.now(); }
 
     function attachInteractionListeners() {
@@ -8772,7 +8764,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }));
     }
 
-    /* ---------- Firestore ---------- */
     async function loadMeses() {
         if (!currentUser) { mesesCache = {}; return; }
         try {
@@ -8813,7 +8804,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ---------- Tick de acumulación ---------- */
     function tick() {
         const now = Date.now();
         const dt  = (now - lastTickTime) / 1000;
@@ -8839,7 +8829,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ---------- Render ---------- */
     function renderStats() {
         const curKey  = monthKey();
         const curSecs = (mesesCache[curKey] || 0) + pendingSeconds;
@@ -8887,7 +8876,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    /* ---------- Apertura / cierre de la vista ---------- */
     function closeOtherViews() {
         ['playlist-view','artist-profile','album-view','mi-playlist-view',
          'mensajes-view','chat-view','newmsg-view'].forEach(id => {
@@ -8936,7 +8924,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    /* ---------- Init ---------- */
     function init() {
         if (typeof firebase === 'undefined' || !firebase.auth) {
             setTimeout(init, 300);
@@ -9026,29 +9013,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /* ============================================================
    40. SISTEMA DE COLA DE REPRODUCCIÓN POR CONTEXTO
-   ------------------------------------------------------------
-   Garantiza que al reproducir desde un álbum, playlist, artista,
-   búsqueda o "toda la música", la siguiente canción se obtenga
-   ÚNICAMENTE de esa misma cola, respetando su orden.
-   No altera ninguna función existente: sólo la envuelve.
    ============================================================ */
 (function () {
     'use strict';
 
     const $ = (id) => document.getElementById(id);
 
-    /* ---------- Estado de la cola ---------- */
     const queue = {
-        type:   'all',   // 'album' | 'playlist' | 'artist' | 'search' | 'all'
-        id:     '',      // ID del contexto (cuando exista)
-        items:  [],      // Elementos .playlist-item en orden
-        index:  -1,      // Índice de la canción actual
+        type:   'all',
+        id:     '',
+        items:  [],
+        index:  -1,
         active: false
     };
     window.__playbackQueue          = queue;
     window.__pendingQueueContext    = null;
 
-    /* ---------- Utilidades ---------- */
     function norm(s) {
         if (typeof normalizeStr === 'function') return normalizeStr(s);
         return String(s || '').toLowerCase()
@@ -9073,7 +9053,6 @@ document.addEventListener('DOMContentLoaded', () => {
         catch (_) { return 'off'; }
     }
 
-    /* ---------- API de la cola ---------- */
     function setQueue(items, type, id, startItem) {
         queue.type   = type || 'all';
         queue.id     = id   || '';
@@ -9092,9 +9071,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (idx !== -1) queue.index = idx;
         }
 
-        // Sincronizamos el filtro global para que las rutas existentes
-        // (getCandidateItems / goNextItem / playRandomItem) respeten
-        // la cola activa.
         try {
             if (typeof setArtistFilter === 'function') {
                 setArtistFilter(queue.items, queue.id || queue.type);
@@ -9110,9 +9086,25 @@ document.addEventListener('DOMContentLoaded', () => {
                     '| index:', queue.index);
     }
 
+    /* ✅ CORREGIDO: sincroniza el índice con la canción realmente activa
+       antes de calcular la siguiente. Así, si el modo aleatorio estuvo
+       activo (eligió al azar sin tocar queue.index) o algo reprodujo un
+       item fuera del hook de clicks, el paso secuencial sigue siendo
+       correcto respecto a la canción que está sonando. */
     function stepQueue(direction) {
         if (!queue.items.length) return null;
         const dir = direction || 1;
+
+        // Sincronizar el índice con la canción realmente activa.
+        const pl = $('playlist');
+        if (pl) {
+            const active = pl.querySelector('.playlist-item.active');
+            if (active) {
+                const activeIdx = queue.items.indexOf(active);
+                if (activeIdx !== -1) queue.index = activeIdx;
+            }
+        }
+
         let idx = queue.index + dir;
         const rp = repeatMode();
         if (idx >= queue.items.length) {
@@ -9126,14 +9118,12 @@ document.addEventListener('DOMContentLoaded', () => {
         return queue.items[idx];
     }
 
-    /* ---------- Detección de contexto ---------- */
-    function detectContext(/* clickedItem */) {
+    function detectContext() {
         const playlistView  = $('playlist-view');
         const artistProfile = $('artist-profile');
         const albumView     = $('album-view');
         const searchInput   = $('search-input');
 
-        // 1) Vista de playlist
         if (playlistView && playlistView.classList.contains('visible')) {
             const pl = window.__currentOpenPlaylist;
             if (pl && Array.isArray(pl.canciones) && pl.canciones.length) {
@@ -9146,7 +9136,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        // 2) Vista de artista
         if (artistProfile && artistProfile.classList.contains('visible')) {
             if (window.__artistFilter && window.__artistFilter.length) {
                 return {
@@ -9157,7 +9146,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        // 3) Vista de álbum
         if (albumView && albumView.classList.contains('visible')) {
             const pl = $('playlist');
             const albumName = ($('av-title')?.textContent.trim() || '');
@@ -9171,7 +9159,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        // 4) Búsqueda activa
         if (searchInput && searchInput.value.trim()) {
             const pl = $('playlist');
             const all = Array.from(pl.querySelectorAll('.playlist-item'));
@@ -9181,7 +9168,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        // 5) Fallback: toda la música
         const pl = $('playlist');
         if (!pl) return null;
         const allItems = Array.from(pl.querySelectorAll('.playlist-item'));
@@ -9189,7 +9175,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return { items: allItems, type: 'all', id: '' };
     }
 
-    /* ---------- Reproducir item sin re-detectar contexto ---------- */
     function playItem(item) {
         if (!item) return;
         window.__queueAdvancing = true;
@@ -9200,21 +9185,16 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ---------- Hooks ---------- */
     function attachClickHook() {
         const pl = $('playlist');
         if (!pl || pl.dataset.queueClickHook === '1') return;
         pl.dataset.queueClickHook = '1';
 
-        // Fase de captura → se ejecuta ANTES del handler principal de la
-        // sección 3 que llama a loadItem().
         pl.addEventListener('click', (e) => {
             if (window.__queueAdvancing) return;
             const item = e.target.closest('.playlist-item');
             if (!item) return;
 
-            // Contexto pendiente (p.ej. búsqueda que limpia el input antes
-            // de disparar el click, como en la sección 17).
             if (window.__pendingQueueContext) {
                 const ctx = window.__pendingQueueContext;
                 window.__pendingQueueContext = null;
@@ -9229,8 +9209,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }, true);
 
-        // Capturamos clicks sobre resultados de búsqueda para fijar el
-        // contexto antes de que el input de búsqueda sea limpiado.
         const sr = $('search-results');
         if (sr && sr.dataset.queueSearchHook !== '1') {
             sr.dataset.queueSearchHook = '1';
@@ -9262,13 +9240,18 @@ document.addEventListener('DOMContentLoaded', () => {
         if (window.__queueEndedHooked) return;
         window.__queueEndedHooked = true;
 
-        // Fase de captura en document → se ejecuta antes que los handlers
-        // bubble de las secciones 3 y 6.
+        /* ✅ CORREGIDO: si el modo Aleatorio está ACTIVADO, no interceptamos
+           el evento "ended". Dejamos que la sección 3 gestione el cambio
+           con su comportamiento aleatorio normal. El filtro de artista ya
+           está limitado a queue.items (playlist / álbum / artista / búsqueda),
+           así que el azar solo elegirá canciones dentro del contexto. */
         document.addEventListener('ended', (e) => {
             const audio = $('audio-player');
             if (!audio || e.target !== audio) return;
             if (!queue.active) return;
             if (repeatMode() === 'one') return;   // lo maneja la sección 6
+
+            if (window.__omegaShuffleOn !== false) return;
 
             e.stopImmediatePropagation();
             e.stopPropagation();
@@ -9291,26 +9274,21 @@ document.addEventListener('DOMContentLoaded', () => {
         const handleNext = (e, dir) => {
             if (!queue.active) return;
             if (window.__queueAdvancing) return;
-            // Bloqueamos goNextItem/goPrevItem de la sección 3 para que
-            // no vuelvan a elegir por su cuenta.
+            if (window.__omegaShuffleOn !== false) return;
             e.stopImmediatePropagation();
             const item = stepQueue(dir);
             if (item) playItem(item);
         };
 
-        // Los eventos omega:next / omega:prev se despachan sobre document,
-        // pero window está antes en la fase de captura → interceptamos ahí.
         window.addEventListener('omega:next', (e) => handleNext(e,  1), true);
         window.addEventListener('omega:prev', (e) => handleNext(e, -1), true);
     }
 
-    /* ---------- Init ---------- */
     function init() {
         attachClickHook();
         attachEndedHook();
         attachNextPrevHooks();
 
-        // Reintentos por si el DOM cambia tras el arranque
         [500, 1500, 3000].forEach(ms => setTimeout(() => {
             attachClickHook();
             attachEndedHook();
@@ -9324,19 +9302,15 @@ document.addEventListener('DOMContentLoaded', () => {
         init();
     }
 
-    /* ---------- API pública mínima ---------- */
     window.__setPlaybackQueue   = setQueue;
     window.__clearPlaybackQueue = () => {
         queue.type = 'all'; queue.id = ''; queue.items = []; queue.index = -1; queue.active = false;
         if (typeof clearArtistFilter === 'function') clearArtistFilter();
     };
 })();
+
 /* ============================================================
    41. PERFIL DE ARTISTA Y ÁLBUM EN FORMA DE LISTA
-   ------------------------------------------------------------
-   Convierte la cuadrícula de canciones del perfil de artista
-   y la vista de álbum en listas verticales con portada + título
-   + subtítulo, sin romper ninguna función existente.
    ============================================================ */
 (function () {
     'use strict';
@@ -9445,18 +9419,14 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    /* ---------- Override del perfil de artista ---------- */
     const originalOpen = window.__openArtistProfile;
     if (typeof originalOpen === 'function') {
         window.__openArtistProfile = function (artistName) {
-            // 1) Dejar que la sección 5 abra la vista (visible, scroll, botones…)
             originalOpen.call(this, artistName);
 
-            // 2) Reemplazar la cuadrícula por la lista
             try { renderArtistAsList(artistName); }
             catch (e) { console.warn('[ARTIST-LIST] Error:', e); }
 
-            // 3) Reescribir el botón "Escuchar mi música" para que siga funcionando
             const listenBtn = $('ap-listen-btn');
             if (listenBtn) {
                 listenBtn.onclick = () => {
@@ -9470,7 +9440,6 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     }
 
-    /* ---------- Observer: estado "playing" en las filas ---------- */
     function watchPlaylistForArtistRows() {
         const playlist = $('playlist');
         if (!playlist || playlist.dataset.artistRowsWatch === '1') return;
@@ -9484,7 +9453,6 @@ document.addEventListener('DOMContentLoaded', () => {
         obs.observe(playlist, { subtree: true, attributes: true, attributeFilter: ['class'] });
     }
 
-    /* ---------- Vista de álbum: forzar modo lista ---------- */
     function forceAlbumListMode() {
         const carousel = $('av-carousel');
         const list = $('av-list');
@@ -9515,7 +9483,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         obs.observe(albumView, { attributes: true, attributeFilter: ['class'] });
 
-        // Botón de alternar: mantiene el toggle funcional
         const toggle = $('av-toggle');
         if (toggle && toggle.dataset.albumListToggle !== '1') {
             toggle.dataset.albumListToggle = '1';
@@ -9539,12 +9506,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ---------- Init ---------- */
     function init() {
         watchPlaylistForArtistRows();
         watchAlbumView();
 
-        // Reintentos por si el DOM se construye más tarde
         [500, 1500, 3000].forEach(ms => setTimeout(() => {
             watchPlaylistForArtistRows();
             watchAlbumView();
@@ -9557,15 +9522,9 @@ document.addEventListener('DOMContentLoaded', () => {
         init();
     }
 })();
+
 /* ============================================================
    42. ORDEN SECUENCIAL EN PERFIL, ÁLBUM Y PLAYLIST
-   ------------------------------------------------------------
-   - "Escuchar mi música"      (Perfil)   → 1 → 2 → 3 → ...
-   - "Escuchar todo el álbum"  (Álbum)    → 1 → 2 → 3 → ...
-   - "Escuchar esta playlist"  (Playlist) → 1 → 2 → 3 → ...
-   Si el usuario toca una canción concreta, arranca desde ella
-   y continúa con las siguientes en orden (lo garantiza la cola
-   de la sección 40). No toca el botón de aleatorio.
    ============================================================ */
 (function () {
     'use strict';
@@ -9620,9 +9579,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return items;
     }
 
-    /* Reproduce la lista completa en orden, arrancando desde startItem
-       (o desde la primera si no se pasa). Marca la cola como activa
-       para que la sección 40 avance secuencialmente en "ended". */
     function playSequentialFrom(items, type, id, startItem) {
         if (!Array.isArray(items) || !items.length) return;
         const target = startItem || items[0];
@@ -9636,7 +9592,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } catch (_) {}
 
-        // Saltamos la re-detección de contexto: la cola ya está fijada.
         window.__queueAdvancing = true;
         try { target.click(); }
         catch (err) { console.warn('[SEQUENTIAL] Error al reproducir:', err); }
@@ -9645,7 +9600,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ---------- 1) PLAYLIST: "Escuchar esta playlist" ---------- */
     function hookPlaylistPlayAll() {
         const btn = $('pv-play-all');
         if (!btn || btn.dataset.seqPlayAll === '1') return;
@@ -9667,7 +9621,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }, true);
     }
 
-    /* ---------- 2) ÁLBUM: "Escuchar todo el álbum" ---------- */
     function hookAlbumPlayAll() {
         const btn = $('av-play-all');
         if (!btn || btn.dataset.seqPlayAll === '1') return;
@@ -9687,13 +9640,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }, true);
     }
 
-    /* ---------- 3) PERFIL: "Escuchar mi música" ---------- */
-    /* La sección 5 y la 41 sobrescriben `ap-listen-btn.onclick`.
-       Encadenamos después de ambas para dejar la versión secuencial. */
     function hookArtistListenButton(artistName) {
         const btn = $('ap-listen-btn');
         if (!btn) return;
-        btn.onclick = null;   // limpia la versión aleatoria previa
+        btn.onclick = null;
 
         const handler = (e) => {
             if (e) { e.preventDefault(); e.stopPropagation(); }
@@ -9702,19 +9652,14 @@ document.addEventListener('DOMContentLoaded', () => {
             playSequentialFrom(items, 'artist', artistName, items[0]);
         };
         btn.onclick = handler;
-        // Por si algún otro código usa addEventListener en vez de onclick
         btn.dataset.seqArtistBtn = '1';
     }
 
-    // Envolvemos __openArtistProfile para reescribir el botón
-    // después de que la sección 41 lo haya tocado.
     function wrapArtistProfile() {
         const prev = window.__openArtistProfile;
         if (typeof prev !== 'function' || prev.__seqWrapped) return;
         const wrapped = function (artistName) {
             prev.call(this, artistName);
-            // Sección 41 hace su override con setTimeout; esperamos un poco
-            // para quedar por encima.
             setTimeout(() => hookArtistListenButton(artistName), 0);
             setTimeout(() => hookArtistListenButton(artistName), 120);
             setTimeout(() => hookArtistListenButton(artistName), 400);
@@ -9723,13 +9668,11 @@ document.addEventListener('DOMContentLoaded', () => {
         window.__openArtistProfile = wrapped;
     }
 
-    /* ---------- Init ---------- */
     function init() {
         hookPlaylistPlayAll();
         hookAlbumPlayAll();
         wrapArtistProfile();
 
-        // Reintentos por si el DOM se construye tarde
         [500, 1500, 3000].forEach(ms => setTimeout(() => {
             hookPlaylistPlayAll();
             hookAlbumPlayAll();
@@ -9743,18 +9686,9 @@ document.addEventListener('DOMContentLoaded', () => {
         init();
     }
 })();
+
 /* ============================================================
    43. SINCRONIZACIÓN: ELIMINAR PLAYLIST / CANCIÓN → ELIMINAR DESCARGAS
-   ------------------------------------------------------------
-   - Al eliminar una playlist completa desde "Mi Playlist" se
-     eliminan automáticamente las descargas (IndexedDB) de sus
-     canciones, EXCEPTO las que sigan perteneciendo a otra
-     playlist del usuario.
-   - Al eliminar una canción individual en el modo edición de
-     "Mi Playlist" se elimina su descarga, con la misma regla
-     de seguridad.
-   No elimina canciones de Firebase ni afecta a otros usuarios.
-   No modifica ninguna función existente.
    ============================================================ */
 (function () {
     'use strict';
@@ -9765,14 +9699,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const $ = (id) => document.getElementById(id);
 
-    /* ---------- Utilidades ---------- */
     function normId(str) {
         return String(str || '').toLowerCase()
             .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
             .replace(/[^a-z0-9]/g, '_');
     }
 
-    /* ---------- IndexedDB: eliminar descarga local ---------- */
     function openDB() {
         return new Promise((resolve, reject) => {
             const req = indexedDB.open(DB_NAME, DB_VERSION);
@@ -9804,7 +9736,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ---------- Firestore: playlists que aún contienen la canción ---------- */
     async function getPlaylistsContaining(titulo) {
         const user = firebase.auth().currentUser;
         if (!user || !titulo) return [];
@@ -9826,8 +9757,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* Elimina la descarga sólo si la canción no sigue en otra playlist
-       del usuario (excluyendo la playlist que se está manipulando). */
     async function safeDeleteDownload(titulo, currentPlaylistId) {
         if (!titulo) return;
         try {
@@ -9843,10 +9772,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ============================================================
-       CASO 1: Eliminar playlist completa desde "Mi Playlist"
-       Se ejecuta cuando se confirma el diálogo de borrado.
-       ============================================================ */
     function hookWholePlaylistDelete() {
         const observer = new MutationObserver(() => {
             const box = document.querySelector('.conv-menu-backdrop .conv-confirm-box');
@@ -9859,7 +9784,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!yesBtn || yesBtn.dataset.syncDeleteHooked === '1') return;
             yesBtn.dataset.syncDeleteHooked = '1';
 
-            // Capturamos la playlist ANTES de que el handler original la borre.
             yesBtn.addEventListener('click', async () => {
                 const pl = window.__currentOpenPlaylist;
                 if (!pl || !Array.isArray(pl.canciones) || !pl.canciones.length) return;
@@ -9879,11 +9803,6 @@ document.addEventListener('DOMContentLoaded', () => {
         observer.observe(document.body, { childList: true, subtree: true });
     }
 
-    /* ============================================================
-       CASO 2: Eliminar canción individual en modo edición
-       Registramos los .pv-row.removed y luego, al pulsar
-       "Guardar cambios", limpiamos la descarga correspondiente.
-       ============================================================ */
     const removedSnapshot = new Set();
 
     function trackRemovedRows() {
@@ -9910,7 +9829,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!saveBtn || saveBtn.dataset.syncDeleteHooked === '1') return;
         saveBtn.dataset.syncDeleteHooked = '1';
 
-        // Capture: corremos antes del handler original de "Guardar cambios".
         saveBtn.addEventListener('click', async () => {
             if (!removedSnapshot.size) return;
 
@@ -9928,7 +9846,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }, true);
     }
 
-    /* Limpieza cuando se sale del modo edición sin guardar */
     function hookEditModeExit() {
         const view = $('playlist-view');
         if (!view || view.dataset.syncDeleteExit === '1') return;
@@ -9938,9 +9855,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const obs = new MutationObserver(() => {
             const isEdit = view.classList.contains('edit-mode');
             if (wasEditMode && !isEdit) {
-                // Al salir del modo edición (guardar o cancelar), limpiamos
-                // cualquier sobrante del snapshot. El botón Cancelar no
-                // dispara 'pv-save', así que no borrará descargas.
                 removedSnapshot.clear();
             }
             wasEditMode = isEdit;
@@ -9948,7 +9862,6 @@ document.addEventListener('DOMContentLoaded', () => {
         obs.observe(view, { attributes: true, attributeFilter: ['class'] });
     }
 
-    /* ---------- Init ---------- */
     function init() {
         if (typeof firebase === 'undefined' || !firebase.auth) {
             setTimeout(init, 300);
