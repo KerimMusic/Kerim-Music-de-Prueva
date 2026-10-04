@@ -2551,3 +2551,94 @@ textarea {
 .st-empty { text-align: center; padding: 40px 20px; }
 .st-empty-title { font-size: 16px; font-weight: 800; color: #ffffff; margin-bottom: 6px; }
 .st-empty-sub   { font-size: 13px; color: #999999; }
+/* ============================================================
+   41. PERFIL DE ARTISTA Y ÁLBUM EN FORMA DE LISTA
+   ============================================================ */
+
+/* ---------- Perfil de artista: forzar lista vertical ---------- */
+.ap-grid.ap-grid--list {
+    display: flex !important;
+    flex-direction: column !important;
+    grid-template-columns: none !important;
+    gap: 4px !important;
+    padding: 10px 16px 8px !important;
+}
+
+.ap-row {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    width: 100%;
+    margin-bottom: 2px;
+    padding: 6px 4px;
+    background: none;
+    border: none;
+    border-radius: 10px;
+    color: #ffffff;
+    text-align: left;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background-color 0.2s ease;
+}
+.ap-row:active,
+.ap-row.playing {
+    background-color: #1f1f1f;
+}
+.ap-row.playing .ap-row-title {
+    color: #ff2a2a;
+}
+
+.ap-row-thumb {
+    width: 52px;
+    height: 52px;
+    border-radius: 8px;
+    overflow: hidden;
+    flex-shrink: 0;
+    background: #1a1a1a;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+.ap-row-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.ap-row-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+.ap-row-title {
+    font-size: 16px;
+    font-weight: 500;
+    color: #ffffff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.2;
+}
+.ap-row-sub {
+    font-size: 12.5px;
+    color: #b3b3b3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.2;
+}
+
+/* ---------- Vista de álbum: lista por defecto ---------- */
+.album-view .av-carousel.hidden {
+    display: none !important;
+}
+.album-view .av-list.visible {
+    display: block !important;
+}
+
+/* ---------- Scroll táctil en las nuevas filas ---------- */
+.ap-row,
+.ap-row * {
+    touch-action: pan-y;
+}
