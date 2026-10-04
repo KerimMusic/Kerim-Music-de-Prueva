@@ -673,16 +673,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     audioPlayer.addEventListener('error', () => handleLoadError());
 
-    /* ==========================================================
-       Cambio: la sección ya se respeta con getCandidateItems().
-       - Aleatorio OFF → siguiente canción en orden DOM (dentro de la sección).
-       - Aleatorio ON  → canción aleatoria (dentro de la sección).
-       Nunca se sale de la sección activa (álbum / artista / playlist).
-       ========================================================== */
     function playRandomItem() {
         const items = getCandidateItems();
         if (!items.length) return;
-
         if (!isShuffleOn()) {
             let startIdx = 0;
             if (currentItem) {
@@ -692,7 +685,6 @@ document.addEventListener('DOMContentLoaded', () => {
             loadItem(items[startIdx], true);
             return;
         }
-
         let candidates = items;
         if (items.length > 1 && currentItem && items.includes(currentItem)) {
             candidates = items.filter(i => i !== currentItem);
@@ -704,7 +696,6 @@ document.addEventListener('DOMContentLoaded', () => {
     function goNextItem() {
         const items = getCandidateItems();
         if (!items.length) return;
-
         if (isShuffleOn()) { playRandomItem(); return; }
         let idx = items.indexOf(currentItem);
         if (idx === -1) idx = 0;
@@ -713,7 +704,6 @@ document.addEventListener('DOMContentLoaded', () => {
     function goPrevItem() {
         const items = getCandidateItems();
         if (!items.length) return;
-
         if (isShuffleOn()) { playRandomItem(); return; }
         let idx = items.indexOf(currentItem);
         if (idx === -1) idx = 0;
@@ -1444,20 +1434,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 getArtistsFromItem(item).some(n => normalizeStr(n) === target)
             );
         }
-
-        /* Helper: canciones SOLO de un álbum, del mismo artista. */
-        function getAlbumItems(albumName, artistName) {
-            const target = normalizeStr(albumName);
-            const artistTarget = normalizeStr(artistName);
-            if (!target) return [];
-            return Array.from(playlist.querySelectorAll('.playlist-item')).filter(it => {
-                const album = it.querySelector('.Album')?.textContent.trim() || '';
-                if (normalizeStr(album) !== target) return false;
-                const artists = getArtistsFromItem(it);
-                return artists.some(n => normalizeStr(n) === artistTarget);
-            });
-        }
-
         function computeTotalPlays(items) {
             let total = 0;
             items.forEach(item => {
@@ -1519,26 +1495,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 t.className = 'ap-card-title';
                 t.textContent = title;
                 card.appendChild(t);
-
-                /* Click de card: si pertenece a un álbum → filtra solo ese álbum */
                 card.addEventListener('click', () => {
-                    const albumName = card.dataset.albumName || '';
-                    if (albumName) {
-                        const albumList = getAlbumItems(albumName, artistName);
-                        if (albumList.length) {
-                            const label = artistName + ' · ' + albumName;
-                            if (typeof setArtistFilter === 'function') setArtistFilter(albumList, label);
-                            else { window.__artistFilter = albumList.slice(); window.__artistFilterName = label; }
-                        } else {
-                            activateArtistMode(artistName);
-                        }
-                    } else {
-                        activateArtistMode(artistName);
-                    }
+                    activateArtistMode(artistName);
                     item.click();
                     setTimeout(updatePlayingCard, 60);
                 });
-
                 apGrid.appendChild(card);
             });
             apListen.onclick = () => {
@@ -1818,13 +1779,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 albumEl.appendChild(header);
                 const tracks = document.createElement('div');
                 tracks.className = 'ap-album-tracks';
-
-                /* Marca cada card con el nombre del álbum al que pertenece */
-                albumData.cards.forEach(c => {
-                    c.dataset.albumName = albumName;
-                    tracks.appendChild(c);
-                });
-
+                albumData.cards.forEach(c => tracks.appendChild(c));
                 albumEl.appendChild(tracks);
                 apGrid.appendChild(albumEl);
             });
@@ -9067,4 +9022,312 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
         init();
     }
+})();
+
+/* ============================================================
+   40. SISTEMA DE COLA DE REPRODUCCIÓN POR CONTEXTO
+   ------------------------------------------------------------
+   Garantiza que al reproducir desde un álbum, playlist, artista,
+   búsqueda o "toda la música", la siguiente canción se obtenga
+   ÚNICAMENTE de esa misma cola, respetando su orden.
+   No altera ninguna función existente: sólo la envuelve.
+   ============================================================ */
+(function () {
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    /* ---------- Estado de la cola ---------- */
+    const queue = {
+        type:   'all',   // 'album' | 'playlist' | 'artist' | 'search' | 'all'
+        id:     '',      // ID del contexto (cuando exista)
+        items:  [],      // Elementos .playlist-item en orden
+        index:  -1,      // Índice de la canción actual
+        active: false
+    };
+    window.__playbackQueue          = queue;
+    window.__pendingQueueContext    = null;
+
+    /* ---------- Utilidades ---------- */
+    function norm(s) {
+        if (typeof normalizeStr === 'function') return normalizeStr(s);
+        return String(s || '').toLowerCase()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9]/g, '');
+    }
+    function titleOf(item) {
+        return item ? (item.querySelector('.item-title')?.textContent.trim() || '') : '';
+    }
+    function findItemByTitle(title) {
+        const pl = $('playlist');
+        if (!pl || !title) return null;
+        const target = norm(title);
+        if (!target) return null;
+        for (const it of pl.querySelectorAll('.playlist-item')) {
+            if (norm(titleOf(it)) === target) return it;
+        }
+        return null;
+    }
+    function repeatMode() {
+        try { return localStorage.getItem('omega_repeat_mode_v1') || 'off'; }
+        catch (_) { return 'off'; }
+    }
+
+    /* ---------- API de la cola ---------- */
+    function setQueue(items, type, id, startItem) {
+        queue.type   = type || 'all';
+        queue.id     = id   || '';
+        queue.items  = Array.isArray(items) ? items.slice() : [];
+        queue.index  = -1;
+        queue.active = queue.items.length > 0;
+
+        if (startItem && queue.items.length) {
+            let idx = queue.items.indexOf(startItem);
+            if (idx === -1) {
+                const t = norm(titleOf(startItem));
+                for (let i = 0; i < queue.items.length; i++) {
+                    if (norm(titleOf(queue.items[i])) === t) { idx = i; break; }
+                }
+            }
+            if (idx !== -1) queue.index = idx;
+        }
+
+        // Sincronizamos el filtro global para que las rutas existentes
+        // (getCandidateItems / goNextItem / playRandomItem) respeten
+        // la cola activa.
+        try {
+            if (typeof setArtistFilter === 'function') {
+                setArtistFilter(queue.items, queue.id || queue.type);
+            } else {
+                window.__artistFilter     = queue.items.slice();
+                window.__artistFilterName = queue.id || queue.type;
+            }
+        } catch (_) {}
+
+        console.log('[QUEUE] set →', queue.type,
+                    '| id:', queue.id,
+                    '| items:', queue.items.length,
+                    '| index:', queue.index);
+    }
+
+    function stepQueue(direction) {
+        if (!queue.items.length) return null;
+        const dir = direction || 1;
+        let idx = queue.index + dir;
+        const rp = repeatMode();
+        if (idx >= queue.items.length) {
+            if (rp === 'all') idx = 0;
+            else return null;                 // fin de la cola → detener
+        } else if (idx < 0) {
+            if (rp === 'all') idx = queue.items.length - 1;
+            else idx = 0;
+        }
+        queue.index = idx;
+        return queue.items[idx];
+    }
+
+    /* ---------- Detección de contexto ---------- */
+    function detectContext(/* clickedItem */) {
+        const playlistView  = $('playlist-view');
+        const artistProfile = $('artist-profile');
+        const albumView     = $('album-view');
+        const searchInput   = $('search-input');
+
+        // 1) Vista de playlist
+        if (playlistView && playlistView.classList.contains('visible')) {
+            const pl = window.__currentOpenPlaylist;
+            if (pl && Array.isArray(pl.canciones) && pl.canciones.length) {
+                const items = pl.canciones
+                    .map(c => findItemByTitle(c.titulo))
+                    .filter(Boolean);
+                if (items.length) {
+                    return { items, type: 'playlist', id: pl.id || pl.nombre || '' };
+                }
+            }
+        }
+
+        // 2) Vista de artista
+        if (artistProfile && artistProfile.classList.contains('visible')) {
+            if (window.__artistFilter && window.__artistFilter.length) {
+                return {
+                    items: window.__artistFilter.slice(),
+                    type:  'artist',
+                    id:    window.__artistFilterName || ''
+                };
+            }
+        }
+
+        // 3) Vista de álbum
+        if (albumView && albumView.classList.contains('visible')) {
+            const pl = $('playlist');
+            const albumName = ($('av-title')?.textContent.trim() || '');
+            if (pl && albumName) {
+                const items = [];
+                pl.querySelectorAll('.playlist-item').forEach(it => {
+                    const alb = it.querySelector('.Album')?.textContent.trim() || '';
+                    if (alb && alb.toLowerCase() === albumName.toLowerCase()) items.push(it);
+                });
+                if (items.length) return { items, type: 'album', id: albumName };
+            }
+        }
+
+        // 4) Búsqueda activa
+        if (searchInput && searchInput.value.trim()) {
+            const pl = $('playlist');
+            const all = Array.from(pl.querySelectorAll('.playlist-item'));
+            const visible = all.filter(it => it.style.display !== 'none');
+            if (visible.length) {
+                return { items: visible, type: 'search', id: searchInput.value.trim() };
+            }
+        }
+
+        // 5) Fallback: toda la música
+        const pl = $('playlist');
+        if (!pl) return null;
+        const allItems = Array.from(pl.querySelectorAll('.playlist-item'));
+        if (!allItems.length) return null;
+        return { items: allItems, type: 'all', id: '' };
+    }
+
+    /* ---------- Reproducir item sin re-detectar contexto ---------- */
+    function playItem(item) {
+        if (!item) return;
+        window.__queueAdvancing = true;
+        try { item.click(); }
+        catch (err) { console.warn('[QUEUE] Error al avanzar:', err); }
+        finally {
+            setTimeout(() => { window.__queueAdvancing = false; }, 0);
+        }
+    }
+
+    /* ---------- Hooks ---------- */
+    function attachClickHook() {
+        const pl = $('playlist');
+        if (!pl || pl.dataset.queueClickHook === '1') return;
+        pl.dataset.queueClickHook = '1';
+
+        // Fase de captura → se ejecuta ANTES del handler principal de la
+        // sección 3 que llama a loadItem().
+        pl.addEventListener('click', (e) => {
+            if (window.__queueAdvancing) return;
+            const item = e.target.closest('.playlist-item');
+            if (!item) return;
+
+            // Contexto pendiente (p.ej. búsqueda que limpia el input antes
+            // de disparar el click, como en la sección 17).
+            if (window.__pendingQueueContext) {
+                const ctx = window.__pendingQueueContext;
+                window.__pendingQueueContext = null;
+                clearTimeout(window.__pendingQueueTimer);
+                setQueue(ctx.items, ctx.type, ctx.id, item);
+                return;
+            }
+
+            const ctx = detectContext(item);
+            if (ctx && ctx.items && ctx.items.length) {
+                setQueue(ctx.items, ctx.type, ctx.id, item);
+            }
+        }, true);
+
+        // Capturamos clicks sobre resultados de búsqueda para fijar el
+        // contexto antes de que el input de búsqueda sea limpiado.
+        const sr = $('search-results');
+        if (sr && sr.dataset.queueSearchHook !== '1') {
+            sr.dataset.queueSearchHook = '1';
+            sr.addEventListener('click', (e) => {
+                const row = e.target.closest('.search-row');
+                if (!row) return;
+                const input = $('search-input');
+                if (!input || !input.value.trim()) return;
+                const plEl = $('playlist');
+                if (!plEl) return;
+                const visible = Array.from(plEl.querySelectorAll('.playlist-item'))
+                    .filter(it => it.style.display !== 'none');
+                if (visible.length) {
+                    window.__pendingQueueContext = {
+                        items: visible,
+                        type:  'search',
+                        id:    input.value.trim()
+                    };
+                    clearTimeout(window.__pendingQueueTimer);
+                    window.__pendingQueueTimer = setTimeout(() => {
+                        window.__pendingQueueContext = null;
+                    }, 800);
+                }
+            }, true);
+        }
+    }
+
+    function attachEndedHook() {
+        if (window.__queueEndedHooked) return;
+        window.__queueEndedHooked = true;
+
+        // Fase de captura en document → se ejecuta antes que los handlers
+        // bubble de las secciones 3 y 6.
+        document.addEventListener('ended', (e) => {
+            const audio = $('audio-player');
+            if (!audio || e.target !== audio) return;
+            if (!queue.active) return;
+            if (repeatMode() === 'one') return;   // lo maneja la sección 6
+
+            e.stopImmediatePropagation();
+            e.stopPropagation();
+            e.preventDefault();
+
+            const next = stepQueue(1);
+            if (next) {
+                playItem(next);
+            } else {
+                console.log('[QUEUE] Fin de la cola. Reproducción detenida.');
+                try { audio.pause(); } catch (_) {}
+            }
+        }, true);
+    }
+
+    function attachNextPrevHooks() {
+        if (window.__queueNextHooked) return;
+        window.__queueNextHooked = true;
+
+        const handleNext = (e, dir) => {
+            if (!queue.active) return;
+            if (window.__queueAdvancing) return;
+            // Bloqueamos goNextItem/goPrevItem de la sección 3 para que
+            // no vuelvan a elegir por su cuenta.
+            e.stopImmediatePropagation();
+            const item = stepQueue(dir);
+            if (item) playItem(item);
+        };
+
+        // Los eventos omega:next / omega:prev se despachan sobre document,
+        // pero window está antes en la fase de captura → interceptamos ahí.
+        window.addEventListener('omega:next', (e) => handleNext(e,  1), true);
+        window.addEventListener('omega:prev', (e) => handleNext(e, -1), true);
+    }
+
+    /* ---------- Init ---------- */
+    function init() {
+        attachClickHook();
+        attachEndedHook();
+        attachNextPrevHooks();
+
+        // Reintentos por si el DOM cambia tras el arranque
+        [500, 1500, 3000].forEach(ms => setTimeout(() => {
+            attachClickHook();
+            attachEndedHook();
+            attachNextPrevHooks();
+        }, ms));
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+
+    /* ---------- API pública mínima ---------- */
+    window.__setPlaybackQueue   = setQueue;
+    window.__clearPlaybackQueue = () => {
+        queue.type = 'all'; queue.id = ''; queue.items = []; queue.index = -1; queue.active = false;
+        if (typeof clearArtistFilter === 'function') clearArtistFilter();
+    };
 })();
