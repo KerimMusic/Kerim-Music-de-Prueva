@@ -673,9 +673,31 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     audioPlayer.addEventListener('error', () => handleLoadError());
 
+    /* ==========================================================
+       CAMBIO #1: MODO SECCIÓN
+       Cuando hay un filtro activo (álbum / perfil de artista /
+       playlist) se ignora Aleatorio y se respeta el orden DOM
+       (arriba → abajo) dentro de esa sección.
+       ========================================================== */
+    function isSectionMode() {
+        return !!(window.__artistFilter && window.__artistFilter.length);
+    }
+
     function playRandomItem() {
         const items = getCandidateItems();
         if (!items.length) return;
+
+        // Modo sección: siempre en orden DOM, sin aleatorio
+        if (isSectionMode()) {
+            let startIdx = 0;
+            if (currentItem) {
+                const idx = items.indexOf(currentItem);
+                if (idx !== -1) startIdx = (idx + 1) % items.length;
+            }
+            loadItem(items[startIdx], true);
+            return;
+        }
+
         if (!isShuffleOn()) {
             let startIdx = 0;
             if (currentItem) {
@@ -696,6 +718,15 @@ document.addEventListener('DOMContentLoaded', () => {
     function goNextItem() {
         const items = getCandidateItems();
         if (!items.length) return;
+
+        // Modo sección: siguiente en orden DOM
+        if (isSectionMode()) {
+            let idx = items.indexOf(currentItem);
+            if (idx === -1) idx = 0;
+            loadItem(items[(idx + 1) % items.length], true);
+            return;
+        }
+
         if (isShuffleOn()) { playRandomItem(); return; }
         let idx = items.indexOf(currentItem);
         if (idx === -1) idx = 0;
@@ -704,6 +735,15 @@ document.addEventListener('DOMContentLoaded', () => {
     function goPrevItem() {
         const items = getCandidateItems();
         if (!items.length) return;
+
+        // Modo sección: anterior en orden DOM
+        if (isSectionMode()) {
+            let idx = items.indexOf(currentItem);
+            if (idx === -1) idx = 0;
+            loadItem(items[(idx - 1 + items.length) % items.length], true);
+            return;
+        }
+
         if (isShuffleOn()) { playRandomItem(); return; }
         let idx = items.indexOf(currentItem);
         if (idx === -1) idx = 0;
@@ -1434,6 +1474,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 getArtistsFromItem(item).some(n => normalizeStr(n) === target)
             );
         }
+
+        /* CAMBIO #2a: Helper para obtener solo las canciones de un álbum
+           (del mismo artista). Se usa al tocar una card dentro de un álbum
+           en el perfil del artista. */
+        function getAlbumItems(albumName, artistName) {
+            const target = normalizeStr(albumName);
+            const artistTarget = normalizeStr(artistName);
+            if (!target) return [];
+            return Array.from(playlist.querySelectorAll('.playlist-item')).filter(it => {
+                const album = it.querySelector('.Album')?.textContent.trim() || '';
+                if (normalizeStr(album) !== target) return false;
+                const artists = getArtistsFromItem(it);
+                return artists.some(n => normalizeStr(n) === artistTarget);
+            });
+        }
+
         function computeTotalPlays(items) {
             let total = 0;
             items.forEach(item => {
@@ -1495,11 +1551,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 t.className = 'ap-card-title';
                 t.textContent = title;
                 card.appendChild(t);
+
+                /* CAMBIO #2b: click de card → si es de un álbum, filtrar solo ese álbum */
                 card.addEventListener('click', () => {
-                    activateArtistMode(artistName);
+                    const albumName = card.dataset.albumName || '';
+                    if (albumName) {
+                        const albumList = getAlbumItems(albumName, artistName);
+                        if (albumList.length) {
+                            const label = artistName + ' · ' + albumName;
+                            if (typeof setArtistFilter === 'function') setArtistFilter(albumList, label);
+                            else { window.__artistFilter = albumList.slice(); window.__artistFilterName = label; }
+                        } else {
+                            activateArtistMode(artistName);
+                        }
+                    } else {
+                        activateArtistMode(artistName);
+                    }
                     item.click();
                     setTimeout(updatePlayingCard, 60);
                 });
+
                 apGrid.appendChild(card);
             });
             apListen.onclick = () => {
@@ -1779,7 +1850,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 albumEl.appendChild(header);
                 const tracks = document.createElement('div');
                 tracks.className = 'ap-album-tracks';
-                albumData.cards.forEach(c => tracks.appendChild(c));
+
+                /* CAMBIO #3: marcar cada card con el nombre del álbum */
+                albumData.cards.forEach(c => {
+                    c.dataset.albumName = albumName;
+                    tracks.appendChild(c);
+                });
+
                 albumEl.appendChild(tracks);
                 apGrid.appendChild(albumEl);
             });
