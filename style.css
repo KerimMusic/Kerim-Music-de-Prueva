@@ -2642,3 +2642,284 @@ textarea {
 .ap-row * {
     touch-action: pan-y;
 }
+/* ============================================================
+   44. CAMBIAR COLOR — MODO BLANCO / NEGRO
+   ============================================================ */
+
+/* ---------- Estilos del modal de opciones ---------- */
+.color-options {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 6px;
+}
+.color-option {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    padding: 14px 16px;
+    background: #1a1a1a;
+    border: 1.5px solid #2a2a2a;
+    border-radius: 14px;
+    color: #ffffff;
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    text-align: left;
+    transition: transform 0.15s ease, background 0.2s ease, border-color 0.2s ease;
+}
+.color-option:active { transform: scale(0.97); }
+.color-option.active {
+    border-color: #ff2a2a;
+    background: rgba(255, 42, 42, 0.12);
+}
+.color-option.active::after {
+    content: '✓';
+    margin-left: auto;
+    color: #ff2a2a;
+    font-size: 18px;
+    font-weight: 900;
+}
+.color-swatch {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.color-swatch--light {
+    background: #ffffff;
+    box-shadow: 0 0 0 1.5px #cccccc inset, 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+.color-swatch--dark {
+    background: #000000;
+    box-shadow: 0 0 0 1.5px #444444 inset, 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+/* ============================================================
+   TEMA BLANCO (MODO CLARO)
+   Se activa con: <body data-theme="light">
+   ============================================================ */
+
+body[data-theme="light"] {
+    background-color: #f0f0f0;
+    color: #111111;
+}
+body[data-theme="light"] .app-container { background-color: #ffffff; }
+
+/* ---------- Barra superior ---------- */
+body[data-theme="light"] .top-bar { background-color: #ffffff; }
+body[data-theme="light"] .menu-btn line { stroke: #000000; }
+
+/* ---------- Menú hamburguesa ---------- */
+body[data-theme="light"] .submenu {
+    background-color: #ffffff;
+    border-right-color: #e0e0e0;
+    box-shadow: 4px 0 25px rgba(0, 0, 0, 0.15);
+}
+body[data-theme="light"] .submenu-header { border-bottom-color: #e5e5e5; }
+body[data-theme="light"] .submenu-user-section { border-bottom-color: #e5e5e5; }
+body[data-theme="light"] .submenu-user-name { color: #111111; }
+body[data-theme="light"] .submenu-user-sub  { color: #666666; }
+body[data-theme="light"] .close-submenu { color: #111111; }
+body[data-theme="light"] .close-submenu:hover { color: #ff2a2a; }
+body[data-theme="light"] .submenu-list li a { color: #111111; }
+body[data-theme="light"] .submenu-list li a:hover {
+    background-color: #f0f0f0;
+    color: #ff2a2a;
+}
+
+/* ---------- Buscador ---------- */
+body[data-theme="light"] .search-container { background-color: #ffffff; }
+body[data-theme="light"] .search-input {
+    background-color: #f2f2f2;
+    color: #111111;
+    border-color: #d8d8d8;
+}
+body[data-theme="light"] .search-input::placeholder { color: #888888; }
+
+/* ---------- Lista principal ---------- */
+body[data-theme="light"] .playlist { background-color: #ffffff; }
+body[data-theme="light"] .playlist-item:hover { background-color: #f2f2f2; }
+body[data-theme="light"] .playlist-item.active { background-color: #f0f0f0; }
+body[data-theme="light"] .thumbnail {
+    background-color: #e5e5e5;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+body[data-theme="light"] .item-title { color: #111111; }
+body[data-theme="light"] .item-subtitle { color: #666666; }
+
+/* ---------- Reproductor mini ---------- */
+body[data-theme="light"] .player {
+    background: linear-gradient(180deg, #f5f5f5 0%, #ffffff 100%);
+    border-top-color: #e0e0e0;
+    box-shadow: 0 -6px 28px rgba(0, 0, 0, 0.08);
+}
+body[data-theme="light"] .player-title { color: #111111; }
+body[data-theme="light"] .player-thumbnail {
+    background-color: #e5e5e5;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05);
+}
+body[data-theme="light"] .progress-bar { background-color: #d8d8d8; }
+body[data-theme="light"] .progress-bar:hover { background-color: #cccccc; }
+body[data-theme="light"] .time-labels { color: #666666; }
+
+/* ---------- Barra inferior ---------- */
+body[data-theme="light"] .bottom-nav {
+    background-color: #ffffff;
+    border-top-color: #e0e0e0;
+}
+body[data-theme="light"] .bn-label { color: #111111; }
+body[data-theme="light"] .bn-icon svg text { fill: #111111 !important; }
+
+/* ---------- Home ---------- */
+body[data-theme="light"] .home-section-title { color: #111111; }
+body[data-theme="light"] .home-section-title--all { border-top-color: #e5e5e5; }
+body[data-theme="light"] .home-card-title { color: #111111; }
+body[data-theme="light"] .home-card-sub { color: #666666; }
+body[data-theme="light"] .home-card-thumb {
+    background: #e5e5e5;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+}
+body[data-theme="light"] .home-all-header { border-top-color: #e5e5e5; }
+body[data-theme="light"] .playlist-collage-cell { background: #e5e5e5; }
+
+/* ---------- Vistas internas (perfil, álbum, playlist, mensajes, stats) ---------- */
+body[data-theme="light"] .artist-profile,
+body[data-theme="light"] .album-view,
+body[data-theme="light"] .playlist-view,
+body[data-theme="light"] .mi-playlist-view,
+body[data-theme="light"] .mensajes-view,
+body[data-theme="light"] .chat-view,
+body[data-theme="light"] .newmsg-view,
+body[data-theme="light"] .stats-view {
+    background: #ffffff;
+}
+body[data-theme="light"] .ap-header-title,
+body[data-theme="light"] .av-title,
+body[data-theme="light"] .pv-title,
+body[data-theme="light"] .mp-title,
+body[data-theme="light"] .msg-title,
+body[data-theme="light"] .newmsg-title,
+body[data-theme="light"] .st-title { color: #111111; }
+
+body[data-theme="light"] .av-row,
+body[data-theme="light"] .pv-row,
+body[data-theme="light"] .ap-row,
+body[data-theme="light"] .msg-row,
+body[data-theme="light"] .newmsg-row,
+body[data-theme="light"] .mp-add-row { color: #111111; }
+
+body[data-theme="light"] .av-row:active,
+body[data-theme="light"] .av-row.active,
+body[data-theme="light"] .pv-row:active,
+body[data-theme="light"] .pv-row.active,
+body[data-theme="light"] .ap-row:active,
+body[data-theme="light"] .ap-row.playing,
+body[data-theme="light"] .msg-row:active { background-color: #f0f0f0; }
+
+body[data-theme="light"] .ap-row-thumb,
+body[data-theme="light"] .pv-row-thumb,
+body[data-theme="light"] .pv-cover-wrap,
+body[data-theme="light"] .chat-bubble-song-thumb { background-color: #e5e5e5; }
+
+body[data-theme="light"] .pv-count,
+body[data-theme="light"] .av-toggle,
+body[data-theme="light"] .pv-play-all,
+body[data-theme="light"] .av-play-all { color: #ffffff; }
+
+/* ---------- Estadísticas ---------- */
+body[data-theme="light"] .st-hero {
+    background: linear-gradient(135deg, #fff5f5 0%, #ffffff 100%);
+    border-color: #f0d8d8;
+}
+body[data-theme="light"] .st-row {
+    background: #fafafa;
+    border-color: #e5e5e5;
+}
+body[data-theme="light"] .st-row-month { color: #111111; }
+body[data-theme="light"] .st-row-icon { background: rgba(255, 42, 42, 0.10); }
+
+/* ---------- Chat ---------- */
+body[data-theme="light"] .chat-header { border-bottom-color: #e0e0e0; }
+body[data-theme="light"] .chat-composer {
+    background: #ffffff;
+    border-top-color: #e0e0e0;
+}
+body[data-theme="light"] .chat-composer-row {
+    background: #f2f2f2;
+    border-color: #d8d8d8;
+}
+body[data-theme="light"] .chat-input { color: #111111; }
+body[data-theme="light"] .chat-input::placeholder { color: #888888; }
+body[data-theme="light"] .chat-bubble--in {
+    background: #f0f0f0;
+    color: #111111;
+    border-color: #e0e0e0;
+}
+
+/* ---------- Mensajes / Nuevo mensaje ---------- */
+body[data-theme="light"] .msg-row--unread { background: rgba(255, 42, 42, 0.08); }
+body[data-theme="light"] .msg-row-name,
+body[data-theme="light"] .newmsg-row-name { color: #111111; }
+body[data-theme="light"] .msg-row-preview,
+body[data-theme="light"] .newmsg-row-email { color: #666666; }
+body[data-theme="light"] .newmsg-input {
+    background-color: #f2f2f2;
+    color: #111111;
+    border-color: #d8d8d8;
+}
+body[data-theme="light"] .newmsg-input::placeholder { color: #888888; }
+
+/* ---------- Mi Playlist ---------- */
+body[data-theme="light"] .mp-card-title { color: #111111; }
+body[data-theme="light"] .mp-card-sub { color: #666666; }
+body[data-theme="light"] .mp-card-thumb,
+body[data-theme="light"] .mp-add-row-thumb { background-color: #e5e5e5; }
+
+/* ---------- Resultados de búsqueda ---------- */
+body[data-theme="light"] .search-row-title { color: #111111; }
+body[data-theme="light"] .search-row-sub { color: #666666; }
+body[data-theme="light"] .search-row-thumb { background-color: #e5e5e5; }
+body[data-theme="light"] .search-card-title { color: #111111; }
+body[data-theme="light"] .search-card-sub { color: #666666; }
+body[data-theme="light"] .search-card-thumb { background-color: #e5e5e5; }
+
+/* ---------- Modales ---------- */
+body[data-theme="light"] .mp-modal-box,
+body[data-theme="light"] .share-modal-box {
+    background: #ffffff;
+    border-color: #e5e5e5;
+    color: #111111;
+}
+body[data-theme="light"] .mp-modal-title,
+body[data-theme="light"] .share-modal-title { color: #111111; }
+body[data-theme="light"] .mp-modal-close,
+body[data-theme="light"] .share-modal-close { color: #111111; }
+body[data-theme="light"] .mp-modal-input,
+body[data-theme="light"] .share-modal-input {
+    background: #f2f2f2;
+    color: #111111;
+    border-color: #d8d8d8;
+}
+body[data-theme="light"] .mp-modal-input::placeholder,
+body[data-theme="light"] .share-modal-input::placeholder { color: #888888; }
+body[data-theme="light"] .mp-modal-toggle-label { color: #111111; }
+body[data-theme="light"] .mp-modal-toggle-row { border-top-color: #e5e5e5; }
+body[data-theme="light"] .mp-modal-btn-cancel { background: #e8e8e8; color: #111111; }
+body[data-theme="light"] .share-user-name,
+body[data-theme="light"] .mp-add-row-name { color: #111111; }
+body[data-theme="light"] .share-user-sub,
+body[data-theme="light"] .mp-add-row-sub { color: #666666; }
+
+/* ---------- Modal "Cambiar color" en tema blanco ---------- */
+body[data-theme="light"] .color-option {
+    background: #f5f5f5;
+    border-color: #e0e0e0;
+    color: #111111;
+}
+body[data-theme="light"] .color-option.active {
+    background: rgba(255, 42, 42, 0.10);
+    border-color: #ff2a2a;
+}
