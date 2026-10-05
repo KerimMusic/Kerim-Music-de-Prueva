@@ -680,7 +680,6 @@ button:active { opacity: 0.72; }
    ESTADOS DEL BOTÓN #fs-like (DESCARGA OFFLINE)
    ============================================================ */
 
-/* Estado DESCARGADA: check verde grande */
 .fs-like.downloaded {
     color: #4ade80 !important;
 }
@@ -698,7 +697,6 @@ button:active { opacity: 0.72; }
     color: #4ade80 !important;
 }
 
-/* Estado DESCARGANDO: spinner rojo */
 .fs-like.processing {
     opacity: 0.9;
     pointer-events: none;
@@ -2329,11 +2327,8 @@ button:active { opacity: 0.72; }
 }
 /* ============================================================
    FIX: SCROLL TÁCTIL FLUIDO EN MÓVILES
-   Permite deslizar desde cualquier punto, incluido sobre portadas.
-   No modifica diseño ni lógica existente.
    ============================================================ */
 
-/* --- Contenedores con scroll vertical: gesto fluido desde cualquier punto --- */
 .playlist,
 .home-view,
 .search-results,
@@ -2351,7 +2346,6 @@ button:active { opacity: 0.72; }
     overscroll-behavior: contain;
 }
 
-/* --- Items de la lista y sus hijos: permitir scroll vertical aunque toquen la portada --- */
 .playlist-item,
 .playlist-item *,
 .thumbnail,
@@ -2364,7 +2358,6 @@ button:active { opacity: 0.72; }
     touch-action: pan-y;
 }
 
-/* --- Carruseles horizontales: permitir tanto pan-x como pan-y (antes solo pan-x) --- */
 .home-carousel,
 .home-carousel *,
 .av-carousel,
@@ -2372,7 +2365,6 @@ button:active { opacity: 0.72; }
     touch-action: pan-x pan-y;
 }
 
-/* --- Todas las imágenes: no capturan el gesto táctil ni permiten arrastre nativo --- */
 img {
     -webkit-user-drag: none;
     user-drag: none;
@@ -2381,20 +2373,17 @@ img {
     user-select: none;
 }
 
-/* --- El reproductor fullscreen conserva su sistema de gestos --- */
 .fs-player,
 .fs-player * {
     touch-action: none;
 }
 
-/* --- La barra de progreso sí necesita su propio touch (seek) --- */
 .progress-bar,
 .progress-bar * {
     touch-action: none;
     pointer-events: auto;
 }
 
-/* --- Inputs y textareas recuperan el comportamiento táctil normal --- */
 input,
 textarea {
     touch-action: auto;
@@ -2551,11 +2540,11 @@ textarea {
 .st-empty { text-align: center; padding: 40px 20px; }
 .st-empty-title { font-size: 16px; font-weight: 800; color: #ffffff; margin-bottom: 6px; }
 .st-empty-sub   { font-size: 13px; color: #999999; }
+
 /* ============================================================
    41. PERFIL DE ARTISTA Y ÁLBUM EN FORMA DE LISTA
    ============================================================ */
 
-/* ---------- Perfil de artista: forzar lista vertical ---------- */
 .ap-grid.ap-grid--list {
     display: flex !important;
     flex-direction: column !important;
@@ -2629,7 +2618,6 @@ textarea {
     line-height: 1.2;
 }
 
-/* ---------- Vista de álbum: lista por defecto ---------- */
 .album-view .av-carousel.hidden {
     display: none !important;
 }
@@ -2637,11 +2625,11 @@ textarea {
     display: block !important;
 }
 
-/* ---------- Scroll táctil en las nuevas filas ---------- */
 .ap-row,
 .ap-row * {
     touch-action: pan-y;
 }
+
 /* ============================================================
    44. CAMBIAR COLOR — MODO BLANCO / NEGRO
    ============================================================ */
@@ -2708,11 +2696,11 @@ body[data-theme="light"] {
 }
 body[data-theme="light"] .app-container { background-color: #ffffff; }
 
-/* ---------- Barra superior ---------- */
+/* ---------- 1) BARRA SUPERIOR ---------- */
 body[data-theme="light"] .top-bar { background-color: #ffffff; }
-body[data-theme="light"] .menu-btn line { stroke: #000000; }
+body[data-theme="light"] .menu-btn svg line { stroke: #000000; }
 
-/* ---------- Menú hamburguesa ---------- */
+/* ---------- 2) MENÚ HAMBURGUESA ---------- */
 body[data-theme="light"] .submenu {
     background-color: #ffffff;
     border-right-color: #e0e0e0;
@@ -2720,6 +2708,7 @@ body[data-theme="light"] .submenu {
 }
 body[data-theme="light"] .submenu-header { border-bottom-color: #e5e5e5; }
 body[data-theme="light"] .submenu-user-section { border-bottom-color: #e5e5e5; }
+body[data-theme="light"] .submenu-title { color: #ff2a2a; }
 body[data-theme="light"] .submenu-user-name { color: #111111; }
 body[data-theme="light"] .submenu-user-sub  { color: #666666; }
 body[data-theme="light"] .close-submenu { color: #111111; }
@@ -2729,8 +2718,9 @@ body[data-theme="light"] .submenu-list li a:hover {
     background-color: #f0f0f0;
     color: #ff2a2a;
 }
+body[data-theme="light"] .submenu-link:active { background-color: #f0f0f0; }
 
-/* ---------- Buscador ---------- */
+/* ---------- 3) BUSCADOR ---------- */
 body[data-theme="light"] .search-container { background-color: #ffffff; }
 body[data-theme="light"] .search-input {
     background-color: #f2f2f2;
@@ -2738,9 +2728,10 @@ body[data-theme="light"] .search-input {
     border-color: #d8d8d8;
 }
 body[data-theme="light"] .search-input::placeholder { color: #888888; }
+body[data-theme="light"] .search-input:focus { border-color: #ff2a2a; }
 
-/* ---------- Lista principal ---------- */
-body[data-theme="light"] .playlist { background-color: #ffffff; }
+/* ---------- 4) LISTA PRINCIPAL ---------- */
+body[data-theme="light"] .playlist { background-color: #ffffff; color: #111111; }
 body[data-theme="light"] .playlist-item:hover { background-color: #f2f2f2; }
 body[data-theme="light"] .playlist-item.active { background-color: #f0f0f0; }
 body[data-theme="light"] .thumbnail {
@@ -2749,8 +2740,11 @@ body[data-theme="light"] .thumbnail {
 }
 body[data-theme="light"] .item-title { color: #111111; }
 body[data-theme="light"] .item-subtitle { color: #666666; }
+body[data-theme="light"] .item-info,
+body[data-theme="light"] .Album { color: #111111; }
+body[data-theme="light"] .item-plays { color: #ff2a2a; }
 
-/* ---------- Reproductor mini ---------- */
+/* ---------- 5) REPRODUCTOR MINI ---------- */
 body[data-theme="light"] .player {
     background: linear-gradient(180deg, #f5f5f5 0%, #ffffff 100%);
     border-top-color: #e0e0e0;
@@ -2765,7 +2759,7 @@ body[data-theme="light"] .progress-bar { background-color: #d8d8d8; }
 body[data-theme="light"] .progress-bar:hover { background-color: #cccccc; }
 body[data-theme="light"] .time-labels { color: #666666; }
 
-/* ---------- Barra inferior ---------- */
+/* ---------- 6) BARRA INFERIOR ---------- */
 body[data-theme="light"] .bottom-nav {
     background-color: #ffffff;
     border-top-color: #e0e0e0;
@@ -2773,76 +2767,129 @@ body[data-theme="light"] .bottom-nav {
 body[data-theme="light"] .bn-label { color: #111111; }
 body[data-theme="light"] .bn-icon svg text { fill: #111111 !important; }
 
-/* ---------- Home ---------- */
+/* ---------- 7) HOME ---------- */
 body[data-theme="light"] .home-section-title { color: #111111; }
 body[data-theme="light"] .home-section-title--all { border-top-color: #e5e5e5; }
+body[data-theme="light"] .home-card { color: #111111; }
 body[data-theme="light"] .home-card-title { color: #111111; }
 body[data-theme="light"] .home-card-sub { color: #666666; }
 body[data-theme="light"] .home-card-thumb {
     background: #e5e5e5;
     box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
 }
+body[data-theme="light"] .home-card--artist .home-card-thumb {
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15), 0 0 0 2px rgba(255, 42, 42, 0.35);
+}
 body[data-theme="light"] .home-all-header { border-top-color: #e5e5e5; }
 body[data-theme="light"] .playlist-collage-cell { background: #e5e5e5; }
 
-/* ---------- Vistas internas (perfil, álbum, playlist, mensajes, stats) ---------- */
-body[data-theme="light"] .artist-profile,
-body[data-theme="light"] .album-view,
-body[data-theme="light"] .playlist-view,
-body[data-theme="light"] .mi-playlist-view,
-body[data-theme="light"] .mensajes-view,
-body[data-theme="light"] .chat-view,
-body[data-theme="light"] .newmsg-view,
-body[data-theme="light"] .stats-view {
-    background: #ffffff;
-}
-body[data-theme="light"] .ap-header-title,
-body[data-theme="light"] .av-title,
-body[data-theme="light"] .pv-title,
-body[data-theme="light"] .mp-title,
-body[data-theme="light"] .msg-title,
-body[data-theme="light"] .newmsg-title,
-body[data-theme="light"] .st-title { color: #111111; }
-
-body[data-theme="light"] .av-row,
-body[data-theme="light"] .pv-row,
-body[data-theme="light"] .ap-row,
-body[data-theme="light"] .msg-row,
-body[data-theme="light"] .newmsg-row,
-body[data-theme="light"] .mp-add-row { color: #111111; }
-
-body[data-theme="light"] .av-row:active,
-body[data-theme="light"] .av-row.active,
-body[data-theme="light"] .pv-row:active,
-body[data-theme="light"] .pv-row.active,
+/* ---------- 8) PERFIL DE ARTISTA ---------- */
+body[data-theme="light"] .artist-profile { background: #ffffff; }
+body[data-theme="light"] .ap-header-title { color: #111111; }
+body[data-theme="light"] .ap-total-label { color: #111111; }
+body[data-theme="light"] .ap-total-value { color: #ff2a2a; }
+body[data-theme="light"] .ap-album-title { color: #111111; }
+body[data-theme="light"] .ap-album-count { color: #666666; }
+body[data-theme="light"] .ap-album-label { color: #ff2a2a; }
+body[data-theme="light"] .ap-album-arrow { color: #666666; }
+body[data-theme="light"] .ap-temas-header { color: #ff2a2a; }
+body[data-theme="light"] .ap-album { background: rgba(0, 0, 0, 0.04); }
+body[data-theme="light"] .ap-album-header { color: #111111; }
+body[data-theme="light"] .ap-row { color: #111111; }
 body[data-theme="light"] .ap-row:active,
-body[data-theme="light"] .ap-row.playing,
-body[data-theme="light"] .msg-row:active { background-color: #f0f0f0; }
+body[data-theme="light"] .ap-row.playing { background-color: #f0f0f0; }
+body[data-theme="light"] .ap-row-title { color: #111111; }
+body[data-theme="light"] .ap-row-sub { color: #666666; }
+body[data-theme="light"] .ap-row-thumb { background-color: #e5e5e5; }
+body[data-theme="light"] .ap-card { background: #e5e5e5; }
+body[data-theme="light"] .ap-artist-name { color: #ffffff; }
 
-body[data-theme="light"] .ap-row-thumb,
-body[data-theme="light"] .pv-row-thumb,
-body[data-theme="light"] .pv-cover-wrap,
-body[data-theme="light"] .chat-bubble-song-thumb { background-color: #e5e5e5; }
-
-body[data-theme="light"] .pv-count,
-body[data-theme="light"] .av-toggle,
-body[data-theme="light"] .pv-play-all,
-body[data-theme="light"] .av-play-all { color: #ffffff; }
-
-/* ---------- Estadísticas ---------- */
-body[data-theme="light"] .st-hero {
-    background: linear-gradient(135deg, #fff5f5 0%, #ffffff 100%);
-    border-color: #f0d8d8;
+/* ---------- 9) VISTA ÁLBUM ---------- */
+body[data-theme="light"] .album-view { background: #ffffff; }
+body[data-theme="light"] .av-title { color: #111111; }
+body[data-theme="light"] .av-toggle { color: #ffffff; }
+body[data-theme="light"] .av-card { color: #111111; }
+body[data-theme="light"] .av-card-title { color: #111111; }
+body[data-theme="light"] .av-card-sub { color: #666666; }
+body[data-theme="light"] .av-card-thumb { background: #e5e5e5; }
+body[data-theme="light"] .av-row { color: #111111; }
+body[data-theme="light"] .av-row:active,
+body[data-theme="light"] .av-row.active { background-color: #f0f0f0; }
+body[data-theme="light"] .av-row .item-title { color: #111111; }
+body[data-theme="light"] .av-row .item-subtitle { color: #666666; }
+body[data-theme="light"] .av-footer {
+    background: #ffffff;
+    border-top-color: #e0e0e0;
 }
-body[data-theme="light"] .st-row {
-    background: #fafafa;
-    border-color: #e5e5e5;
-}
-body[data-theme="light"] .st-row-month { color: #111111; }
-body[data-theme="light"] .st-row-icon { background: rgba(255, 42, 42, 0.10); }
 
-/* ---------- Chat ---------- */
+/* ---------- 10) VISTA PLAYLIST ---------- */
+body[data-theme="light"] .playlist-view { background: #ffffff; }
+body[data-theme="light"] .pv-title { color: #111111; }
+body[data-theme="light"] .pv-cover-wrap {
+    background: #e5e5e5;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.15);
+}
+body[data-theme="light"] .pv-count { color: #ffffff; }
+body[data-theme="light"] .pv-row { color: #111111; }
+body[data-theme="light"] .pv-row:active,
+body[data-theme="light"] .pv-row.active { background-color: #f0f0f0; }
+body[data-theme="light"] .pv-row-thumb { background: #e5e5e5; }
+body[data-theme="light"] .pv-row-title { color: #111111; }
+body[data-theme="light"] .pv-row-sub { color: #666666; }
+body[data-theme="light"] .pv-footer {
+    background: #ffffff;
+    border-top-color: #e0e0e0;
+}
+body[data-theme="light"] .pv-edit {
+    background: #eeeeee;
+    color: #111111;
+}
+body[data-theme="light"] .pv-edit:active { background: #dddddd; }
+body[data-theme="light"] .pv-edit span { color: #111111; }
+body[data-theme="light"] .pv-edit svg { stroke: #111111; }
+body[data-theme="light"] .pv-share { color: #ffffff; }
+body[data-theme="light"] .pv-play-all { color: #ffffff; }
+body[data-theme="light"] .pv-cancel {
+    background: #eeeeee;
+    color: #111111;
+}
+body[data-theme="light"] .pv-save { color: #ffffff; }
+body[data-theme="light"] .pv-delete-playlist {
+    background: #fff0f0;
+    color: #d81e1e;
+    border-color: #f5c0c0;
+}
+
+/* ---------- 11) MI PLAYLIST ---------- */
+body[data-theme="light"] .mi-playlist-view { background: #ffffff; }
+body[data-theme="light"] .mp-title { color: #111111; }
+body[data-theme="light"] .mp-create { color: #ffffff; }
+body[data-theme="light"] .mp-card { color: #111111; }
+body[data-theme="light"] .mp-card-title { color: #111111; }
+body[data-theme="light"] .mp-card-sub { color: #666666; }
+body[data-theme="light"] .mp-card-thumb,
+body[data-theme="light"] .mp-add-row-thumb { background-color: #e5e5e5; }
+body[data-theme="light"] .mp-empty-title { color: #111111; }
+body[data-theme="light"] .mp-empty-sub   { color: #666666; }
+
+/* ---------- 12) MENSAJES — LISTA ---------- */
+body[data-theme="light"] .mensajes-view { background: #ffffff; }
+body[data-theme="light"] .msg-title { color: #111111; }
+body[data-theme="light"] .msg-new-btn { color: #ffffff; }
+body[data-theme="light"] .msg-row { color: #111111; }
+body[data-theme="light"] .msg-row:active { background: #f0f0f0; }
+body[data-theme="light"] .msg-row--unread { background: rgba(255, 42, 42, 0.08); }
+body[data-theme="light"] .msg-row-name { color: #111111; }
+body[data-theme="light"] .msg-row-time { color: #888888; }
+body[data-theme="light"] .msg-row-preview { color: #666666; }
+body[data-theme="light"] .msg-row-song-tag { color: #ff2a2a; }
+body[data-theme="light"] .msg-empty-title { color: #111111; }
+body[data-theme="light"] .msg-empty-sub   { color: #666666; }
+
+/* ---------- 13) CHAT ---------- */
+body[data-theme="light"] .chat-view { background: #ffffff; }
 body[data-theme="light"] .chat-header { border-bottom-color: #e0e0e0; }
+body[data-theme="light"] .chat-username { color: #111111; }
 body[data-theme="light"] .chat-composer {
     background: #ffffff;
     border-top-color: #e0e0e0;
@@ -2853,40 +2900,90 @@ body[data-theme="light"] .chat-composer-row {
 }
 body[data-theme="light"] .chat-input { color: #111111; }
 body[data-theme="light"] .chat-input::placeholder { color: #888888; }
+body[data-theme="light"] .chat-send { color: #ffffff; }
 body[data-theme="light"] .chat-bubble--in {
     background: #f0f0f0;
     color: #111111;
     border-color: #e0e0e0;
 }
+body[data-theme="light"] .chat-bubble--out {
+    background: #ff2a2a;
+    color: #ffffff;
+}
+body[data-theme="light"] .chat-bubble--in .chat-bubble-text { color: #111111; }
+body[data-theme="light"] .chat-bubble--out .chat-bubble-text { color: #ffffff; }
+body[data-theme="light"] .chat-bubble--in .chat-bubble-song { background: rgba(0, 0, 0, 0.05); }
+body[data-theme="light"] .chat-bubble--out .chat-bubble-song { background: rgba(0, 0, 0, 0.25); }
+body[data-theme="light"] .chat-bubble-song-thumb { background: #e5e5e5; }
+body[data-theme="light"] .chat-bubble-song-title { color: inherit; }
+body[data-theme="light"] .chat-bubble-time { color: inherit; opacity: 0.75; }
+body[data-theme="light"] .chat-seen-mark { color: rgba(255, 255, 255, 0.9); }
+body[data-theme="light"] .chat-attachment {
+    background: #f5f5f5;
+    border-color: #e0e0e0;
+}
+body[data-theme="light"] .chat-attachment-thumb { background: #e5e5e5; }
+body[data-theme="light"] .chat-attachment-title { color: #111111; }
+body[data-theme="light"] .chat-attachment-sub { color: #666666; }
 
-/* ---------- Mensajes / Nuevo mensaje ---------- */
-body[data-theme="light"] .msg-row--unread { background: rgba(255, 42, 42, 0.08); }
-body[data-theme="light"] .msg-row-name,
-body[data-theme="light"] .newmsg-row-name { color: #111111; }
-body[data-theme="light"] .msg-row-preview,
-body[data-theme="light"] .newmsg-row-email { color: #666666; }
+/* ---------- 14) NUEVO MENSAJE ---------- */
+body[data-theme="light"] .newmsg-view { background: #ffffff; }
+body[data-theme="light"] .newmsg-title { color: #111111; }
 body[data-theme="light"] .newmsg-input {
     background-color: #f2f2f2;
     color: #111111;
     border-color: #d8d8d8;
 }
 body[data-theme="light"] .newmsg-input::placeholder { color: #888888; }
+body[data-theme="light"] .newmsg-row { color: #111111; }
+body[data-theme="light"] .newmsg-row:active { background: #f0f0f0; }
+body[data-theme="light"] .newmsg-row-name { color: #111111; }
+body[data-theme="light"] .newmsg-row-email { color: #666666; }
+body[data-theme="light"] .newmsg-loading,
+body[data-theme="light"] .newmsg-empty { color: #666666; }
 
-/* ---------- Mi Playlist ---------- */
-body[data-theme="light"] .mp-card-title { color: #111111; }
-body[data-theme="light"] .mp-card-sub { color: #666666; }
-body[data-theme="light"] .mp-card-thumb,
-body[data-theme="light"] .mp-add-row-thumb { background-color: #e5e5e5; }
+/* ---------- 15) ESTADÍSTICAS ---------- */
+body[data-theme="light"] .stats-view { background: #ffffff; }
+body[data-theme="light"] .st-title { color: #111111; }
+body[data-theme="light"] .st-hero {
+    background: linear-gradient(135deg, #fff5f5 0%, #ffffff 100%);
+    border-color: #f0d8d8;
+    box-shadow: 0 12px 32px rgba(255, 42, 42, 0.08),
+                inset 0 0 40px rgba(255, 42, 42, 0.04);
+}
+body[data-theme="light"] .st-hero-label { color: #ff2a2a; }
+body[data-theme="light"] .st-hero-month { color: #666666; }
+body[data-theme="light"] .st-hero-time  { color: #111111; }
+body[data-theme="light"] .st-history-header {
+    color: #ff2a2a;
+    border-bottom-color: #e0e0e0;
+}
+body[data-theme="light"] .st-row {
+    background: #fafafa;
+    border-color: #e5e5e5;
+}
+body[data-theme="light"] .st-row-month { color: #111111; }
+body[data-theme="light"] .st-row-time  { color: #ff2a2a; }
+body[data-theme="light"] .st-row-icon  { background: rgba(255, 42, 42, 0.10); }
+body[data-theme="light"] .st-empty-title { color: #111111; }
+body[data-theme="light"] .st-empty-sub   { color: #666666; }
 
-/* ---------- Resultados de búsqueda ---------- */
+/* ---------- 16) RESULTADOS DE BÚSQUEDA ---------- */
+body[data-theme="light"] .search-section-title { color: #111111; }
+body[data-theme="light"] .search-row { color: #111111; }
+body[data-theme="light"] .search-row:active { background-color: #f0f0f0; }
+body[data-theme="light"] .search-row-thumb { background-color: #e5e5e5; }
 body[data-theme="light"] .search-row-title { color: #111111; }
 body[data-theme="light"] .search-row-sub { color: #666666; }
-body[data-theme="light"] .search-row-thumb { background-color: #e5e5e5; }
+body[data-theme="light"] .search-row-play { color: #ff2a2a; }
+body[data-theme="light"] .search-card { color: #111111; }
+body[data-theme="light"] .search-card-thumb { background-color: #e5e5e5; }
 body[data-theme="light"] .search-card-title { color: #111111; }
 body[data-theme="light"] .search-card-sub { color: #666666; }
-body[data-theme="light"] .search-card-thumb { background-color: #e5e5e5; }
+body[data-theme="light"] .search-empty-title { color: #111111; }
+body[data-theme="light"] .search-empty-sub   { color: #666666; }
 
-/* ---------- Modales ---------- */
+/* ---------- 17) MODALES ---------- */
 body[data-theme="light"] .mp-modal-box,
 body[data-theme="light"] .share-modal-box {
     background: #ffffff;
@@ -2908,12 +3005,108 @@ body[data-theme="light"] .share-modal-input::placeholder { color: #888888; }
 body[data-theme="light"] .mp-modal-toggle-label { color: #111111; }
 body[data-theme="light"] .mp-modal-toggle-row { border-top-color: #e5e5e5; }
 body[data-theme="light"] .mp-modal-btn-cancel { background: #e8e8e8; color: #111111; }
-body[data-theme="light"] .share-user-name,
-body[data-theme="light"] .mp-add-row-name { color: #111111; }
-body[data-theme="light"] .share-user-sub,
-body[data-theme="light"] .mp-add-row-sub { color: #666666; }
+body[data-theme="light"] .mp-modal-btn-confirm { color: #ffffff; }
+body[data-theme="light"] .mp-modal-status { color: #d81e1e; }
+body[data-theme="light"] .mp-modal-status.ok { color: #16a34a; }
+body[data-theme="light"] .mp-modal-status.checking { color: #666666; }
 
-/* ---------- Modal "Cambiar color" en tema blanco ---------- */
+body[data-theme="light"] .share-user-name { color: #111111; }
+body[data-theme="light"] .share-user-sub { color: #666666; }
+body[data-theme="light"] .share-user-action { color: #666666; }
+body[data-theme="light"] .share-user-row:active { background: #f0f0f0; }
+body[data-theme="light"] .share-user-row--recent { background: rgba(255, 42, 42, 0.06); }
+body[data-theme="light"] .share-user-row--already { background: rgba(255, 60, 60, 0.08); border-color: rgba(255, 60, 60, 0.25); }
+body[data-theme="light"] .share-modal-status { color: #d81e1e; }
+body[data-theme="light"] .share-modal-status.ok { color: #16a34a; }
+body[data-theme="light"] #share-modal-recent { border-bottom-color: #e5e5e5; }
+
+body[data-theme="light"] .mp-add-row { color: #111111; }
+body[data-theme="light"] .mp-add-row:active { background: #f0f0f0; }
+body[data-theme="light"] .mp-add-row-name { color: #111111; }
+body[data-theme="light"] .mp-add-row-sub { color: #666666; }
+body[data-theme="light"] #remove-pl-list .mp-add-row-thumb {
+    background: linear-gradient(135deg, #ffe5e5 0%, #f5f5f5 100%);
+}
+
+body[data-theme="light"] .mp-switch-slider { background: #d8d8d8; }
+body[data-theme="light"] .mp-switch-slider::before { background: #ffffff; }
+
+body[data-theme="light"] .name-email-privacy { border-top-color: #e5e5e5; }
+body[data-theme="light"] .name-email-privacy-label { color: #ff2a2a; }
+body[data-theme="light"] .name-email-privacy-hint { color: #666666; }
+body[data-theme="light"] .name-email-privacy-btn {
+    background: #f5f5f5;
+    color: #111111;
+    border-color: #e0e0e0;
+}
+body[data-theme="light"] .name-email-privacy-btn.active {
+    background: rgba(255, 42, 42, 0.10);
+    border-color: #ff2a2a;
+    color: #ff2a2a;
+}
+body[data-theme="light"] .email-hidden-badge { color: #d81e1e; }
+
+body[data-theme="light"] .mp-share-vis { border-bottom-color: #e5e5e5; }
+body[data-theme="light"] .mp-share-vis-label { color: #ff2a2a; }
+body[data-theme="light"] .mp-share-vis-btn {
+    background: #f5f5f5;
+    color: #111111;
+    border-color: #e0e0e0;
+}
+body[data-theme="light"] .mp-share-vis-btn.active {
+    background: rgba(255, 42, 42, 0.10);
+    border-color: #ff2a2a;
+    color: #ff2a2a;
+}
+
+/* ---------- 18) DIÁLOGOS DE CONFIRMACIÓN ---------- */
+body[data-theme="light"] .conv-menu {
+    background: #ffffff;
+    border-color: #e5e5e5;
+}
+body[data-theme="light"] .conv-menu-title {
+    color: #ff2a2a;
+    border-bottom-color: #e5e5e5;
+}
+body[data-theme="light"] .conv-menu-btn {
+    color: #111111;
+    border-bottom-color: #e5e5e5;
+}
+body[data-theme="light"] .conv-menu-btn:active { background: #f0f0f0; }
+body[data-theme="light"] .conv-menu-btn.danger { color: #d81e1e; }
+body[data-theme="light"] .conv-menu-cancel {
+    background: #f0f0f0;
+    color: #666666;
+}
+body[data-theme="light"] .conv-menu-cancel:active { background: #e0e0e0; }
+
+body[data-theme="light"] .conv-confirm-box {
+    background: #ffffff;
+    border-color: #e5e5e5;
+}
+body[data-theme="light"] .conv-confirm-title { color: #111111; }
+body[data-theme="light"] .conv-confirm-sub { color: #666666; }
+body[data-theme="light"] .conv-confirm-actions .no {
+    background: #eeeeee;
+    color: #111111;
+}
+body[data-theme="light"] .conv-confirm-actions .yes { color: #ffffff; }
+
+body[data-theme="light"] .conv-clean-bar {
+    background: #ffffff;
+    border-top-color: #e5e5e5;
+    box-shadow: 0 -8px 26px rgba(0, 0, 0, 0.08);
+}
+body[data-theme="light"] .conv-clean-count { color: #111111; }
+body[data-theme="light"] .conv-clean-hint  { color: #666666; }
+body[data-theme="light"] .conv-clean-btn.cancel {
+    background: #eeeeee;
+    color: #111111;
+}
+body[data-theme="light"] .conv-clean-btn.confirm { color: #ffffff; }
+body[data-theme="light"] .msg-row.msg-row-selected { background: rgba(255, 42, 42, 0.12) !important; }
+
+/* ---------- 19) MODAL "CAMBIAR COLOR" en tema blanco ---------- */
 body[data-theme="light"] .color-option {
     background: #f5f5f5;
     border-color: #e0e0e0;
@@ -2922,4 +3115,8 @@ body[data-theme="light"] .color-option {
 body[data-theme="light"] .color-option.active {
     background: rgba(255, 42, 42, 0.10);
     border-color: #ff2a2a;
+}
+body[data-theme="light"] .color-option.active::after { color: #ff2a2a; }
+body[data-theme="light"] .color-swatch--light {
+    box-shadow: 0 0 0 1.5px #cccccc inset, 0 2px 8px rgba(0, 0, 0, 0.25);
 }
