@@ -1,3 +1,7 @@
+/* ============================================================
+   OMEGABEATS — ESTILOS COMPLETOS (MÓVIL + ESCRITORIO)
+   ============================================================ */
+
 * {
     box-sizing: border-box;
     margin: 0;
@@ -547,6 +551,15 @@ button:active { opacity: 0.72; }
 #ad-overlay .ad-skip { background: #ff2a2a; color: #ffffff; border: none; border-radius: 50px; padding: 12px 32px; font-size: 14px; font-weight: 800; letter-spacing: 1px; cursor: pointer; box-shadow: 0 8px 24px rgba(255, 42, 42, 0.35); }
 #ad-overlay .ad-skip:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
 
+#ad-overlay .ad-counter {
+    font-size: 11.5px;
+    color: rgba(255, 255, 255, 0.75);
+    letter-spacing: 3px;
+    font-weight: 800;
+    text-transform: uppercase;
+    margin-top: -10px;
+}
+
 .fs-player {
     position: fixed;
     inset: 0;
@@ -676,47 +689,16 @@ button:active { opacity: 0.72; }
 .fs-like.active { color: #ff2a2a; }
 .fs-like.active svg { fill: #ff2a2a; stroke: #ff2a2a; }
 
-/* ============================================================
-   ESTADOS DEL BOTÓN #fs-like (DESCARGA OFFLINE)
-   ============================================================ */
+.fs-like.downloaded { color: #4ade80 !important; }
+.fs-like.downloaded svg { width: 46px; height: 46px; fill: none; }
+.fs-like.downloaded svg polyline { stroke: #4ade80 !important; stroke-width: 3.2; fill: none; }
+.fs-like.downloaded span { color: #4ade80 !important; }
 
-/* Estado DESCARGADA: check verde grande */
-.fs-like.downloaded {
-    color: #4ade80 !important;
-}
-.fs-like.downloaded svg {
-    width: 46px;
-    height: 46px;
-    fill: none;
-}
-.fs-like.downloaded svg polyline {
-    stroke: #4ade80 !important;
-    stroke-width: 3.2;
-    fill: none;
-}
-.fs-like.downloaded span {
-    color: #4ade80 !important;
-}
+.fs-like.processing { opacity: 0.9; pointer-events: none; color: #ff2a2a !important; }
+.fs-like.processing svg { stroke: #ff2a2a !important; fill: none !important; animation: fs-like-spin 0.9s linear infinite; }
+.fs-like.processing span { color: #ff2a2a !important; }
 
-/* Estado DESCARGANDO: spinner rojo */
-.fs-like.processing {
-    opacity: 0.9;
-    pointer-events: none;
-    color: #ff2a2a !important;
-}
-.fs-like.processing svg {
-    stroke: #ff2a2a !important;
-    fill: none !important;
-    animation: fs-like-spin 0.9s linear infinite;
-}
-.fs-like.processing span {
-    color: #ff2a2a !important;
-}
-
-@keyframes fs-like-spin {
-    from { transform: rotate(0deg); }
-    to   { transform: rotate(360deg); }
-}
+@keyframes fs-like-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
 #omega-toast {
     position: fixed;
@@ -1289,9 +1271,8 @@ button:active { opacity: 0.72; }
 .share-user-row--recent { background: rgba(255, 42, 42, 0.05); }
 
 /* ============================================================
-   MI PLAYLIST (vista, crear, público/privado, añadir)
+   MI PLAYLIST
    ============================================================ */
-
 .mi-playlist-view {
     position: absolute;
     top: 0; left: 0; right: 0; bottom: 81px;
@@ -1601,7 +1582,6 @@ button:active { opacity: 0.72; }
 /* ============================================================
    MENSAJES DIRECTOS
    ============================================================ */
-
 .msg-badge {
     display: inline-flex;
     align-items: center;
@@ -2087,7 +2067,7 @@ button:active { opacity: 0.72; }
 }
 
 /* ============================================================
-   33. BÚSQUEDA POR GÉNERO Y PLAYLISTS PÚBLICAS
+   BÚSQUEDA POR GÉNERO Y PLAYLISTS PÚBLICAS
    ============================================================ */
 .search-section--genres .search-card-thumb,
 .search-section--public-playlists .search-card-thumb {
@@ -2096,7 +2076,7 @@ button:active { opacity: 0.72; }
 }
 
 /* ============================================================
-   35. ELIMINAR PLAYLIST DESDE "EDITAR"
+   ELIMINAR PLAYLIST DESDE "EDITAR"
    ============================================================ */
 .pv-delete-playlist {
     flex: 1;
@@ -2125,7 +2105,7 @@ button:active { opacity: 0.72; }
 }
 
 /* ============================================================
-   36. COLABORADORES EN EL REPRODUCTOR FULLSCREEN
+   COLABORADORES EN EL REPRODUCTOR FULLSCREEN
    ============================================================ */
 .fs-collabs {
     position: absolute;
@@ -2241,18 +2221,6 @@ button:active { opacity: 0.72; }
 }
 
 /* ============================================================
-   CONTADOR DE ANUNCIOS
-   ============================================================ */
-#ad-overlay .ad-counter {
-    font-size: 11.5px;
-    color: rgba(255, 255, 255, 0.75);
-    letter-spacing: 3px;
-    font-weight: 800;
-    text-transform: uppercase;
-    margin-top: -10px;
-}
-
-/* ============================================================
    BOTTOM NAVIGATION BAR
    ============================================================ */
 .bottom-nav {
@@ -2327,13 +2295,10 @@ button:active { opacity: 0.72; }
         border-radius: 0 0 12px 12px;
     }
 }
+
 /* ============================================================
    FIX: SCROLL TÁCTIL FLUIDO EN MÓVILES
-   Permite deslizar desde cualquier punto, incluido sobre portadas.
-   No modifica diseño ni lógica existente.
    ============================================================ */
-
-/* --- Contenedores con scroll vertical: gesto fluido desde cualquier punto --- */
 .playlist,
 .home-view,
 .search-results,
@@ -2351,7 +2316,6 @@ button:active { opacity: 0.72; }
     overscroll-behavior: contain;
 }
 
-/* --- Items de la lista y sus hijos: permitir scroll vertical aunque toquen la portada --- */
 .playlist-item,
 .playlist-item *,
 .thumbnail,
@@ -2364,7 +2328,6 @@ button:active { opacity: 0.72; }
     touch-action: pan-y;
 }
 
-/* --- Carruseles horizontales: permitir tanto pan-x como pan-y (antes solo pan-x) --- */
 .home-carousel,
 .home-carousel *,
 .av-carousel,
@@ -2372,7 +2335,6 @@ button:active { opacity: 0.72; }
     touch-action: pan-x pan-y;
 }
 
-/* --- Todas las imágenes: no capturan el gesto táctil ni permiten arrastre nativo --- */
 img {
     -webkit-user-drag: none;
     user-drag: none;
@@ -2381,20 +2343,17 @@ img {
     user-select: none;
 }
 
-/* --- El reproductor fullscreen conserva su sistema de gestos --- */
 .fs-player,
 .fs-player * {
     touch-action: none;
 }
 
-/* --- La barra de progreso sí necesita su propio touch (seek) --- */
 .progress-bar,
 .progress-bar * {
     touch-action: none;
     pointer-events: auto;
 }
 
-/* --- Inputs y textareas recuperan el comportamiento táctil normal --- */
 input,
 textarea {
     touch-action: auto;
@@ -2402,7 +2361,7 @@ textarea {
 }
 
 /* ============================================================
-   39. VISTA DE ESTADÍSTICAS DE HORAS ESCUCHANDO MÚSICA
+   VISTA DE ESTADÍSTICAS DE HORAS ESCUCHANDO MÚSICA
    ============================================================ */
 .stats-view {
     position: absolute;
@@ -2551,11 +2510,10 @@ textarea {
 .st-empty { text-align: center; padding: 40px 20px; }
 .st-empty-title { font-size: 16px; font-weight: 800; color: #ffffff; margin-bottom: 6px; }
 .st-empty-sub   { font-size: 13px; color: #999999; }
-/* ============================================================
-   41. PERFIL DE ARTISTA Y ÁLBUM EN FORMA DE LISTA
-   ============================================================ */
 
-/* ---------- Perfil de artista: forzar lista vertical ---------- */
+/* ============================================================
+   PERFIL DE ARTISTA Y ÁLBUM EN FORMA DE LISTA
+   ============================================================ */
 .ap-grid.ap-grid--list {
     display: flex !important;
     flex-direction: column !important;
@@ -2629,7 +2587,6 @@ textarea {
     line-height: 1.2;
 }
 
-/* ---------- Vista de álbum: lista por defecto ---------- */
 .album-view .av-carousel.hidden {
     display: none !important;
 }
@@ -2637,8 +2594,414 @@ textarea {
     display: block !important;
 }
 
-/* ---------- Scroll táctil en las nuevas filas ---------- */
 .ap-row,
 .ap-row * {
     touch-action: pan-y;
+}
+
+/* ============================================================
+   ESTILO DE ESCRITORIO (DESKTOP) — OMEGABEATS
+   Se activa solo en pantallas grandes (>= 900px).
+   No afecta al móvil.
+   ============================================================ */
+
+@media (min-width: 900px) {
+
+    html, body {
+        height: 100%;
+        background:
+            radial-gradient(circle at 15% 0%, #1a0202 0%, #000000 45%),
+            radial-gradient(circle at 85% 100%, #0d0d0d 0%, #000000 55%);
+    }
+
+    body {
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        min-height: 100vh;
+    }
+
+    .app-container {
+        max-width: 1440px;
+        width: 100%;
+        height: calc(100vh - 48px);
+        max-height: 920px;
+        border-radius: 22px;
+        background: #0a0a0a;
+        overflow: hidden;
+        position: relative;
+        box-shadow:
+            0 40px 100px rgba(0, 0, 0, 0.85),
+            0 0 0 1px rgba(255, 255, 255, 0.06),
+            0 0 120px rgba(255, 42, 42, 0.05);
+    }
+
+    .top-bar {
+        padding: 22px 44px;
+        min-height: 96px;
+    }
+    .header-logo { width: 200px; }
+    .header-logo img { width: 42%; }
+
+    .submenu {
+        width: 340px;
+        padding: 32px 26px;
+        border-right: 1px solid #141414;
+    }
+    .submenu-list li a {
+        font-size: 17px;
+        padding: 16px 14px;
+    }
+
+    .search-container { padding: 0 44px; }
+    .search-container.visible {
+        max-height: 90px;
+        padding: 0 44px 20px;
+    }
+    .search-input {
+        padding: 16px 22px;
+        font-size: 16px;
+        border-radius: 16px;
+    }
+
+    .playlist {
+        padding: 16px 44px;
+        padding-bottom: 260px !important;
+    }
+
+    .playlist::-webkit-scrollbar,
+    .pv-scroll::-webkit-scrollbar,
+    .ap-scroll::-webkit-scrollbar,
+    .av-scroll::-webkit-scrollbar,
+    .mp-scroll::-webkit-scrollbar,
+    .msg-scroll::-webkit-scrollbar,
+    .chat-scroll::-webkit-scrollbar,
+    .st-scroll::-webkit-scrollbar,
+    .newmsg-scroll::-webkit-scrollbar,
+    .search-results::-webkit-scrollbar,
+    .share-modal-results::-webkit-scrollbar,
+    .mp-add-list::-webkit-scrollbar {
+        width: 10px;
+    }
+    .playlist::-webkit-scrollbar-track,
+    .pv-scroll::-webkit-scrollbar-track,
+    .ap-scroll::-webkit-scrollbar-track,
+    .av-scroll::-webkit-scrollbar-track,
+    .mp-scroll::-webkit-scrollbar-track,
+    .msg-scroll::-webkit-scrollbar-track,
+    .chat-scroll::-webkit-scrollbar-track,
+    .st-scroll::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    .playlist::-webkit-scrollbar-thumb,
+    .pv-scroll::-webkit-scrollbar-thumb,
+    .ap-scroll::-webkit-scrollbar-thumb,
+    .av-scroll::-webkit-scrollbar-thumb,
+    .mp-scroll::-webkit-scrollbar-thumb,
+    .msg-scroll::-webkit-scrollbar-thumb,
+    .chat-scroll::-webkit-scrollbar-thumb,
+    .st-scroll::-webkit-scrollbar-thumb {
+        background: rgba(255, 42, 42, 0.35);
+        border-radius: 10px;
+        border: 2px solid transparent;
+        background-clip: content-box;
+    }
+    .playlist::-webkit-scrollbar-thumb:hover,
+    .pv-scroll::-webkit-scrollbar-thumb:hover,
+    .ap-scroll::-webkit-scrollbar-thumb:hover,
+    .av-scroll::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 42, 42, 0.6);
+        background-clip: content-box;
+    }
+
+    .home-view { margin: 0; padding: 0; }
+    .home-section { margin-bottom: 38px; }
+    .home-section-title {
+        font-size: 26px;
+        padding: 0 44px;
+        margin: 10px 0 18px;
+        letter-spacing: -0.3px;
+    }
+    .home-section-title--all { padding-top: 14px; }
+
+    .home-carousel {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+        gap: 22px;
+        overflow: visible;
+        padding: 6px 44px 12px;
+        scroll-snap-type: none;
+    }
+    .home-card {
+        width: 100%;
+        flex: initial;
+        transition: transform 0.25s ease;
+    }
+    .home-card:hover { transform: translateY(-4px); }
+    .home-card:active { transform: translateY(-2px) scale(0.98); }
+    .home-card-thumb {
+        width: 100%;
+        height: auto;
+        aspect-ratio: 1 / 1;
+        border-radius: 12px;
+        transition: box-shadow 0.25s ease;
+    }
+    .home-card:hover .home-card-thumb {
+        box-shadow:
+            0 12px 28px rgba(0, 0, 0, 0.7),
+            0 0 0 1px rgba(255, 42, 42, 0.25);
+    }
+    .home-card-title { font-size: 14px; margin-top: 10px; }
+    .home-card-sub { font-size: 12px; }
+    .home-card--artist { width: 100%; text-align: center; }
+    .home-card--artist .home-card-thumb {
+        width: 100%;
+        height: auto;
+        aspect-ratio: 1 / 1;
+    }
+
+    .playlist-item {
+        padding: 10px 12px;
+        margin-bottom: 10px;
+        border-radius: 12px;
+        transition: background 0.2s ease, transform 0.15s ease;
+    }
+    .playlist-item:hover {
+        background-color: #141414;
+        padding: 10px 12px;
+        margin-left: 0;
+        margin-right: 0;
+        width: 100%;
+        transform: translateX(4px);
+    }
+    .playlist-item.active {
+        padding: 10px 12px;
+        margin-left: 0;
+        margin-right: 0;
+        width: 100%;
+        background: linear-gradient(90deg, rgba(255, 42, 42, 0.12) 0%, transparent 100%);
+        border-left: 3px solid #ff2a2a;
+    }
+    .thumbnail { width: 64px; height: 64px; border-radius: 10px; }
+    .item-title { font-size: 17px; font-weight: 500; }
+    .item-subtitle { font-size: 13.5px; }
+
+    .player {
+        bottom: 84px !important;
+        left: 0;
+        right: 0;
+        padding: 18px 44px;
+        gap: 22px;
+        height: 108px;
+        background: linear-gradient(180deg, #0d0d0d 0%, #050505 100%);
+        border-top: 1px solid #1c1c1c;
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+    }
+    .player-thumbnail { width: 76px; height: 76px; border-radius: 14px; }
+    .player-title { font-size: 18px; font-weight: 700; }
+    .player-center { gap: 10px; }
+    .progress-bar { height: 5px; border-radius: 5px; }
+    .progress-bar:hover { height: 7px; }
+    .progress-thumb { width: 14px; height: 14px; }
+    .time-labels { font-size: 12px; margin-top: 4px; }
+    .play-button { width: 60px; height: 60px; }
+    .play-button svg { width: 24px; height: 24px; }
+
+    .bottom-nav {
+        height: 84px;
+        max-width: 1440px;
+        left: 50%;
+        transform: translateX(-50%);
+        border-radius: 0 0 22px 22px;
+        justify-content: center;
+        gap: 24px;
+        padding: 0 44px;
+        border-top: 1px solid #141414;
+        background: #050505;
+    }
+    .bn-item {
+        width: auto;
+        flex-direction: row;
+        gap: 12px;
+        padding: 12px 26px;
+        border-radius: 50px;
+        max-width: 260px;
+        transition: background 0.2s ease, transform 0.2s ease;
+    }
+    .bn-item:hover {
+        background: rgba(255, 42, 42, 0.08);
+        transform: translateY(-2px);
+    }
+    .bn-item:active { transform: translateY(0) scale(0.97); }
+    .bn-icon { width: 26px; height: 26px; }
+    .bn-label { font-size: 14px; letter-spacing: 0.3px; }
+
+    .artist-profile,
+    .playlist-view,
+    .album-view,
+    .mi-playlist-view,
+    .mensajes-view,
+    .chat-view,
+    .newmsg-view,
+    .stats-view {
+        bottom: 192px !important;
+        padding: 0 24px;
+        background: #060606;
+    }
+
+    .ap-header,
+    .pv-header,
+    .av-header,
+    .mp-header,
+    .msg-header,
+    .newmsg-header,
+    .st-header,
+    .chat-header {
+        padding: 24px 24px 14px;
+    }
+    .ap-header-title { font-size: 16px; }
+    .pv-title,
+    .mp-title,
+    .msg-title,
+    .newmsg-title { font-size: 32px; }
+    .av-title { font-size: 42px; }
+
+    .ap-hero {
+        width: calc(100% - 48px);
+        margin: 8px 24px 0;
+        aspect-ratio: 21 / 9;
+        border-radius: 22px;
+    }
+    .ap-artist-name { font-size: 38px; left: 28px; bottom: 22px; }
+    .ap-stats { padding: 22px 28px 14px; }
+    .ap-total-value { font-size: 24px; }
+    .ap-listen-btn { padding: 16px 32px; font-size: 15px; }
+
+    .ap-grid {
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        gap: 18px;
+        padding: 14px 24px 14px;
+    }
+    .ap-card-title { font-size: 13px; padding: 26px 10px 10px; }
+
+    .ap-row {
+        padding: 10px 12px;
+        margin-bottom: 6px;
+        border-radius: 12px;
+    }
+    .ap-row:hover { background-color: #141414; }
+    .ap-row-thumb { width: 60px; height: 60px; }
+    .ap-row-title { font-size: 17px; }
+
+    .pv-cover-wrap { max-width: 380px; margin: 18px auto 28px; }
+    .pv-row {
+        padding: 10px 12px;
+        margin-bottom: 8px;
+        border-radius: 12px;
+    }
+    .pv-row:hover { background-color: #141414; }
+    .pv-row-thumb { width: 60px; height: 60px; }
+    .pv-row-title { font-size: 17px; }
+
+    .mp-grid {
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 22px;
+    }
+    .mp-card { transition: transform 0.25s ease; }
+    .mp-card:hover { transform: translateY(-4px); }
+    .mp-card-title { font-size: 16px; }
+
+    .msg-row,
+    .newmsg-row { padding: 16px 14px; border-radius: 14px; }
+    .msg-row:hover,
+    .newmsg-row:hover { background: #141414; }
+    .msg-row-avatar,
+    .newmsg-row-avatar { width: 58px; height: 58px; }
+    .msg-row-name,
+    .newmsg-row-name { font-size: 16px; }
+
+    .chat-bubble { max-width: 65%; padding: 12px 16px; }
+    .chat-bubble-text { font-size: 15px; }
+
+    .st-scroll { padding: 20px 40px 40px; }
+    .st-hero { padding: 40px 30px; margin-bottom: 32px; }
+    .st-hero-time { font-size: 54px; }
+    .st-row { padding: 20px 22px; }
+
+    .fs-vinyl-wrap { width: min(42vw, 52vh, 460px); }
+    .fs-content { gap: 40px; padding: 0 60px 70px; }
+    .fs-title { font-size: 32px; }
+    .fs-actions { bottom: 55px; right: 40px; }
+    .fs-close { width: 46px; height: 46px; }
+
+    .mp-modal-box,
+    .share-modal-box {
+        max-width: 500px;
+        padding: 26px 26px 22px;
+        border-radius: 22px;
+    }
+    .mp-modal-title,
+    .share-modal-title { font-size: 19px; }
+    .mp-modal-input,
+    .share-modal-input {
+        padding: 16px 20px;
+        font-size: 15px;
+        border-radius: 14px;
+    }
+
+    .auth-gate-inner { max-width: 420px; }
+    .auth-gate-logo { width: 140px; height: 140px; }
+    .auth-gate-title { font-size: 36px; }
+    .auth-google-btn { padding: 18px 28px; font-size: 16px; }
+
+    .search-results { margin: 0; padding: 10px 0 30px; }
+    .search-section { padding: 0 44px; margin-bottom: 30px; }
+    .search-section-title { font-size: 22px; }
+    .search-row { padding: 10px 8px; border-radius: 12px; }
+    .search-row:hover { background: #141414; }
+    .search-row-thumb { width: 58px; height: 58px; }
+    .search-card-grid {
+        grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+        gap: 20px;
+    }
+
+    .pv-share:hover,
+    .pv-edit:hover,
+    .mp-create:hover,
+    .msg-new-btn:hover,
+    .show-all-btn:hover,
+    .pv-play-all:hover,
+    .av-play-all:hover,
+    .ap-listen-btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 12px 30px rgba(255, 42, 42, 0.5);
+    }
+    .pv-share:active,
+    .pv-edit:active,
+    .mp-create:active,
+    .msg-new-btn:active,
+    .show-all-btn:active,
+    .pv-play-all:active,
+    .av-play-all:active,
+    .ap-listen-btn:active {
+        transform: translateY(0) scale(0.97);
+    }
+}
+
+/* ============================================================
+   MONITORES GRANDES (>= 1400px)
+   ============================================================ */
+@media (min-width: 1400px) {
+    .app-container { max-width: 1560px; }
+    .home-carousel {
+        grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    }
+    .ap-grid {
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    }
+    .mp-grid {
+        grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    }
+    .bottom-nav { max-width: 1560px; }
 }
