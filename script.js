@@ -9886,3 +9886,112 @@ document.addEventListener('DOMContentLoaded', () => {
         init();
     }
 })();
+/* ============================================================
+   44. CAMBIAR COLOR — MODO BLANCO / NEGRO
+   ============================================================ */
+(function () {
+    'use strict';
+
+    const STORAGE_KEY = 'omega_color_theme_v1';
+
+    function getSavedTheme() {
+        try {
+            const v = localStorage.getItem(STORAGE_KEY);
+            return (v === 'light' || v === 'dark') ? v : 'dark';
+        } catch (_) {
+            return 'dark';
+        }
+    }
+
+    function applyTheme(theme) {
+        if (theme === 'light') {
+            document.body.setAttribute('data-theme', 'light');
+        } else {
+            document.body.removeAttribute('data-theme');
+        }
+    }
+
+    function saveTheme(theme) {
+        try { localStorage.setItem(STORAGE_KEY, theme); } catch (_) {}
+    }
+
+    /* Aplica el tema guardado inmediatamente al cargar el script,
+       para que se vea de una vez sin parpadeos. */
+    if (document.body) {
+        applyTheme(getSavedTheme());
+    } else {
+        document.addEventListener('DOMContentLoaded', function () {
+            applyTheme(getSavedTheme());
+        });
+    }
+
+    function init() {
+        const link     = document.getElementById('change-color-link');
+        const modal    = document.getElementById('color-modal');
+        const backdrop = document.getElementById('color-modal-backdrop');
+        const closeBtn = document.getElementById('color-modal-close');
+
+        if (!link || !modal) return;
+        if (link.dataset.colorReady === '1') return;
+        link.dataset.colorReady = '1';
+
+        function refreshActive() {
+            const current = getSavedTheme();
+            modal.querySelectorAll('.color-option').forEach(function (btn) {
+                btn.classList.toggle('active', btn.dataset.theme === current);
+            });
+        }
+
+        function openModal() {
+            refreshActive();
+            modal.classList.add('visible');
+            modal.setAttribute('aria-hidden', 'false');
+        }
+        function closeModal() {
+            modal.classList.remove('visible');
+            modal.setAttribute('aria-hidden', 'true');
+        }
+
+        link.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            // Cerrar el submenú lateral (por si acaso)
+            const sm = document.getElementById('submenu');
+            const so = document.getElementById('submenu-overlay');
+            if (sm) sm.classList.remove('visible');
+            if (so) so.classList.remove('visible');
+
+            setTimeout(openModal, 120);
+        });
+
+        if (closeBtn) closeBtn.addEventListener('click', closeModal);
+        if (backdrop) backdrop.addEventListener('click', closeModal);
+
+        modal.querySelectorAll('.color-option').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                const theme = btn.dataset.theme;
+                applyTheme(theme);
+                saveTheme(theme);
+                refreshActive();
+
+                if (navigator.vibrate) {
+                    try { navigator.vibrate(12); } catch (_) {}
+                }
+                setTimeout(closeModal, 380);
+            });
+        });
+
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && modal.classList.contains('visible')) {
+                closeModal();
+            }
+        }, true);
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+})();
