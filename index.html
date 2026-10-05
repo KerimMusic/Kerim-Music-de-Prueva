@@ -81,6 +81,7 @@
                 <li><a href="#" id="stats-link" class="submenu-link" type="button">Estadísticas de horas</a></li>
                 <li><a href="#" id="mensajes-link" class="submenu-link" type="button">Mensajes <span class="msg-badge" id="msg-badge" style="display:none;">0</span></a></li>
                 <li><a href="#" id="edit-name-link" class="submenu-link" type="button">Editar nombre</a></li>
+                <li><a href="#" id="change-color-link" class="submenu-link" type="button">🎨 Cambiar color</a></li>
                 <li><a href="#" id="logout-link" class="submenu-link" type="button">Cerrar Sesion</a></li>
             </ul>
         </nav>
@@ -495,6 +496,27 @@
     </div>
 
     <audio id="audio-player" preload="metadata"></audio>
+
+    <!-- ==================== MODAL CAMBIAR COLOR ==================== -->
+<div class="mp-modal" id="color-modal" aria-hidden="true">
+    <div class="mp-modal-backdrop" id="color-modal-backdrop"></div>
+    <div class="mp-modal-box" role="dialog" aria-modal="true" aria-labelledby="color-modal-title">
+        <div class="mp-modal-header">
+            <h2 class="mp-modal-title" id="color-modal-title">Cambiar color</h2>
+            <button class="mp-modal-close" id="color-modal-close" type="button" aria-label="Cerrar">&times;</button>
+        </div>
+        <div class="color-options">
+            <button type="button" class="color-option" data-theme="light">
+                <span class="color-swatch color-swatch--light"></span>
+                <span>⚪ Blanco</span>
+            </button>
+            <button type="button" class="color-option" data-theme="dark">
+                <span class="color-swatch color-swatch--dark"></span>
+                <span>⚫ Negro</span>
+            </button>
+        </div>
+    </div>
+</div>
 
     <div class="share-modal" id="share-modal" aria-hidden="true">
         <div class="share-modal-backdrop" id="share-modal-backdrop"></div>
