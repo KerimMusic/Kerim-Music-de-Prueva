@@ -2180,6 +2180,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /* ============================================================
    13. CARGAR CANCIONES SUBIDAS POR USUARIOS
+   ------------------------------------------------------------
+   NOTA: no usamos .orderBy('fecha') porque Firestore rechaza la
+   query completa si algún documento no tiene el campo 'fecha'.
+   Ordenamos en el cliente para que todas las canciones aparezcan.
    ============================================================ */
 (function () {
     'use strict';
@@ -2188,13 +2192,22 @@ document.addEventListener('DOMContentLoaded', () => {
         const db = firebase.firestore();
         const playlist = document.getElementById('playlist');
         if (!playlist) return;
+
         db.collection('canciones_usuarios')
-          .orderBy('fecha', 'desc')
           .onSnapshot((snap) => {
             playlist.querySelectorAll('.playlist-item[data-user-upload="1"]').forEach(el => el.remove());
+
+            // Recolectar y ordenar EN EL CLIENTE (evita fallo por docs sin 'fecha')
+            const docs = [];
+            snap.forEach(doc => docs.push({ id: doc.id, d: doc.data() || {} }));
+            docs.sort((a, b) => {
+                const fa = a.d.fecha && typeof a.d.fecha.seconds === 'number' ? a.d.fecha.seconds : 0;
+                const fb = b.d.fecha && typeof b.d.fecha.seconds === 'number' ? b.d.fecha.seconds : 0;
+                return fb - fa;
+            });
+
             const frag = document.createDocumentFragment();
-            snap.forEach(doc => {
-                const d = doc.data();
+            docs.forEach(({ d }) => {
                 if (!d.audioUrl || !d.titulo) return;
                 const div = document.createElement('div');
                 div.className = 'playlist-item';
@@ -2202,29 +2215,39 @@ document.addEventListener('DOMContentLoaded', () => {
                 div.dataset.userUpload = '1';
                 div.dataset.title = d.titulo;
                 if (d.album) div.dataset.album = d.album;
+
                 const cover = d.imagenUrl || 'https://via.placeholder.com/60/1a1a1a/666?text=%E2%99%AA';
                 const artista = d.artista || 'Artista';
                 const albumHTML = d.album ? `<span class="Album">${d.album}</span>` : '';
+                const esYouTube = d.origen === 'youtube' || /youtube\.com|youtu\.be/.test(d.audioUrl);
+                const sourceTag = esYouTube ? 'YouTube' : 'Subido';
+
                 div.innerHTML = `
                     <div class="thumbnail">
                         <img src="${cover}" alt="Portada" loading="lazy">
                     </div>
                     <div class="item-info">
                         <span class="item-title">${d.titulo}</span>
-                        <span class="item-subtitle">${artista} · Subido</span>
+                        <span class="item-subtitle">${artista} · ${sourceTag}</span>
                         ${albumHTML}
                     </div>
                 `;
                 frag.appendChild(div);
             });
+
             const homeView = playlist.querySelector('#home-view');
             if (homeView) playlist.insertBefore(frag, homeView.nextSibling);
             else playlist.insertBefore(frag, playlist.firstChild);
+
             if (typeof window.__buildListenAgain === 'function') window.__buildListenAgain();
             if (typeof window.__buildArtists === 'function') { try { window.__buildArtists(); } catch (_) {} }
             if (typeof window.__buildAlbums === 'function') { try { window.__buildAlbums(); } catch (_) {} }
             if (typeof window.__applySearchVisibility === 'function') window.__applySearchVisibility();
-          }, (err) => { console.warn('⚠️ No se pudieron cargar canciones:', err); });
+
+            console.log('[YT-UPLOAD] Canciones de usuarios renderizadas:', docs.length);
+          }, (err) => {
+            console.error('⚠️ No se pudieron cargar canciones_usuarios:', err.code, err.message);
+          });
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
     else init();
@@ -2396,8 +2419,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} }
                 if (typeof firebase === 'undefined' || !firebase.auth) throw new Error('Firebase no disponible');
 
-                // ⬇️ Sincroniza las estadísticas pendientes ANTES de cerrar sesión.
-                // Si no se hace aquí, Firestore rechazará la escritura por reglas de seguridad.
                 if (typeof window.__sincronizarStatsAntesDeSalir === 'function') {
                     try { await window.__sincronizarStatsAntesDeSalir(); }
                     catch (e) { console.warn('[STATS] sync pre-logout falló:', e); }
@@ -6958,7 +6979,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const genre = sub.slice(idx + 1).trim();
         if (!genre) return '';
         const lower = genre.toLowerCase();
-        if (lower === 'subido' || lower === 'subidos') return '';
+        if (lower === 'subido' || lower === 'subidos' || lower === 'youtube') return '';
         return genre;
     }
 
@@ -8714,34 +8735,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /* ============================================================
    39. ESTADÍSTICAS DE HORAS ESCUCHANDO MÚSICA (optimizado)
-   ------------------------------------------------------------
-   - Play/Pausa → SOLO localStorage (0 lecturas / 0 escrituras)
-   - Ver estadísticas → 1 sola .get() sin onSnapshot
-   - Salir/app a fondo/logout → 1 sola escritura con increment()
    ============================================================ */
 (function () {
     'use strict';
 
     const $ = (id) => document.getElementById(id);
 
-    const INACTIVITY_MS    = 5 * 60 * 1000;      // 5 min sin interactuar → no cuenta
-    const MAX_SESSION_SECS = 6 * 60 * 60;        // tope de seguridad por sesión
+    const INACTIVITY_MS    = 5 * 60 * 1000;
+    const MAX_SESSION_SECS = 6 * 60 * 60;
 
-    // localStorage
-    const LS_PENDIENTE = 'omega_stats_pendiente_v1'; // segundos sin sincronizar
-    const LS_INICIO    = 'omega_stats_inicio_v1';    // ms del inicio de la sesión actual
+    const LS_PENDIENTE = 'omega_stats_pendiente_v1';
+    const LS_INICIO    = 'omega_stats_inicio_v1';
 
     const MESES_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio',
                       'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
     let audioPlayer     = null;
     let currentUser     = null;
-    let mesesCache      = {};        // lo leído desde Firestore
+    let mesesCache      = {};
     let lastInteraction = Date.now();
     let syncing         = false;
-    let _sessionStart   = 0;         // ms; 0 = sin sesión activa
+    let _sessionStart   = 0;
 
-    /* ---------- Utilidades ---------- */
     function monthKey(d) {
         const date = d || new Date();
         return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0');
@@ -8760,7 +8775,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return h + ' h ' + m + ' min';
     }
 
-    /* ---------- localStorage helpers ---------- */
     function readPendiente() {
         const v = parseFloat(localStorage.getItem(LS_PENDIENTE) || '0');
         return isFinite(v) && v > 0 ? v : 0;
@@ -8790,7 +8804,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }));
     }
 
-    /* ---------- Sesión de escucha (100% local) ---------- */
     function startSession() {
         if (_sessionStart > 0) return;
         _sessionStart = Date.now();
@@ -8806,7 +8819,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const elapsed = (now - start) / 1000;
         if (!(elapsed > 0) || elapsed > MAX_SESSION_SECS) return;
 
-        // Solo cuenta si hubo actividad reciente o si el audio sigue sonando
         const audioPlaying = audioPlayer && !audioPlayer.paused;
         const dentro = audioPlaying || (now - lastInteraction) <= INACTIVITY_MS;
         if (!dentro) return;
@@ -8814,7 +8826,6 @@ document.addEventListener('DOMContentLoaded', () => {
         writePendiente(readPendiente() + elapsed);
     }
 
-    /* ---------- Sincronización: 1 sola escritura, SIN leer antes ---------- */
     async function sincronizarPendiente() {
         const secs = readPendiente();
         if (!currentUser || secs <= 0 || syncing) return;
@@ -8824,7 +8835,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const ref = firebase.firestore()
                 .collection('historial_usuarios').doc(currentUser.uid);
 
-            // update con dot-path + increment → NO pisa otros meses y NO necesita .get()
             try {
                 await ref.update({
                     ['tiempo_escucha.' + key]:
@@ -8833,7 +8843,6 @@ document.addEventListener('DOMContentLoaded', () => {
             } catch (e) {
                 const msg  = String((e && e.message) || '');
                 const code = (e && e.code) || '';
-                // Solo creamos el documento si realmente no existía
                 if (code === 'not-found' || /not.?found/i.test(msg)) {
                     await ref.set({
                         tiempo_escucha: { [key]: secs }
@@ -8842,7 +8851,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     throw e;
                 }
             }
-            writePendiente(0);   // limpiar SOLO tras éxito
+            writePendiente(0);
         } catch (e) {
             console.warn('[STATS] No se pudo sincronizar:', e);
         } finally {
@@ -8850,13 +8859,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ---------- Lectura: 1 sola .get(), sin onSnapshot ---------- */
     async function cargarDesdeFirestore() {
         if (!currentUser) { mesesCache = {}; renderStats(); return; }
         try {
             const ref = firebase.firestore()
                 .collection('historial_usuarios').doc(currentUser.uid);
-            const snap = await ref.get();   // ← una sola lectura
+            const snap = await ref.get();
             if (snap.exists) {
                 const data = snap.data() || {};
                 mesesCache = (data.tiempo_escucha && typeof data.tiempo_escucha === 'object')
@@ -8872,12 +8880,10 @@ document.addEventListener('DOMContentLoaded', () => {
         renderStats();
     }
 
-    /* ---------- Render ---------- */
     function renderStats() {
         const curKey    = monthKey();
         const pendiente = readPendiente();
 
-        // Añade en vivo lo que dura la sesión actual (si hay una abierta)
         let enVivo = 0;
         if (_sessionStart > 0) {
             const el = (Date.now() - _sessionStart) / 1000;
@@ -8927,7 +8933,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    /* ---------- Vistas ---------- */
     function closeOtherViews() {
         ['playlist-view','artist-profile','album-view','mi-playlist-view',
          'mensajes-view','chat-view','newmsg-view'].forEach(id => {
@@ -8946,7 +8951,7 @@ document.addEventListener('DOMContentLoaded', () => {
         view.setAttribute('aria-hidden', 'false');
         const scroll = $('st-scroll');
         if (scroll) scroll.scrollTop = 0;
-        await cargarDesdeFirestore();      // ← única lectura
+        await cargarDesdeFirestore();
     }
     function closeView() {
         const view = $('stats-view');
@@ -8972,7 +8977,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    /* ---------- Init ---------- */
     function init() {
         if (typeof firebase === 'undefined' || !firebase.auth) {
             setTimeout(init, 300);
@@ -9010,7 +9014,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }, true);
 
-        /* === Play / Pausa / Cambio de pista → SOLO localStorage === */
         if (audioPlayer && audioPlayer.dataset.statsHook !== '1') {
             audioPlayer.dataset.statsHook = '1';
 
@@ -9021,7 +9024,6 @@ document.addEventListener('DOMContentLoaded', () => {
             audioPlayer.addEventListener('pause', closeSession);
             audioPlayer.addEventListener('ended', closeSession);
 
-            // Red de seguridad: si está sonando y no hay sesión, la abrimos
             audioPlayer.addEventListener('timeupdate', () => {
                 if (!audioPlayer.paused && _sessionStart === 0) startSession();
             });
@@ -9029,7 +9031,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         attachInteractionListeners();
 
-        /* === Sincronización al salir / fondo === */
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'hidden') {
                 closeSession();
@@ -9048,7 +9049,6 @@ document.addEventListener('DOMContentLoaded', () => {
             sincronizarPendiente();
         });
 
-        /* === API para que el logout sincronice antes de cerrar sesión === */
         window.__sincronizarStatsAntesDeSalir = async () => {
             closeSession();
             await sincronizarPendiente();
@@ -9058,7 +9058,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (user) {
                 currentUser = user;
                 lastInteraction = Date.now();
-                // Recupera una sesión que haya quedado colgada
                 if (readInicio() > 0) closeSession();
                 await cargarDesdeFirestore();
             } else {
@@ -9152,16 +9151,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     '| index:', queue.index);
     }
 
-    /* ✅ CORREGIDO: sincroniza el índice con la canción realmente activa
-       antes de calcular la siguiente. Así, si el modo aleatorio estuvo
-       activo (eligió al azar sin tocar queue.index) o algo reprodujo un
-       item fuera del hook de clicks, el paso secuencial sigue siendo
-       correcto respecto a la canción que está sonando. */
     function stepQueue(direction) {
         if (!queue.items.length) return null;
         const dir = direction || 1;
 
-        // Sincronizar el índice con la canción realmente activa.
         const pl = $('playlist');
         if (pl) {
             const active = pl.querySelector('.playlist-item.active');
@@ -9175,7 +9168,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const rp = repeatMode();
         if (idx >= queue.items.length) {
             if (rp === 'all') idx = 0;
-            else return null;                 // fin de la cola → detener
+            else return null;
         } else if (idx < 0) {
             if (rp === 'all') idx = queue.items.length - 1;
             else idx = 0;
@@ -9306,16 +9299,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (window.__queueEndedHooked) return;
         window.__queueEndedHooked = true;
 
-        /* ✅ CORREGIDO: si el modo Aleatorio está ACTIVADO, no interceptamos
-           el evento "ended". Dejamos que la sección 3 gestione el cambio
-           con su comportamiento aleatorio normal. El filtro de artista ya
-           está limitado a queue.items (playlist / álbum / artista / búsqueda),
-           así que el azar solo elegirá canciones dentro del contexto. */
         document.addEventListener('ended', (e) => {
             const audio = $('audio-player');
             if (!audio || e.target !== audio) return;
             if (!queue.active) return;
-            if (repeatMode() === 'one') return;   // lo maneja la sección 6
+            if (repeatMode() === 'one') return;
 
             if (window.__omegaShuffleOn !== false) return;
 
@@ -9982,8 +9970,6 @@ document.addEventListener('DOMContentLoaded', () => {
         try { localStorage.setItem(STORAGE_KEY, theme); } catch (_) {}
     }
 
-    /* Aplica el tema guardado inmediatamente al cargar el script,
-       para que se vea de una vez sin parpadeos. */
     if (document.body) {
         applyTheme(getSavedTheme());
     } else {
@@ -10023,7 +10009,6 @@ document.addEventListener('DOMContentLoaded', () => {
             e.preventDefault();
             e.stopPropagation();
 
-            // Cerrar el submenú lateral (por si acaso)
             const sm = document.getElementById('submenu');
             const so = document.getElementById('submenu-overlay');
             if (sm) sm.classList.remove('visible');
@@ -10091,7 +10076,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let editingCommentId = null;
     let menuBackdrop     = null;
 
-    /* ---------- Utilidades ---------- */
     function esc(s) {
         return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
             '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -10133,7 +10117,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (v) { v.classList.remove('visible'); v.setAttribute('aria-hidden', 'true'); }
     }
 
-    /* ---------- Menú contextual ---------- */
     function closeMenu() {
         if (menuBackdrop && menuBackdrop.parentNode) menuBackdrop.parentNode.removeChild(menuBackdrop);
         menuBackdrop = null;
@@ -10204,9 +10187,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    /* ========================================================
-       PUBLICACIONES — Cargar y renderizar
-       ======================================================== */
     function renderPosts() {
         const list  = $('cm-list');
         const empty = $('cm-empty');
@@ -10320,9 +10300,6 @@ document.addEventListener('DOMContentLoaded', () => {
         ]);
     }
 
-    /* ========================================================
-       FIRESTORE — CRUD
-       ======================================================== */
     function listenPosts() {
         if (unsubPosts) { unsubPosts(); unsubPosts = null; }
         if (!currentUser) return;
@@ -10417,9 +10394,6 @@ document.addEventListener('DOMContentLoaded', () => {
         await postRef.delete();
     }
 
-    /* ========================================================
-       VISTA PRINCIPAL
-       ======================================================== */
     function openComunidad() {
         openView('comunidad-view');
         const sc = $('cm-scroll');
@@ -10431,9 +10405,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (unsubPosts) { unsubPosts(); unsubPosts = null; }
     }
 
-    /* ========================================================
-       CREAR PUBLICACIÓN
-       ======================================================== */
     function openCrearView(editPost) {
         editingPostId = editPost ? editPost.id : null;
         selectedSong = editPost && editPost.cancion ? Object.assign({}, editPost.cancion) : null;
@@ -10575,9 +10546,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ========================================================
-       COMPARTIR POST POR MENSAJE
-       ======================================================== */
     function sharePostByMessage(post) {
         const user = firebase.auth().currentUser;
         if (!user) return;
@@ -10612,7 +10580,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 260);
     }
 
-    /* Hook: inyecta el adjunto pendiente cuando se abre un chat */
     function hookChatAttachmentInjection() {
         if (window.__comunidadChatInjectionHooked) return;
         window.__comunidadChatInjectionHooked = true;
@@ -10630,7 +10597,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     const autor = pend.autor ? '@' + pend.autor + ': ' : '';
                     input.value = autor + pend.texto;
                 }
-                // Intentamos inyectar la canción adjunta si el sistema de mensajes la soporta
                 window.dispatchEvent(new CustomEvent('omega:comunidadAttach', {
                     detail: { cancion: pend.cancion }
                 }));
@@ -10640,9 +10606,6 @@ document.addEventListener('DOMContentLoaded', () => {
         obs.observe(chatView, { attributes: true, attributeFilter: ['class'] });
     }
 
-    /* ========================================================
-       EDICIÓN / ELIMINACIÓN
-       ======================================================== */
     function startEditPost(post) {
         openCrearView(post);
     }
@@ -10660,9 +10623,6 @@ document.addEventListener('DOMContentLoaded', () => {
         );
     }
 
-    /* ========================================================
-       COMENTARIOS
-       ======================================================== */
     function openComments(post) {
         activePostId = post.id;
         activePostData = post;
@@ -10884,9 +10844,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ========================================================
-       REPRODUCIR CANCIÓN DE UN POST
-       ======================================================== */
     function playSongFromPost(cancion) {
         if (!cancion || !cancion.audioUrl) return;
         const list = $('playlist');
@@ -10914,9 +10871,6 @@ document.addEventListener('DOMContentLoaded', () => {
         setTimeout(() => div.click(), 30);
     }
 
-    /* ========================================================
-       INIT
-       ======================================================== */
     function init() {
         if (typeof firebase === 'undefined' || !firebase.auth) {
             setTimeout(init, 300);
@@ -11043,30 +10997,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
     window.__openComunidad = openComunidad;
 })();
+
 /* ============================================================
    46. SUBIR CANCIÓN DESDE YOUTUBE
    ------------------------------------------------------------
    - El usuario pega sólo la URL del video de YouTube.
    - Se obtiene automáticamente:
-       · título    (oEmbed de YouTube, sin API key)
-       · portada   (miniatura maxresdefault, con fallback hqdefault)
+       · título    (vía noembed.com — proxy oEmbed con CORS)
+       · portada   (miniatura maxresdefault, con fallback hq)
        · artista   (nombre del canal)
-       · género    (detección por palabras clave del título/canal)
-   - Se guarda en la colección 'canciones_usuarios' con
-       origen: 'youtube'
-       youtubeUrl, youtubeId
-   - La reproducción de canciones YouTube se hace vía iframe
-     (overlay), sin tocar el reproductor <audio> existente.
+       · género    (detección por palabras clave)
+   - Se guarda en 'canciones_usuarios' con origen: 'youtube'
+   - Reproducción vía iframe (overlay), sin tocar <audio>.
    ============================================================ */
 (function () {
     'use strict';
 
     const $ = (id) => document.getElementById(id);
 
-    // Acepta: watch?v=, youtu.be/, shorts/, embed/, music.youtube.com
     const YT_REGEX = /(?:youtube\.com\/(?:watch\?[^#]*v=|embed\/|shorts\/|v\/|live\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/;
 
-    /* ---------- Detección de género ---------- */
     const GENRE_KEYWORDS = {
         'Reggaetón':    ['reggaeton', 'regueton', 'perreo', 'reggaeton latino'],
         'Trap':         ['trap', 'trap latino', 'trapeton'],
@@ -11103,19 +11053,16 @@ document.addEventListener('DOMContentLoaded', () => {
         'Instrumental': ['instrumental', 'type beat', ' beat ', 'pista'],
         'Lofi':         ['lofi', 'lo-fi', 'chill beat'],
         'Chill':        ['chill', 'relax', 'study music'],
-        'Trap':         ['trap'],
         'Sierreño':     ['sierreño', 'sierreno'],
         'Grupero':      ['grupero', 'grupera']
     };
 
-    // Orden de prioridad para géneros "duros" (se evalúan primero)
     const PRIORITY_GENRES = ['Reggaetón', 'Trap', 'Corridos', 'K-Pop', 'Hip Hop', 'Bachata', 'Metal'];
 
     function detectGenre(title, author) {
         const hay = ((title || '') + ' ' + (author || '')).toLowerCase()
             .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
-        // 1ª pasada: géneros prioritarios
         for (const g of PRIORITY_GENRES) {
             const kws = GENRE_KEYWORDS[g] || [];
             for (const kw of kws) {
@@ -11123,7 +11070,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (hay.includes(norm)) return g;
             }
         }
-        // 2ª pasada: el resto
         for (const g in GENRE_KEYWORDS) {
             if (PRIORITY_GENRES.includes(g)) continue;
             const kws = GENRE_KEYWORDS[g];
@@ -11135,19 +11081,30 @@ document.addEventListener('DOMContentLoaded', () => {
         return 'Otro';
     }
 
-    /* ---------- Utilidades ---------- */
     function extractVideoId(url) {
         if (!url) return null;
         const m = String(url).match(YT_REGEX);
         return m ? m[1] : null;
     }
 
+    /* ---------- Limpieza de título (más agresiva) ---------- */
     function cleanTitle(rawTitle) {
         if (!rawTitle) return '';
-        // Quita cosas tipo "(Official Video)", "[HD]", "Lyric Video", etc.
         let t = String(rawTitle);
-        t = t.replace(/\((?:official\s*(?:music\s*)?(?:video|audio|lyric[s]?|hd|4k)|video oficial|audio oficial|lyric[s]? video|hd|4k)\)/gi, '');
-        t = t.replace(/\[(?:official\s*(?:music\s*)?(?:video|audio|lyric[s]?|hd|4k)|video oficial|audio oficial|lyric[s]? video|hd|4k)\]/gi, '');
+
+        const TAG = '(?:' +
+            'official\\s*(?:music\\s*)?(?:video|audio|lyric[s]?|visualizer|hd|4k|mv)|' +
+            'video\\s*oficial|audio\\s*oficial|v[ií]deo\\s*oficial|' +
+            'lyric[s]?\\s*video|letra\\s*oficial|' +
+            'official|oficial|' +
+            'hd|4k|uhd|full\\s*hd|' +
+            'con\\s*letra|letra' +
+        ')';
+
+        t = t.replace(new RegExp('\\s*\\(' + TAG + '\\)', 'gi'), '');
+        t = t.replace(new RegExp('\\s*\\[' + TAG + '\\]', 'gi'), '');
+        t = t.replace(new RegExp('\\s*\\{' + TAG + '\\}', 'gi'), '');
+        t = t.replace(/\s*[-–—|]\s*(?:video\s*oficial|official\s*video|audio|lyric[s]?\s*video|letra)\s*$/i, '');
         t = t.replace(/\s{2,}/g, ' ').trim();
         return t || rawTitle;
     }
@@ -11155,26 +11112,51 @@ document.addEventListener('DOMContentLoaded', () => {
     function checkThumbnail(url, fallback) {
         return new Promise((resolve) => {
             const img = new Image();
-            img.onload = () => resolve(url);
+            img.onload = () => {
+                if (img.naturalWidth <= 120) resolve(fallback);
+                else resolve(url);
+            };
             img.onerror = () => resolve(fallback);
             img.src = url;
         });
     }
 
+    /* ---------- Obtención de info vía noembed.com (CORS) ---------- */
     async function fetchOEmbed(videoId) {
-        const url = 'https://www.youtube.com/oembed?url=' +
-                    encodeURIComponent('https://www.youtube.com/watch?v=' + videoId) +
-                    '&format=json';
-        const res = await fetch(url, { method: 'GET' });
-        if (!res.ok) throw new Error('No se pudo obtener la información del video (' + res.status + ')');
-        return res.json();
+        const watchUrl = 'https://www.youtube.com/watch?v=' + videoId;
+
+        const endpoints = [
+            'https://noembed.com/embed?url=' + encodeURIComponent(watchUrl),
+            'https://www.youtube.com/oembed?url=' + encodeURIComponent(watchUrl) + '&format=json',
+            'https://corsproxy.io/?' + encodeURIComponent(
+                'https://www.youtube.com/oembed?url=' + watchUrl + '&format=json'
+            )
+        ];
+
+        let lastError = null;
+
+        for (const url of endpoints) {
+            try {
+                const res = await fetch(url, { method: 'GET' });
+                if (!res.ok) { lastError = new Error('HTTP ' + res.status); continue; }
+                const data = await res.json();
+                if (data && data.error) { lastError = new Error(data.error); continue; }
+                if (!data || !data.title) { lastError = new Error('Respuesta sin título'); continue; }
+
+                console.log('[YT-UPLOAD] Info obtenida vía:', url);
+                return data;
+            } catch (e) {
+                lastError = e;
+                console.warn('[YT-UPLOAD] Falló endpoint:', url, e.message);
+            }
+        }
+
+        throw lastError || new Error('No se pudo obtener la información');
     }
 
-    /* ---------- Estado ---------- */
     let currentMeta = null;
     let currentUser = null;
 
-    /* ---------- UI: preview ---------- */
     function renderPreview() {
         const box = $('yt-preview');
         if (!box) return;
@@ -11222,7 +11204,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (save)  save.disabled = busy || !currentMeta;
     }
 
-    /* ---------- Flujo principal ---------- */
     async function processUrl(rawUrl) {
         const id = extractVideoId(rawUrl);
         if (!id) {
@@ -11251,7 +11232,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const hq     = 'https://img.youtube.com/vi/' + id + '/hqdefault.jpg';
             const thumb  = await checkThumbnail(maxres, hq);
 
-            const genre = detectGenre(cleanT, author);
+            let genre = detectGenre(cleanT, author);
+            if (!genre || typeof genre !== 'string' || !genre.trim()) {
+                genre = 'Otro';
+            }
+            genre = genre.trim();
 
             currentMeta = {
                 videoId: id,
@@ -11293,12 +11278,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 titulo:     currentMeta.title,
                 artista:    currentMeta.author,
                 imagenUrl:  currentMeta.thumbnail,
-                // El audio se reproduce vía iframe cuando el reproductor lo detecte,
-                // pero igual guardamos una URL utilizable como referencia.
                 audioUrl:   currentMeta.youtubeUrl,
                 youtubeUrl: currentMeta.youtubeUrl,
                 youtubeId:  currentMeta.videoId,
-                genero:     currentMeta.genre,
+                genero:     currentMeta.genre || 'Otro',
                 album:      '',
                 uid:        currentUser.uid,
                 origen:     'youtube',
@@ -11313,7 +11296,6 @@ document.addEventListener('DOMContentLoaded', () => {
             renderPreview();
             if (save) save.textContent = 'Guardar canción';
 
-            // Avisar a la app para que refresque las vistas
             if (typeof window.__buildArtists === 'function') {
                 try { window.__buildArtists(); } catch (_) {}
             }
@@ -11324,7 +11306,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 try { window.__applySearchVisibility(); } catch (_) {}
             }
 
-            // Volver al reproductor después de un momento
             setTimeout(closeView, 1100);
         } catch (err) {
             console.error('[YT-UPLOAD] Error guardando:', err);
@@ -11333,7 +11314,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ---------- Vista ---------- */
     function closeOtherViews() {
         ['playlist-view','artist-profile','album-view','mi-playlist-view',
          'mensajes-view','chat-view','newmsg-view','stats-view',
@@ -11364,7 +11344,6 @@ document.addEventListener('DOMContentLoaded', () => {
         v.setAttribute('aria-hidden', 'true');
     }
 
-    /* ---------- Reproductor iframe de YouTube ---------- */
     function ensureYtOverlay() {
         let player = document.getElementById('yt-player-overlay');
         if (player) return player;
@@ -11414,7 +11393,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (wrap) wrap.innerHTML = '';
     }
 
-    /* ---------- Intercepción de reproducción ---------- */
     function handleYouTubeSrc(src, activeItem) {
         const id = extractVideoId(src);
         if (!id) return false;
@@ -11430,21 +11408,17 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!audio || audio.dataset.ytHook === '1') return;
         audio.dataset.ytHook = '1';
 
-        // 1) Si el reproductor recibe un src de YouTube, no intentamos
-        //    reproducirlo con <audio>: abrimos el iframe.
         audio.addEventListener('error', function (e) {
             const src = audio.src || '';
             const id = extractVideoId(src);
             if (!id) return;
             e.stopImmediatePropagation();
             e.preventDefault();
-            // Detener intentos de audio
             try { audio.pause(); } catch (_) {}
             const active = document.querySelector('#playlist .playlist-item.active');
             handleYouTubeSrc(src, active);
         }, true);
 
-        // 2) Bloquea play() del audio cuando el src es de YouTube
         const origPlay = audio.play.bind(audio);
         audio.play = function () {
             const src = audio.src || '';
@@ -11457,7 +11431,6 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     }
 
-    // 3) Intercepta el click sobre un item de YouTube antes que el resto
     function hookYoutubeClicks() {
         const playlist = document.getElementById('playlist');
         if (!playlist || playlist.dataset.ytClickHook === '1') return;
@@ -11482,13 +11455,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }, true);
     }
 
-    /* ---------- Init ---------- */
     function init() {
         if (typeof firebase !== 'undefined' && firebase.auth) {
             firebase.auth().onAuthStateChanged(u => { currentUser = u; });
         }
 
-        // Link del submenú
         const link = document.getElementById('youtube-upload-link');
         if (link && link.dataset.ytReady !== '1') {
             link.dataset.ytReady = '1';
@@ -11502,14 +11473,12 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        // Back
         const back = document.getElementById('yt-back');
         if (back && back.dataset.ytReady !== '1') {
             back.dataset.ytReady = '1';
             back.addEventListener('click', closeView);
         }
 
-        // Fetch
         const fetchBtn = document.getElementById('yt-fetch-btn');
         if (fetchBtn && fetchBtn.dataset.ytReady !== '1') {
             fetchBtn.dataset.ytReady = '1';
@@ -11519,7 +11488,6 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        // Input: autofetch al pegar
         const input = document.getElementById('yt-url-input');
         if (input && input.dataset.ytReady !== '1') {
             input.dataset.ytReady = '1';
@@ -11538,14 +11506,12 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        // Guardar
         const save = document.getElementById('yt-save-btn');
         if (save && save.dataset.ytReady !== '1') {
             save.dataset.ytReady = '1';
             save.addEventListener('click', saveSong);
         }
 
-        // Escape
         document.addEventListener('keydown', function (e) {
             if (e.key !== 'Escape') return;
             const v = document.getElementById('youtube-upload-view');
@@ -11561,7 +11527,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }, true);
 
-        // Cierre automático cuando se abren otras vistas principales
         ['playlist-view','artist-profile','album-view','mi-playlist-view',
          'mensajes-view','chat-view','newmsg-view','stats-view',
          'comunidad-view','comunidad-crear-view','comentarios-view'].forEach(id => {
@@ -11589,7 +11554,5 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
         init();
     }
-    // Reintentos por si el DOM todavía no tiene los nodos (el script
-    // se ejecuta antes que otras partes construyan el HTML dinámico).
     [500, 1500, 3000].forEach(ms => setTimeout(init, ms));
 })();
