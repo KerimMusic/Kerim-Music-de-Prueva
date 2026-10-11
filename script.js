@@ -2181,9 +2181,10 @@ document.addEventListener('DOMContentLoaded', () => {
 /* ============================================================
    13. CARGAR CANCIONES SUBIDAS POR USUARIOS
    ------------------------------------------------------------
-   NOTA: no usamos .orderBy('fecha') porque Firestore rechaza la
-   query completa si algún documento no tiene el campo 'fecha'.
-   Ordenamos en el cliente para que todas las canciones aparezcan.
+   Sin .orderBy('fecha') porque Firestore rechaza la query
+   completa si algún documento no tiene ese campo. Ordenamos en
+   el cliente para que TODAS las canciones aparezcan (incluidas
+   las de YouTube).
    ============================================================ */
 (function () {
     'use strict';
@@ -2197,7 +2198,6 @@ document.addEventListener('DOMContentLoaded', () => {
           .onSnapshot((snap) => {
             playlist.querySelectorAll('.playlist-item[data-user-upload="1"]').forEach(el => el.remove());
 
-            // Recolectar y ordenar EN EL CLIENTE (evita fallo por docs sin 'fecha')
             const docs = [];
             snap.forEach(doc => docs.push({ id: doc.id, d: doc.data() || {} }));
             docs.sort((a, b) => {
@@ -2244,7 +2244,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (typeof window.__buildAlbums === 'function') { try { window.__buildAlbums(); } catch (_) {} }
             if (typeof window.__applySearchVisibility === 'function') window.__applySearchVisibility();
 
-            console.log('[YT-UPLOAD] Canciones de usuarios renderizadas:', docs.length);
+            console.log('[YouTube] Canciones cargadas:', docs.length);
           }, (err) => {
             console.error('⚠️ No se pudieron cargar canciones_usuarios:', err.code, err.message);
           });
@@ -10999,349 +10999,21 @@ document.addEventListener('DOMContentLoaded', () => {
 })();
 
 /* ============================================================
-   46. SUBIR CANCIÓN DESDE YOUTUBE
+   46. REPRODUCTOR DE CANCIONES YOUTUBE (solo lectura)
    ------------------------------------------------------------
-   - El usuario pega sólo la URL del video de YouTube.
-   - Se obtiene automáticamente:
-       · título    (vía noembed.com — proxy oEmbed con CORS)
-       · portada   (miniatura maxresdefault, con fallback hq)
-       · artista   (nombre del canal)
-       · género    (detección por palabras clave)
-   - Se guarda en 'canciones_usuarios' con origen: 'youtube'
-   - Reproducción vía iframe (overlay), sin tocar <audio>.
+   Las canciones con origen:'youtube' guardadas previamente en
+   'canciones_usuarios' se reproducen mediante un iframe overlay
+   en lugar del <audio>. NO hay UI de subida.
    ============================================================ */
 (function () {
     'use strict';
 
-    const $ = (id) => document.getElementById(id);
-
     const YT_REGEX = /(?:youtube\.com\/(?:watch\?[^#]*v=|embed\/|shorts\/|v\/|live\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/;
-
-    const GENRE_KEYWORDS = {
-        'Reggaetón':    ['reggaeton', 'regueton', 'perreo', 'reggaeton latino'],
-        'Trap':         ['trap', 'trap latino', 'trapeton'],
-        'Bachata':      ['bachata'],
-        'Corridos':     ['corrido', 'corridos tumbados', 'tumbado', 'corrido tumbado'],
-        'K-Pop':        ['k-pop', 'kpop', 'k pop'],
-        'Hip Hop':      ['hip hop', 'hip-hop', 'hiphop', 'rap ', ' rapero', 'freestyle'],
-        'Pop':          ['pop ', ' pop', 'pop latino', 'pop en español'],
-        'Rock':         ['rock', 'metal sinfónico'],
-        'Metal':        ['metal', 'heavy metal', 'death metal', 'black metal'],
-        'Punk':         ['punk'],
-        'Salsa':        ['salsa'],
-        'Cumbia':       ['cumbia'],
-        'Merengue':     ['merengue'],
-        'Vallenato':    ['vallenato'],
-        'Bolero':       ['bolero'],
-        'Mariachi':     ['mariachi'],
-        'Ranchera':     ['ranchera', 'rancheras'],
-        'Banda':        ['banda ', 'banda sinaloense', 'banda ms'],
-        'Norteño':      ['norteño', 'norteno', 'norteña'],
-        'Balada':       ['balada', 'baladas', 'romantica', 'romántica', 'romanticas'],
-        'Electrónica':  ['electro', 'edm', 'house music', 'techno', 'trance', 'dance music', 'dubstep'],
-        'Reggae':       ['reggae'],
-        'Jazz':         ['jazz'],
-        'Blues':        ['blues'],
-        'Country':      ['country'],
-        'Funk':         ['funk'],
-        'Soul':         ['soul'],
-        'Gospel':       ['gospel'],
-        'Ska':          [' ska '],
-        'Indie':        ['indie'],
-        'R&B':          ['r&b', 'rnb', 'rhythm and blues'],
-        'Clásica':      ['clasica', 'clásica', 'classical', 'orquesta sinfónica'],
-        'Instrumental': ['instrumental', 'type beat', ' beat ', 'pista'],
-        'Lofi':         ['lofi', 'lo-fi', 'chill beat'],
-        'Chill':        ['chill', 'relax', 'study music'],
-        'Sierreño':     ['sierreño', 'sierreno'],
-        'Grupero':      ['grupero', 'grupera']
-    };
-
-    const PRIORITY_GENRES = ['Reggaetón', 'Trap', 'Corridos', 'K-Pop', 'Hip Hop', 'Bachata', 'Metal'];
-
-    function detectGenre(title, author) {
-        const hay = ((title || '') + ' ' + (author || '')).toLowerCase()
-            .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-
-        for (const g of PRIORITY_GENRES) {
-            const kws = GENRE_KEYWORDS[g] || [];
-            for (const kw of kws) {
-                const norm = kw.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-                if (hay.includes(norm)) return g;
-            }
-        }
-        for (const g in GENRE_KEYWORDS) {
-            if (PRIORITY_GENRES.includes(g)) continue;
-            const kws = GENRE_KEYWORDS[g];
-            for (const kw of kws) {
-                const norm = kw.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-                if (hay.includes(norm)) return g;
-            }
-        }
-        return 'Otro';
-    }
 
     function extractVideoId(url) {
         if (!url) return null;
         const m = String(url).match(YT_REGEX);
         return m ? m[1] : null;
-    }
-
-    /* ---------- Limpieza de título (más agresiva) ---------- */
-    function cleanTitle(rawTitle) {
-        if (!rawTitle) return '';
-        let t = String(rawTitle);
-
-        const TAG = '(?:' +
-            'official\\s*(?:music\\s*)?(?:video|audio|lyric[s]?|visualizer|hd|4k|mv)|' +
-            'video\\s*oficial|audio\\s*oficial|v[ií]deo\\s*oficial|' +
-            'lyric[s]?\\s*video|letra\\s*oficial|' +
-            'official|oficial|' +
-            'hd|4k|uhd|full\\s*hd|' +
-            'con\\s*letra|letra' +
-        ')';
-
-        t = t.replace(new RegExp('\\s*\\(' + TAG + '\\)', 'gi'), '');
-        t = t.replace(new RegExp('\\s*\\[' + TAG + '\\]', 'gi'), '');
-        t = t.replace(new RegExp('\\s*\\{' + TAG + '\\}', 'gi'), '');
-        t = t.replace(/\s*[-–—|]\s*(?:video\s*oficial|official\s*video|audio|lyric[s]?\s*video|letra)\s*$/i, '');
-        t = t.replace(/\s{2,}/g, ' ').trim();
-        return t || rawTitle;
-    }
-
-    function checkThumbnail(url, fallback) {
-        return new Promise((resolve) => {
-            const img = new Image();
-            img.onload = () => {
-                if (img.naturalWidth <= 120) resolve(fallback);
-                else resolve(url);
-            };
-            img.onerror = () => resolve(fallback);
-            img.src = url;
-        });
-    }
-
-    /* ---------- Obtención de info vía noembed.com (CORS) ---------- */
-    async function fetchOEmbed(videoId) {
-        const watchUrl = 'https://www.youtube.com/watch?v=' + videoId;
-
-        const endpoints = [
-            'https://noembed.com/embed?url=' + encodeURIComponent(watchUrl),
-            'https://www.youtube.com/oembed?url=' + encodeURIComponent(watchUrl) + '&format=json',
-            'https://corsproxy.io/?' + encodeURIComponent(
-                'https://www.youtube.com/oembed?url=' + watchUrl + '&format=json'
-            )
-        ];
-
-        let lastError = null;
-
-        for (const url of endpoints) {
-            try {
-                const res = await fetch(url, { method: 'GET' });
-                if (!res.ok) { lastError = new Error('HTTP ' + res.status); continue; }
-                const data = await res.json();
-                if (data && data.error) { lastError = new Error(data.error); continue; }
-                if (!data || !data.title) { lastError = new Error('Respuesta sin título'); continue; }
-
-                console.log('[YT-UPLOAD] Info obtenida vía:', url);
-                return data;
-            } catch (e) {
-                lastError = e;
-                console.warn('[YT-UPLOAD] Falló endpoint:', url, e.message);
-            }
-        }
-
-        throw lastError || new Error('No se pudo obtener la información');
-    }
-
-    let currentMeta = null;
-    let currentUser = null;
-
-    function renderPreview() {
-        const box = $('yt-preview');
-        if (!box) return;
-        if (!currentMeta) {
-            box.style.display = 'none';
-            box.innerHTML = '';
-            return;
-        }
-        box.style.display = '';
-        box.innerHTML =
-            '<div class="yt-preview-thumb">' +
-                '<img alt="" loading="lazy">' +
-            '</div>' +
-            '<div class="yt-preview-info">' +
-                '<span class="yt-preview-title"></span>' +
-                '<span class="yt-preview-sub"></span>' +
-                '<span class="yt-preview-genre"></span>' +
-            '</div>';
-
-        const img = box.querySelector('.yt-preview-thumb img');
-        img.onerror = function () {
-            this.onerror = null;
-            this.src = currentMeta.thumbnailFallback;
-        };
-        img.src = currentMeta.thumbnail;
-
-        box.querySelector('.yt-preview-title').textContent = currentMeta.title;
-        box.querySelector('.yt-preview-sub').textContent   = currentMeta.author;
-        box.querySelector('.yt-preview-genre').textContent = '🎵 ' + currentMeta.genre;
-    }
-
-    function setStatus(msg, isOk) {
-        const s = $('yt-status');
-        if (!s) return;
-        s.textContent = msg || '';
-        s.classList.toggle('ok', !!isOk);
-    }
-
-    function setBusy(busy) {
-        const input = $('yt-url-input');
-        const btn   = $('yt-fetch-btn');
-        const save  = $('yt-save-btn');
-        if (input) input.disabled = busy;
-        if (btn)   btn.disabled = busy;
-        if (save)  save.disabled = busy || !currentMeta;
-    }
-
-    async function processUrl(rawUrl) {
-        const id = extractVideoId(rawUrl);
-        if (!id) {
-            setStatus('URL de YouTube no válida. Pega el enlace completo del video.', false);
-            currentMeta = null;
-            renderPreview();
-            const save = $('yt-save-btn');
-            if (save) save.disabled = true;
-            return;
-        }
-        setStatus('', false);
-        setBusy(true);
-        const box = $('yt-preview');
-        if (box) {
-            box.style.display = '';
-            box.innerHTML = '<div class="yt-loading">Obteniendo información del video…</div>';
-        }
-
-        try {
-            const info = await fetchOEmbed(id);
-            const rawTitle = info.title || 'Sin título';
-            const cleanT   = cleanTitle(rawTitle);
-            const author   = info.author_name || 'Artista desconocido';
-
-            const maxres = 'https://img.youtube.com/vi/' + id + '/maxresdefault.jpg';
-            const hq     = 'https://img.youtube.com/vi/' + id + '/hqdefault.jpg';
-            const thumb  = await checkThumbnail(maxres, hq);
-
-            let genre = detectGenre(cleanT, author);
-            if (!genre || typeof genre !== 'string' || !genre.trim()) {
-                genre = 'Otro';
-            }
-            genre = genre.trim();
-
-            currentMeta = {
-                videoId: id,
-                title: cleanT,
-                author: author,
-                genre: genre,
-                thumbnail: thumb,
-                thumbnailFallback: hq,
-                youtubeUrl: 'https://www.youtube.com/watch?v=' + id
-            };
-            renderPreview();
-            setStatus('Información lista. Presiona "Guardar canción".', true);
-            const save = $('yt-save-btn');
-            if (save) save.disabled = false;
-        } catch (err) {
-            console.warn('[YT-UPLOAD] Error obteniendo info:', err);
-            setStatus('No se pudo obtener la información del video. Verifica el enlace.', false);
-            currentMeta = null;
-            renderPreview();
-            const save = $('yt-save-btn');
-            if (save) save.disabled = true;
-        } finally {
-            setBusy(false);
-        }
-    }
-
-    async function saveSong() {
-        if (!currentMeta) return;
-        if (!currentUser) {
-            setStatus('Debes iniciar sesión para guardar.', false);
-            return;
-        }
-        const save = $('yt-save-btn');
-        if (save) { save.disabled = true; save.textContent = 'Guardando…'; }
-        setStatus('Guardando…', false);
-
-        try {
-            const payload = {
-                titulo:     currentMeta.title,
-                artista:    currentMeta.author,
-                imagenUrl:  currentMeta.thumbnail,
-                audioUrl:   currentMeta.youtubeUrl,
-                youtubeUrl: currentMeta.youtubeUrl,
-                youtubeId:  currentMeta.videoId,
-                genero:     currentMeta.genre || 'Otro',
-                album:      '',
-                uid:        currentUser.uid,
-                origen:     'youtube',
-                fecha:      firebase.firestore.FieldValue.serverTimestamp()
-            };
-            await firebase.firestore().collection('canciones_usuarios').add(payload);
-
-            setStatus('✓ Canción guardada correctamente', true);
-            currentMeta = null;
-            const input = $('yt-url-input');
-            if (input) input.value = '';
-            renderPreview();
-            if (save) save.textContent = 'Guardar canción';
-
-            if (typeof window.__buildArtists === 'function') {
-                try { window.__buildArtists(); } catch (_) {}
-            }
-            if (typeof window.__buildAlbums === 'function') {
-                try { window.__buildAlbums(); } catch (_) {}
-            }
-            if (typeof window.__applySearchVisibility === 'function') {
-                try { window.__applySearchVisibility(); } catch (_) {}
-            }
-
-            setTimeout(closeView, 1100);
-        } catch (err) {
-            console.error('[YT-UPLOAD] Error guardando:', err);
-            setStatus('No se pudo guardar la canción. Intenta de nuevo.', false);
-            if (save) { save.disabled = false; save.textContent = 'Guardar canción'; }
-        }
-    }
-
-    function closeOtherViews() {
-        ['playlist-view','artist-profile','album-view','mi-playlist-view',
-         'mensajes-view','chat-view','newmsg-view','stats-view',
-         'comunidad-view','comunidad-crear-view','comentarios-view'].forEach(id => {
-            const el = document.getElementById(id);
-            if (el && el.classList.contains('visible')) {
-                el.classList.remove('visible');
-                el.setAttribute('aria-hidden', 'true');
-            }
-        });
-    }
-
-    function openView() {
-        closeOtherViews();
-        const v = $('youtube-upload-view');
-        if (!v) return;
-        v.classList.add('visible');
-        v.setAttribute('aria-hidden', 'false');
-        setTimeout(() => {
-            const input = $('yt-url-input');
-            if (input) input.focus();
-        }, 220);
-    }
-    function closeView() {
-        const v = $('youtube-upload-view');
-        if (!v) return;
-        v.classList.remove('visible');
-        v.setAttribute('aria-hidden', 'true');
     }
 
     function ensureYtOverlay() {
@@ -11456,94 +11128,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function init() {
-        if (typeof firebase !== 'undefined' && firebase.auth) {
-            firebase.auth().onAuthStateChanged(u => { currentUser = u; });
-        }
-
-        const link = document.getElementById('youtube-upload-link');
-        if (link && link.dataset.ytReady !== '1') {
-            link.dataset.ytReady = '1';
-            link.addEventListener('click', function (e) {
-                e.preventDefault();
-                const sm = document.getElementById('submenu');
-                const so = document.getElementById('submenu-overlay');
-                if (sm) sm.classList.remove('visible');
-                if (so) so.classList.remove('visible');
-                setTimeout(openView, 120);
-            });
-        }
-
-        const back = document.getElementById('yt-back');
-        if (back && back.dataset.ytReady !== '1') {
-            back.dataset.ytReady = '1';
-            back.addEventListener('click', closeView);
-        }
-
-        const fetchBtn = document.getElementById('yt-fetch-btn');
-        if (fetchBtn && fetchBtn.dataset.ytReady !== '1') {
-            fetchBtn.dataset.ytReady = '1';
-            fetchBtn.addEventListener('click', function () {
-                const input = document.getElementById('yt-url-input');
-                if (input) processUrl(input.value.trim());
-            });
-        }
-
-        const input = document.getElementById('yt-url-input');
-        if (input && input.dataset.ytReady !== '1') {
-            input.dataset.ytReady = '1';
-            input.addEventListener('paste', function () {
-                setTimeout(() => {
-                    const v = input.value.trim();
-                    if (extractVideoId(v)) processUrl(v);
-                }, 40);
-            });
-            input.addEventListener('keydown', function (e) {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    const v = input.value.trim();
-                    if (v) processUrl(v);
-                }
-            });
-        }
-
-        const save = document.getElementById('yt-save-btn');
-        if (save && save.dataset.ytReady !== '1') {
-            save.dataset.ytReady = '1';
-            save.addEventListener('click', saveSong);
-        }
-
         document.addEventListener('keydown', function (e) {
             if (e.key !== 'Escape') return;
-            const v = document.getElementById('youtube-upload-view');
-            if (v && v.classList.contains('visible')) {
-                e.stopPropagation();
-                closeView();
-                return;
-            }
             const ytp = document.getElementById('yt-player-overlay');
             if (ytp && ytp.classList.contains('visible')) {
                 e.stopPropagation();
                 closeYtPlayer();
             }
         }, true);
-
-        ['playlist-view','artist-profile','album-view','mi-playlist-view',
-         'mensajes-view','chat-view','newmsg-view','stats-view',
-         'comunidad-view','comunidad-crear-view','comentarios-view'].forEach(id => {
-            const el = document.getElementById(id);
-            if (!el || el.dataset.ytViewWatch === '1') return;
-            el.dataset.ytViewWatch = '1';
-            const obs = new MutationObserver(() => {
-                if (el.classList.contains('visible')) {
-                    const v = document.getElementById('youtube-upload-view');
-                    if (v && v.classList.contains('visible')) {
-                        v.classList.remove('visible');
-                        v.setAttribute('aria-hidden', 'true');
-                    }
-                }
-            });
-            obs.observe(el, { attributes: true, attributeFilter: ['class'] });
-        });
 
         hookYoutubePlayback();
         hookYoutubeClicks();
