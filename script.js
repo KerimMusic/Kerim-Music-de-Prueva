@@ -2179,80 +2179,99 @@ document.addEventListener('DOMContentLoaded', () => {
 })();
 
 /* ============================================================
-   13. CARGAR CANCIONES SUBIDAS POR USUARIOS
+   13. CARGAR CANCIONES DEL USUARIO
    ------------------------------------------------------------
-   Sin .orderBy('fecha') porque Firestore rechaza la query
-   completa si algún documento no tiene ese campo. Ordenamos en
-   el cliente para que TODAS las canciones aparezcan (incluidas
-   las de YouTube).
+   Las canciones (subidas o desde YouTube) se guardan en la
+   subcolección: historial_usuarios/{uid}/canciones/{docId}
+   Leemos esa subcolección sin .orderBy para que no falle si
+   algún doc no tiene 'fecha'. Ordenamos en el cliente.
    ============================================================ */
 (function () {
     'use strict';
-    function init() {
-        if (typeof firebase === 'undefined' || !firebase.firestore) { setTimeout(init, 300); return; }
-        const db = firebase.firestore();
+
+    let unsubCanciones = null;
+
+    function renderCanciones(docs, playlist) {
+        playlist.querySelectorAll('.playlist-item[data-user-upload="1"]').forEach(el => el.remove());
+
+        docs.sort((a, b) => {
+            const fa = a.d.fecha && typeof a.d.fecha.seconds === 'number' ? a.d.fecha.seconds : 0;
+            const fb = b.d.fecha && typeof b.d.fecha.seconds === 'number' ? b.d.fecha.seconds : 0;
+            return fb - fa;
+        });
+
+        const frag = document.createDocumentFragment();
+        docs.forEach(({ d }) => {
+            if (!d.audioUrl || !d.titulo) return;
+            const div = document.createElement('div');
+            div.className = 'playlist-item';
+            div.dataset.src = d.audioUrl;
+            div.dataset.userUpload = '1';
+            div.dataset.title = d.titulo;
+            if (d.album) div.dataset.album = d.album;
+
+            const cover = d.imagenUrl || 'https://via.placeholder.com/60/1a1a1a/666?text=%E2%99%AA';
+            const artista = d.artista || 'Artista';
+            const albumHTML = d.album ? `<span class="Album">${d.album}</span>` : '';
+            const esYouTube = d.origen === 'youtube' || /youtube\.com|youtu\.be/.test(d.audioUrl);
+            const sourceTag = esYouTube ? 'YouTube' : 'Subido';
+
+            div.innerHTML = `
+                <div class="thumbnail">
+                    <img src="${cover}" alt="Portada" loading="lazy">
+                </div>
+                <div class="item-info">
+                    <span class="item-title">${d.titulo}</span>
+                    <span class="item-subtitle">${artista} · ${sourceTag}</span>
+                    ${albumHTML}
+                </div>
+            `;
+            frag.appendChild(div);
+        });
+
+        const homeView = playlist.querySelector('#home-view');
+        if (homeView) playlist.insertBefore(frag, homeView.nextSibling);
+        else playlist.insertBefore(frag, playlist.firstChild);
+
+        if (typeof window.__buildListenAgain === 'function') window.__buildListenAgain();
+        if (typeof window.__buildArtists === 'function') { try { window.__buildArtists(); } catch (_) {} }
+        if (typeof window.__buildAlbums === 'function') { try { window.__buildAlbums(); } catch (_) {} }
+        if (typeof window.__applySearchVisibility === 'function') window.__applySearchVisibility();
+
+        console.log('[Canciones usuario] renderizadas:', docs.length);
+    }
+
+    function listenCancionesDelUsuario(user) {
+        if (unsubCanciones) { unsubCanciones(); unsubCanciones = null; }
         const playlist = document.getElementById('playlist');
-        if (!playlist) return;
+        if (!playlist || !user) return;
 
-        db.collection('canciones_usuarios')
-          .onSnapshot((snap) => {
-            playlist.querySelectorAll('.playlist-item[data-user-upload="1"]').forEach(el => el.remove());
+        const db = firebase.firestore();
+        const ref = db.collection('historial_usuarios').doc(user.uid).collection('canciones');
 
+        unsubCanciones = ref.onSnapshot((snap) => {
             const docs = [];
             snap.forEach(doc => docs.push({ id: doc.id, d: doc.data() || {} }));
-            docs.sort((a, b) => {
-                const fa = a.d.fecha && typeof a.d.fecha.seconds === 'number' ? a.d.fecha.seconds : 0;
-                const fb = b.d.fecha && typeof b.d.fecha.seconds === 'number' ? b.d.fecha.seconds : 0;
-                return fb - fa;
-            });
-
-            const frag = document.createDocumentFragment();
-            docs.forEach(({ d }) => {
-                if (!d.audioUrl || !d.titulo) return;
-                const div = document.createElement('div');
-                div.className = 'playlist-item';
-                div.dataset.src = d.audioUrl;
-                div.dataset.userUpload = '1';
-                div.dataset.title = d.titulo;
-                if (d.album) div.dataset.album = d.album;
-
-                const cover = d.imagenUrl || 'https://via.placeholder.com/60/1a1a1a/666?text=%E2%99%AA';
-                const artista = d.artista || 'Artista';
-                const albumHTML = d.album ? `<span class="Album">${d.album}</span>` : '';
-                const esYouTube = d.origen === 'youtube' || /youtube\.com|youtu\.be/.test(d.audioUrl);
-                const sourceTag = esYouTube ? 'YouTube' : 'Subido';
-
-                div.innerHTML = `
-                    <div class="thumbnail">
-                        <img src="${cover}" alt="Portada" loading="lazy">
-                    </div>
-                    <div class="item-info">
-                        <span class="item-title">${d.titulo}</span>
-                        <span class="item-subtitle">${artista} · ${sourceTag}</span>
-                        ${albumHTML}
-                    </div>
-                `;
-                frag.appendChild(div);
-            });
-
-            const homeView = playlist.querySelector('#home-view');
-            if (homeView) playlist.insertBefore(frag, homeView.nextSibling);
-            else playlist.insertBefore(frag, playlist.firstChild);
-
-            if (typeof window.__buildListenAgain === 'function') window.__buildListenAgain();
-            if (typeof window.__buildArtists === 'function') { try { window.__buildArtists(); } catch (_) {} }
-            if (typeof window.__buildAlbums === 'function') { try { window.__buildAlbums(); } catch (_) {} }
-            if (typeof window.__applySearchVisibility === 'function') window.__applySearchVisibility();
-
-            console.log('[YouTube] Canciones cargadas:', docs.length);
-          }, (err) => {
-            console.error('⚠️ No se pudieron cargar canciones_usuarios:', err.code, err.message);
-          });
+            renderCanciones(docs, playlist);
+        }, (err) => {
+            console.error('⚠️ No se pudieron cargar tus canciones:', err.code, err.message);
+        });
     }
+
+    function init() {
+        if (typeof firebase === 'undefined' || !firebase.firestore || !firebase.auth) {
+            setTimeout(init, 300);
+            return;
+        }
+        firebase.auth().onAuthStateChanged(user => {
+            if (user) listenCancionesDelUsuario(user);
+            else if (unsubCanciones) { unsubCanciones(); unsubCanciones = null; }
+        });
+    }
+
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
     else init();
 })();
-
 /* ============================================================
    14. INTEGRACIÓN CON "SUBIR MÚSICA"
    ============================================================ */
