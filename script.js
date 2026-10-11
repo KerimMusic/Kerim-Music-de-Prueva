@@ -11018,321 +11018,328 @@ document.addEventListener('DOMContentLoaded', () => {
 })();
 
 /* ============================================================
-   46. REPRODUCTOR DE CANCIONES YOUTUBE (oculto, solo audio)
+   46. CARRUSEL DE RECOMENDADOS POR GÉNERO EN PANTALLA COMPLETA
    ------------------------------------------------------------
-   Las canciones con origen:'youtube' se reproducen mediante un
-   iframe de YouTube oculto (1x1px, fuera de pantalla). La UI
-   del reproductor mini se actualiza como si fuera una canción
-   normal: portada, título, play/pause, progreso, siguiente/
-   anterior. El video nunca se muestra.
+   Función NUEVA e INDEPENDIENTE. No modifica el diseño ni la
+   lógica de las secciones anteriores.
+   ------------------------------------------------------------
+   Cómo funciona:
+   - Se inyecta un "handle" (barrita) en la parte superior del
+     reproductor a pantalla completa (#fs-player).
+   - Al deslizar ese handle hacia abajo (o al tocarlo), se abre
+     un panel con un carrusel horizontal de canciones del MISMO
+     GÉNERO que la canción que está sonando.
+   - Las canciones se muestran en orden aleatorio y se
+     actualizan si cambia la canción activa mientras el panel
+     está abierto.
+   - Al pulsar una tarjeta se reproduce esa canción.
+   - El handle hace stopPropagation en pointerdown para NO
+     interferir con el gesto actual de swipe del #fs-player.
    ============================================================ */
 (function () {
     'use strict';
 
-    const YT_REGEX = /(?:youtube\.com\/(?:watch\?[^#]*v=|embed\/|shorts\/|v\/|live\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/;
+    const $ = (id) => document.getElementById(id);
 
-    function extractVideoId(url) {
-        if (!url) return null;
-        const m = String(url).match(YT_REGEX);
-        return m ? m[1] : null;
+    let drawerEl   = null;
+    let handleEl   = null;
+    let carouselEl = null;
+    let titleEl    = null;
+    let isOpen     = false;
+    let lastActiveTitle = '';
+
+    /* ---------- Utilidades ---------- */
+    function normalize(s) {
+        return String(s || '').toLowerCase()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9]/g, '');
+    }
+    function getActiveItem() {
+        return document.querySelector('#playlist .playlist-item.active');
+    }
+    function getItemTitle(item) {
+        return item ? (item.querySelector('.item-title')?.textContent.trim() || '') : '';
+    }
+    function getItemSubtitle(item) {
+        return item ? (item.querySelector('.item-subtitle')?.textContent.trim() || '') : '';
+    }
+    function getItemCover(item) {
+        if (!item) return '';
+        const img = item.querySelector('.thumbnail img');
+        return img ? (img.getAttribute('src') || '') : '';
+    }
+    /* Extrae el género del subtítulo ("Artista · Género").
+       Ignora "Subido" (canciones subidas por usuarios). */
+    function getGenre(item) {
+        if (!item) return '';
+        const sub = getItemSubtitle(item);
+        const idx = sub.indexOf('·');
+        if (idx === -1) return '';
+        const genre = sub.slice(idx + 1).trim();
+        if (!genre) return '';
+        const lower = genre.toLowerCase();
+        if (lower === 'subido' || lower === 'subidos') return '';
+        return genre;
     }
 
-    let ytPlayer = null;
-    let ytReady = false;
-    let ytApiLoading = null;
-    let ytApiLoaded = false;
+    /* ---------- Búsqueda de recomendaciones por género ---------- */
+    function getRecommendations() {
+        const active = getActiveItem();
+        if (!active) return [];
+        const genre = getGenre(active);
+        if (!genre) return [];
+        const activeTitle = getItemTitle(active);
+        const genreNorm = normalize(genre);
+        const playlist = $('playlist');
+        if (!playlist) return [];
 
-    function loadYTAPI() {
-        if (ytApiLoaded && window.YT && window.YT.Player) return Promise.resolve();
-        if (ytApiLoading) return ytApiLoading;
-        ytApiLoading = new Promise((resolve) => {
-            const tag = document.createElement('script');
-            tag.src = 'https://www.youtube.com/iframe_api';
-            const firstScriptTag = document.getElementsByTagName('script')[0];
-            firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-            const prev = window.onYouTubeIframeAPIReady;
-            window.onYouTubeIframeAPIReady = function () {
-                ytApiLoaded = true;
-                if (typeof prev === 'function') { try { prev(); } catch (_) {} }
-                resolve();
-            };
+        const candidates = [];
+        playlist.querySelectorAll('.playlist-item').forEach(item => {
+            const title = getItemTitle(item);
+            if (!title || title === activeTitle) return;
+            const g = getGenre(item);
+            if (!g) return;
+            if (normalize(g) !== genreNorm) return;
+            candidates.push(item);
         });
-        return ytApiLoading;
+
+        /* Orden aleatorio */
+        for (let i = candidates.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+        }
+        return candidates;
     }
 
-    function ensureHiddenContainer() {
-        let el = document.getElementById('yt-hidden-container');
-        if (el) return el;
-        el = document.createElement('div');
-        el.id = 'yt-hidden-container';
-        el.setAttribute('aria-hidden', 'true');
-        // Totalmente invisible, pero en el DOM para que el iframe cargue
-        el.style.cssText =
-            'position:fixed;bottom:0;right:0;width:1px;height:1px;' +
-            'opacity:0.01;pointer-events:none;z-index:-1;overflow:hidden;';
-        const inner = document.createElement('div');
-        inner.id = 'yt-hidden-player';
-        el.appendChild(inner);
-        document.body.appendChild(el);
-        return el;
-    }
+    /* ---------- Render del carrusel ---------- */
+    function buildCarousel() {
+        if (!carouselEl) return;
+        carouselEl.innerHTML = '';
 
-    async function ensureYtPlayer() {
-        await loadYTAPI();
-        if (ytPlayer && ytReady) return ytPlayer;
-        ensureHiddenContainer();
-        return new Promise((resolve) => {
-            ytPlayer = new window.YT.Player('yt-hidden-player', {
-                height: '1',
-                width: '1',
-                playerVars: {
-                    autoplay: 0,
-                    controls: 0,
-                    disablekb: 1,
-                    modestbranding: 1,
-                    playsinline: 1,
-                    rel: 0
-                },
-                events: {
-                    onReady: () => { ytReady = true; resolve(ytPlayer); },
-                    onStateChange: onYtStateChange,
-                    onError: onYtError
-                }
+        const active = getActiveItem();
+        const genre  = getGenre(active);
+
+        if (titleEl) {
+            titleEl.textContent = genre ? ('Más de ' + genre) : 'Recomendado';
+        }
+
+        const list = getRecommendations();
+
+        if (!list.length) {
+            const empty = document.createElement('div');
+            empty.className = 'fs-drawer-empty';
+            empty.textContent = genre
+                ? 'No hay más canciones de este género'
+                : 'Esta canción no tiene género asignado';
+            carouselEl.appendChild(empty);
+            return;
+        }
+
+        list.forEach(item => {
+            const title = getItemTitle(item);
+            const cover = getItemCover(item);
+            const sub   = getItemSubtitle(item);
+
+            const card = document.createElement('button');
+            card.type = 'button';
+            card.className = 'fs-drawer-card';
+            card.setAttribute('aria-label', title);
+
+            const thumb = document.createElement('div');
+            thumb.className = 'fs-drawer-card-thumb';
+            if (cover) {
+                const img = document.createElement('img');
+                img.src = cover;
+                img.alt = title;
+                img.loading = 'lazy';
+                thumb.appendChild(img);
+            }
+            card.appendChild(thumb);
+
+            const t = document.createElement('span');
+            t.className = 'fs-drawer-card-title';
+            t.textContent = title;
+            card.appendChild(t);
+
+            if (sub) {
+                const s = document.createElement('span');
+                s.className = 'fs-drawer-card-sub';
+                s.textContent = sub;
+                card.appendChild(s);
+            }
+
+            card.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} }
+                item.click();
+                setTimeout(closeDrawer, 220);
             });
+
+            carouselEl.appendChild(card);
+        });
+
+        carouselEl.scrollLeft = 0;
+    }
+
+    /* ---------- Abrir / cerrar panel ---------- */
+    function openDrawer() {
+        if (!drawerEl || isOpen) return;
+        isOpen = true;
+        buildCarousel();
+        drawerEl.classList.add('visible');
+        drawerEl.setAttribute('aria-hidden', 'false');
+        if (handleEl) handleEl.classList.add('active');
+    }
+    function closeDrawer() {
+        if (!drawerEl || !isOpen) return;
+        isOpen = false;
+        drawerEl.classList.remove('visible');
+        drawerEl.setAttribute('aria-hidden', 'true');
+        if (handleEl) handleEl.classList.remove('active');
+    }
+    function toggleDrawer() {
+        if (isOpen) closeDrawer(); else openDrawer();
+    }
+
+    /* ---------- Gestos del handle ---------- */
+    function attachHandleSwipe(handle) {
+        let startY = 0;
+        let tracking = false;
+
+        handle.addEventListener('pointerdown', (e) => {
+            /* 🔑 Detiene la propagación para que el gesto global de
+               #fs-player (swipe down = canción anterior) NO se dispare. */
+            e.stopPropagation();
+            if (e.pointerType === 'mouse' && e.button !== 0) return;
+            startY = e.clientY;
+            tracking = true;
+
+            const onUp = (ev) => {
+                document.removeEventListener('pointerup', onUp);
+                document.removeEventListener('pointercancel', onUp);
+                if (!tracking) return;
+                tracking = false;
+                const dy = ev.clientY - startY;
+                if (dy > 15) {
+                    /* Evita que luego se dispare el click de toggle */
+                    handle.dataset.swiped = '1';
+                    openDrawer();
+                }
+            };
+            document.addEventListener('pointerup', onUp);
+            document.addEventListener('pointercancel', onUp);
+        });
+
+        /* Tap para alternar apertura/cierre */
+        handle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (handle.dataset.swiped === '1') {
+                delete handle.dataset.swiped;
+                return;
+            }
+            toggleDrawer();
         });
     }
 
-    const el = (id) => document.getElementById(id);
+    /* ---------- Inyección en el DOM del fullscreen ---------- */
+    function injectDrawer() {
+        const fsPlayer = $('fs-player');
+        if (!fsPlayer) return false;
+        if (drawerEl && drawerEl.isConnected) return true;
 
-    function fmtTime(s) {
-        if (!isFinite(s) || s < 0) return '0:00';
-        const m = Math.floor(s / 60);
-        const sec = Math.floor(s % 60);
-        return `${m}:${sec < 10 ? '0' : ''}${sec}`;
-    }
+        /* Handle superior */
+        const handle = document.createElement('div');
+        handle.className = 'fs-drawer-handle';
+        handle.id = 'fs-drawer-handle';
+        handle.setAttribute('role', 'button');
+        handle.setAttribute('aria-label', 'Desliza hacia abajo para ver recomendaciones');
+        handle.innerHTML = '<div class="fs-drawer-handle-bar"></div>';
+        fsPlayer.appendChild(handle);
+        handleEl = handle;
 
-    function syncUIToYouTube(item) {
-        document.querySelectorAll('#playlist .playlist-item').forEach(i => i.classList.remove('active'));
-        if (item) item.classList.add('active');
+        /* Panel desplegable */
+        const drawer = document.createElement('div');
+        drawer.className = 'fs-drawer';
+        drawer.id = 'fs-drawer';
+        drawer.setAttribute('aria-hidden', 'true');
+        drawer.innerHTML =
+            '<div class="fs-drawer-header">' +
+                '<span class="fs-drawer-title" id="fs-drawer-title">Recomendado</span>' +
+                '<button class="fs-drawer-close" id="fs-drawer-close" type="button" aria-label="Cerrar">&times;</button>' +
+            '</div>' +
+            '<div class="fs-drawer-carousel" id="fs-drawer-carousel"></div>';
+        fsPlayer.appendChild(drawer);
+        drawerEl   = drawer;
+        carouselEl = drawer.querySelector('#fs-drawer-carousel');
+        titleEl    = drawer.querySelector('#fs-drawer-title');
 
-        const cover = item?.querySelector('.thumbnail img')?.src || '';
-        const title = item?.querySelector('.item-title')?.textContent.trim() || '';
+        /* Bloquea el gesto global cuando el usuario interactúa con el panel */
+        drawer.addEventListener('pointerdown', (e) => { e.stopPropagation(); });
+        drawer.addEventListener('click', (e) => {
+            if (!e.target.closest('button')) e.stopPropagation();
+        });
 
-        const playerCover = el('player-cover');
-        const playerTitle = el('player-title');
-        const player      = el('player');
-
-        if (playerCover) {
-            if (cover) playerCover.src = cover;
-            else playerCover.removeAttribute('src');
-        }
-        if (playerTitle) playerTitle.textContent = title;
-        if (player) player.classList.add('active');
-
-        const progressBar = el('progress-bar');
-        if (progressBar) {
-            progressBar.style.setProperty('--progress', '0%');
-            progressBar.setAttribute('aria-valuenow', 0);
-        }
-        const curEl = el('current-time');
-        const durEl = el('duration');
-        if (curEl) curEl.textContent = '0:00';
-        if (durEl) durEl.textContent = '0:00';
-    }
-
-    function updatePlayIcon(playing) {
-        const playIcon = el('play-icon');
-        const playButton = el('play-button');
-        if (playIcon) {
-            playIcon.innerHTML = playing
-                ? '<rect x="6" y="4" width="4" height="16" fill="#ffffff" /><rect x="14" y="4" width="4" height="16" fill="#ffffff" />'
-                : '<polygon points="5,3 19,12 5,21" fill="#ffffff" />';
-            playIcon.style.marginLeft = playing ? '0' : '3px';
-        }
-        if (playButton) playButton.setAttribute('aria-label', playing ? 'Pausar' : 'Reproducir');
-    }
-
-    function onYtStateChange(e) {
-        const fsVinyl = el('fs-vinyl');
-        const S = window.YT && window.YT.PlayerState;
-        if (!S) return;
-
-        if (e.data === S.PLAYING) {
-            updatePlayIcon(true);
-            if (fsVinyl) fsVinyl.classList.add('playing');
-        } else if (e.data === S.PAUSED) {
-            updatePlayIcon(false);
-            if (fsVinyl) fsVinyl.classList.remove('playing');
-        } else if (e.data === S.ENDED) {
-            updatePlayIcon(false);
-            if (fsVinyl) fsVinyl.classList.remove('playing');
-            // Avanzar a la siguiente canción
-            document.dispatchEvent(new CustomEvent('omega:next'));
-        }
-    }
-
-    function onYtError() {
-        setTimeout(() => document.dispatchEvent(new CustomEvent('omega:next')), 300);
-    }
-
-    async function loadAndPlay(videoId, item) {
-        syncUIToYouTube(item);
-        const player = await ensureYtPlayer();
-        if (typeof player.loadVideoById === 'function') {
-            player.loadVideoById(videoId);
-            // Asegurar autoplay
-            setTimeout(() => { try { player.playVideo(); } catch (_) {} }, 300);
-        } else if (typeof player.cueVideoById === 'function') {
-            player.cueVideoById(videoId);
-            player.playVideo();
-        }
-    }
-
-    /* ---------- Interceptar clicks en items de YouTube ---------- */
-    function hookClicks() {
-        const playlist = document.getElementById('playlist');
-        if (!playlist || playlist.dataset.ytClickHook === '1') return;
-        playlist.dataset.ytClickHook = '1';
-
-        playlist.addEventListener('click', function (e) {
-            const item = e.target.closest('.playlist-item');
-            if (!item) return;
-            const src = item.dataset.src || '';
-            const id = extractVideoId(src);
-            if (!id) return;   // no es YouTube → dejar pasar
-
+        drawer.querySelector('#fs-drawer-close').addEventListener('click', (e) => {
             e.stopPropagation();
-            e.preventDefault();
-            e.stopImmediatePropagation();
+            closeDrawer();
+        });
 
-            loadAndPlay(id, item);
-        }, true);
+        attachHandleSwipe(handle);
+        return true;
     }
 
-    /* ---------- Interceptar botón play/pause del mini ---------- */
-    function hookPlayButton() {
-        const playButton = el('play-button');
-        if (!playButton || playButton.dataset.ytHooked === '1') return;
-        playButton.dataset.ytHooked = '1';
+    /* ---------- Observadores ---------- */
+    function watchSongChange() {
+        const playerTitleEl = $('player-title');
+        if (!playerTitleEl) return;
+        if (playerTitleEl.dataset.fsDrawerWatch === '1') return;
+        playerTitleEl.dataset.fsDrawerWatch = '1';
 
-        playButton.addEventListener('click', function (e) {
-            if (!ytReady || !ytPlayer) return;
+        const obs = new MutationObserver(() => {
+            const newTitle = (playerTitleEl.textContent || '').trim();
+            if (newTitle === lastActiveTitle) return;
+            lastActiveTitle = newTitle;
+            if (isOpen) buildCarousel();
+        });
+        obs.observe(playerTitleEl, { childList: true, characterData: true, subtree: true });
+    }
 
-            const active = document.querySelector('#playlist .playlist-item.active');
-            if (!active) return;
-            const id = extractVideoId(active.dataset.src || '');
-            if (!id) return;   // la activa no es YouTube → dejar pasar
+    function watchFullscreen() {
+        const fsPlayer = $('fs-player');
+        if (!fsPlayer) return false;
+        if (fsPlayer.dataset.fsDrawerWatch === '1') return true;
+        fsPlayer.dataset.fsDrawerWatch = '1';
 
-            e.stopPropagation();
-            e.preventDefault();
-            e.stopImmediatePropagation();
+        let lastVisible = false;
+        const obs = new MutationObserver(() => {
+            const visible = fsPlayer.classList.contains('visible');
+            if (visible === lastVisible) return;
+            lastVisible = visible;
+            if (!visible && isOpen) closeDrawer();
+        });
+        obs.observe(fsPlayer, { attributes: true, attributeFilter: ['class'] });
+        return true;
+    }
 
-            const S = window.YT && window.YT.PlayerState;
-            const state = ytPlayer.getPlayerState && ytPlayer.getPlayerState();
-            if (state === S.PLAYING) {
-                ytPlayer.pauseVideo();
-            } else {
-                ytPlayer.playVideo();
+    /* ---------- Arranque con reintentos (por si fs-player aún no existe) ---------- */
+    function boot() {
+        let attempts = 0;
+        (function loop() {
+            attempts++;
+            const fsPlayer = $('fs-player');
+            if (fsPlayer) {
+                injectDrawer();
+                watchSongChange();
+                watchFullscreen();
+                return;
             }
-        }, true);
-    }
-
-    /* ---------- Click en la barra de progreso → seek ---------- */
-    function hookProgressSeek() {
-        const progressBar = el('progress-bar');
-        if (!progressBar || progressBar.dataset.ytHooked === '1') return;
-        progressBar.dataset.ytHooked = '1';
-
-        progressBar.addEventListener('click', function (e) {
-            const active = document.querySelector('#playlist .playlist-item.active');
-            if (!active) return;
-            if (!extractVideoId(active.dataset.src || '')) return;
-            if (!ytReady || !ytPlayer || !ytPlayer.seekTo) return;
-
-            const dur = ytPlayer.getDuration() || 0;
-            if (dur <= 0) return;
-
-            const rect = progressBar.getBoundingClientRect();
-            const ratio = (e.clientX - rect.left) / rect.width;
-            ytPlayer.seekTo(Math.min(1, Math.max(0, ratio)) * dur, true);
-
-            e.stopPropagation();
-            e.preventDefault();
-        }, true);
-    }
-
-    /* ---------- Sincronizar progreso cada 500 ms ---------- */
-    function startProgressLoop() {
-        if (window.__ytProgressLoop) return;
-        window.__ytProgressLoop = true;
-
-        setInterval(() => {
-            const active = document.querySelector('#playlist .playlist-item.active');
-            if (!active) return;
-            if (!extractVideoId(active.dataset.src || '')) return;
-            if (!ytReady || !ytPlayer) return;
-            if (!ytPlayer.getCurrentTime || !ytPlayer.getDuration) return;
-
-            const cur = ytPlayer.getCurrentTime() || 0;
-            const dur = ytPlayer.getDuration() || 0;
-            if (dur <= 0) return;
-
-            const percent = (cur / dur) * 100;
-            const progressBar = el('progress-bar');
-            if (progressBar) {
-                progressBar.style.setProperty('--progress', percent + '%');
-                progressBar.setAttribute('aria-valuenow', Math.round(percent));
-            }
-            const curEl = el('current-time');
-            const durEl = el('duration');
-            if (curEl) curEl.textContent = fmtTime(cur);
-            if (durEl) durEl.textContent = fmtTime(dur);
-        }, 500);
-    }
-
-    /* ---------- Evitar que el <audio> intente reproducir YouTube ---------- */
-    function hookAudioGuard() {
-        const audio = document.getElementById('audio-player');
-        if (!audio || audio.dataset.ytGuard === '1') return;
-        audio.dataset.ytGuard = '1';
-
-        const originalPlay = audio.play.bind(audio);
-        audio.play = function () {
-            const src = audio.src || '';
-            const id = extractVideoId(src);
-            if (id) {
-                try { audio.pause(); } catch (_) {}
-                const active = document.querySelector('#playlist .playlist-item.active');
-                loadAndPlay(id, active);
-                return Promise.resolve();
-            }
-            return originalPlay();
-        };
-
-        audio.addEventListener('error', function (e) {
-            const src = audio.src || '';
-            const id = extractVideoId(src);
-            if (!id) return;
-            e.stopImmediatePropagation();
-            e.preventDefault();
-            try { audio.pause(); } catch (_) {}
-            const active = document.querySelector('#playlist .playlist-item.active');
-            loadAndPlay(id, active);
-        }, true);
-    }
-
-    function init() {
-        hookClicks();
-        hookPlayButton();
-        hookProgressSeek();
-        hookAudioGuard();
-        startProgressLoop();
+            if (attempts < 60) setTimeout(loop, 250);
+        })();
     }
 
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
+        document.addEventListener('DOMContentLoaded', boot);
     } else {
-        init();
+        boot();
     }
-    [500, 1500, 3000].forEach(ms => setTimeout(init, ms));
 })();
