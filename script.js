@@ -11046,42 +11046,29 @@ document.addEventListener('DOMContentLoaded', () => {
 /* ============================================================
    46. CARRUSEL DE RECOMENDADOS POR GÉNERO EN PANTALLA COMPLETA
    ------------------------------------------------------------
-   Función NUEVA e INDEPENDIENTE. No modifica el diseño ni la
-   lógica de las secciones anteriores.
-   ------------------------------------------------------------
-   Características:
-   - Handle superior (barrita) para abrir/cerrar el panel.
-   - Carrusel horizontal con canciones del MISMO GÉNERO que la
-     canción activa, en orden aleatorio.
-   - SIN DUPLICADOS: cada canción aparece una sola vez por
-     sesión. Si cambia la canción activa, la sesión se reinicia.
-   - Botón "+ Más sugerencias" que carga un nuevo lote de
-     canciones del mismo género evitando las ya mostradas.
-   - Cuando el pool de género se agota, el botón se desactiva y
-     avisa "No hay más sugerencias".
-   - El handle y el panel hacen stopPropagation en pointerdown
-     para no interferir con el gesto global de #fs-player
-     (swipe down = canción anterior).
+   Función NUEVA e INDEPENDIENTE. No modifica ninguna otra.
    ============================================================ */
 (function () {
     'use strict';
 
+    const LOG = '[FS-DRAWER]';
     const $ = (id) => document.getElementById(id);
-    const BATCH_SIZE = 8;   // canciones que se cargan por lote
+    const BATCH_SIZE = 8;
 
-    let drawerEl   = null;
-    let handleEl   = null;
-    let carouselEl = null;
-    let titleEl    = null;
-    let moreBtn    = null;
-    let isOpen     = false;
+    /* Referencias */
+    let fsPlayerRef = null;
+    let drawerEl    = null;
+    let handleEl    = null;
+    let carouselEl  = null;
+    let titleEl     = null;
+    let moreBtn     = null;
+    let isOpen      = false;
 
+    /* Estado de la sesión de sugerencias */
     let lastActiveTitle    = '';
-    let currentSessionSong = '';   // título con el que se armó la sesión actual
+    let currentSessionSong = '';
     let currentGenre       = '';
-
-    /* Títulos ya mostrados en la sesión (evita duplicados) */
-    const shownTitles = new Set();
+    const shownTitles      = new Set();
 
     /* ---------- Utilidades ---------- */
     function normalize(s) {
@@ -11103,7 +11090,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const img = item.querySelector('.thumbnail img');
         return img ? (img.getAttribute('src') || '') : '';
     }
-    /* Género = parte del subtítulo después del "·", ignorando "Subido" */
     function getGenre(item) {
         if (!item) return '';
         const sub = getItemSubtitle(item);
@@ -11124,7 +11110,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return a;
     }
 
-    /* ---------- Pool de candidatos por género ---------- */
+    /* ---------- Pool de canciones por género ---------- */
     function getPool(genre) {
         const active = getActiveItem();
         if (!active || !genre) return [];
@@ -11143,15 +11129,13 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         return out;
     }
-
-    /* Devuelve hasta `count` items al azar, excluyendo los ya mostrados */
     function pickBatch(pool, count) {
         const available = pool.filter(it => !shownTitles.has(getItemTitle(it)));
         if (!available.length) return [];
         return shuffle(available).slice(0, count);
     }
 
-    /* ---------- Construcción de tarjeta ---------- */
+    /* ---------- Tarjeta ---------- */
     function makeCard(item) {
         const title = getItemTitle(item);
         const cover = getItemCover(item);
@@ -11189,17 +11173,15 @@ document.addEventListener('DOMContentLoaded', () => {
             e.stopPropagation();
             if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} }
             item.click();
-            /* Cerramos el panel para dejar ver el reproductor */
             setTimeout(closeDrawer, 200);
         });
 
         return card;
     }
 
-    /* ---------- Estado del botón "+ Más sugerencias" ---------- */
+    /* ---------- Botón + Más sugerencias ---------- */
     function updateMoreButton(poolLength) {
         if (!moreBtn) return;
-
         if (!currentGenre) {
             moreBtn.disabled = true;
             moreBtn.textContent = '+ Más sugerencias';
@@ -11215,11 +11197,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ---------- Render inicial (reset de sesión) ---------- */
+    /* ---------- Render (nueva sesión) ---------- */
     function renderInitial() {
-        if (!carouselEl) return;
-
-        /* Reset de la sesión */
+        if (!carouselEl) {
+            console.warn(LOG, 'renderInitial: carouselEl no existe');
+            return;
+        }
         shownTitles.clear();
         carouselEl.innerHTML = '';
         carouselEl.scrollLeft = 0;
@@ -11227,6 +11210,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const active = getActiveItem();
         currentSessionSong = getItemTitle(active);
         currentGenre       = getGenre(active);
+
+        console.log(LOG, 'Sesión:', currentSessionSong, '| Género:', currentGenre);
 
         if (titleEl) {
             titleEl.textContent = currentGenre ? ('Más de ' + currentGenre) : 'Recomendado';
@@ -11242,6 +11227,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const pool = getPool(currentGenre);
+        console.log(LOG, 'Pool de género:', pool.length, 'canciones');
+
         if (!pool.length) {
             const empty = document.createElement('div');
             empty.className = 'fs-drawer-empty';
@@ -11257,30 +11244,20 @@ document.addEventListener('DOMContentLoaded', () => {
         updateMoreButton(pool.length);
     }
 
-    /* ---------- Cargar más (sin repetir las ya mostradas) ---------- */
+    /* ---------- Cargar más sin repetir ---------- */
     function loadMore() {
         if (!carouselEl || !currentGenre) return;
-
-        const pool = getPool(currentGenre);
+        const pool  = getPool(currentGenre);
         const picks = pickBatch(pool, BATCH_SIZE);
-
-        if (!picks.length) {
-            updateMoreButton(pool.length);
-            return;
-        }
+        if (!picks.length) { updateMoreButton(pool.length); return; }
 
         picks.forEach(p => shownTitles.add(getItemTitle(p)));
         picks.forEach(p => carouselEl.appendChild(makeCard(p)));
         updateMoreButton(pool.length);
 
-        /* Desplaza el carrusel al final para mostrar las nuevas */
         setTimeout(() => {
-            try {
-                carouselEl.scrollTo({
-                    left: carouselEl.scrollWidth,
-                    behavior: 'smooth'
-                });
-            } catch (_) { carouselEl.scrollLeft = carouselEl.scrollWidth; }
+            try { carouselEl.scrollTo({ left: carouselEl.scrollWidth, behavior: 'smooth' }); }
+            catch (_) { carouselEl.scrollLeft = carouselEl.scrollWidth; }
         }, 60);
     }
 
@@ -11288,16 +11265,14 @@ document.addEventListener('DOMContentLoaded', () => {
     function openDrawer() {
         if (!drawerEl || isOpen) return;
         isOpen = true;
-
-        /* Si la canción cambió desde la última vez, reconstruimos la sesión */
         const activeTitle = getItemTitle(getActiveItem());
         if (currentSessionSong !== activeTitle) {
             renderInitial();
         }
-
         drawerEl.classList.add('visible');
         drawerEl.setAttribute('aria-hidden', 'false');
         if (handleEl) handleEl.classList.add('active');
+        console.log(LOG, 'Panel abierto');
     }
     function closeDrawer() {
         if (!drawerEl || !isOpen) return;
@@ -11305,10 +11280,9 @@ document.addEventListener('DOMContentLoaded', () => {
         drawerEl.classList.remove('visible');
         drawerEl.setAttribute('aria-hidden', 'true');
         if (handleEl) handleEl.classList.remove('active');
+        console.log(LOG, 'Panel cerrado');
     }
-    function toggleDrawer() {
-        if (isOpen) closeDrawer(); else openDrawer();
-    }
+    function toggleDrawer() { if (isOpen) closeDrawer(); else openDrawer(); }
 
     /* ---------- Gestos del handle ---------- */
     function attachHandleSwipe(handle) {
@@ -11316,8 +11290,6 @@ document.addEventListener('DOMContentLoaded', () => {
         let tracking = false;
 
         handle.addEventListener('pointerdown', (e) => {
-            /* 🔑 Evita que el gesto global del reproductor
-               (swipe down = canción anterior) se dispare. */
             e.stopPropagation();
             if (e.pointerType === 'mouse' && e.button !== 0) return;
             startY = e.clientY;
@@ -11348,11 +11320,20 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    /* ---------- Inyección del DOM ---------- */
+    /* ---------- Inyección ---------- */
     function injectDrawer() {
         const fsPlayer = $('fs-player');
-        if (!fsPlayer) return false;
-        if (drawerEl && drawerEl.isConnected) return true;
+        if (!fsPlayer) {
+            console.warn(LOG, 'injectDrawer: #fs-player no encontrado');
+            return false;
+        }
+        fsPlayerRef = fsPlayer;
+
+        /* Si ya se inyectó, salir */
+        if (document.getElementById('fs-drawer-handle')) {
+            console.log(LOG, 'Ya inyectado previamente');
+            return true;
+        }
 
         /* Handle superior */
         const handle = document.createElement('div');
@@ -11360,11 +11341,14 @@ document.addEventListener('DOMContentLoaded', () => {
         handle.id = 'fs-drawer-handle';
         handle.setAttribute('role', 'button');
         handle.setAttribute('aria-label', 'Desliza hacia abajo para ver sugerencias');
-        handle.innerHTML = '<div class="fs-drawer-handle-bar"></div>';
+        handle.innerHTML =
+            '<div class="fs-drawer-handle-bar"></div>' +
+            '<span class="fs-drawer-handle-text">Sugerencias</span>' +
+            '<svg class="fs-drawer-handle-chev" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
         fsPlayer.appendChild(handle);
         handleEl = handle;
 
-        /* Panel desplegable */
+        /* Panel */
         const drawer = document.createElement('div');
         drawer.className = 'fs-drawer';
         drawer.id = 'fs-drawer';
@@ -11384,7 +11368,7 @@ document.addEventListener('DOMContentLoaded', () => {
         titleEl    = drawer.querySelector('#fs-drawer-title');
         moreBtn    = drawer.querySelector('#fs-drawer-more');
 
-        /* Bloquea el gesto global cuando el usuario interactúa con el panel */
+        /* Bloquea el gesto global del reproductor dentro del panel */
         drawer.addEventListener('pointerdown', (e) => { e.stopPropagation(); });
         drawer.addEventListener('click', (e) => {
             if (!e.target.closest('button')) e.stopPropagation();
@@ -11401,6 +11385,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         attachHandleSwipe(handle);
+        console.log(LOG, '✅ Handle y panel inyectados en #fs-player');
         return true;
     }
 
@@ -11415,15 +11400,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const newTitle = (playerTitleEl.textContent || '').trim();
             if (newTitle === lastActiveTitle) return;
             lastActiveTitle = newTitle;
-
-            if (isOpen) {
-                /* Si el panel está abierto, refrescamos con la nueva sesión */
-                renderInitial();
-            } else {
-                /* Si está cerrado, marcamos la sesión como obsoleta
-                   para que se reconstruya en la próxima apertura. */
-                currentSessionSong = '';
-            }
+            if (isOpen) renderInitial();
+            else currentSessionSong = '';
         });
         obs.observe(playerTitleEl, { childList: true, characterData: true, subtree: true });
     }
@@ -11445,19 +11423,23 @@ document.addEventListener('DOMContentLoaded', () => {
         return true;
     }
 
-    /* ---------- Arranque con reintentos ---------- */
+    /* ---------- Arranque ---------- */
     function boot() {
         let attempts = 0;
         (function loop() {
             attempts++;
             const fsPlayer = $('fs-player');
             if (fsPlayer) {
-                injectDrawer();
-                watchSongChange();
-                watchFullscreen();
-                return;
+                const ok = injectDrawer();
+                if (ok) {
+                    watchSongChange();
+                    watchFullscreen();
+                    console.log(LOG, '🚀 Sección 46 lista');
+                    return;
+                }
             }
-            if (attempts < 60) setTimeout(loop, 250);
+            if (attempts < 80) setTimeout(loop, 200);
+            else console.warn(LOG, '❌ No se encontró #fs-player tras 16s');
         })();
     }
 
