@@ -4134,3 +4134,68 @@ body[data-theme="light"] .com-omega-menu-btn.danger { color: #d81e1e; }
     .fs-drawer-handle { min-width: 118px; padding: 6px 12px 6px 10px; }
     .fs-drawer-handle-text { font-size: 11px; }
 }
+/* ============================================================
+   47. TOGGLE LISTA / CUADRÍCULA EN EL PERFIL DE ARTISTA
+   ============================================================ */
+
+.ap-view-toggle {
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.08);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: transform 0.18s ease, background 0.2s ease;
+    -webkit-tap-highlight-color: transparent;
+}
+.ap-view-toggle:active {
+    transform: translateY(-50%) scale(0.9);
+    background: rgba(255, 255, 255, 0.18);
+}
+.ap-view-toggle svg {
+    display: block;
+    pointer-events: none;
+}
+
+/* Modo cuadrícula: 3 columnas (comportamiento original) */
+.ap-grid:not(.ap-grid--list) {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    padding: 10px 16px 8px;
+}
+
+/* Ajustes responsive para el grid */
+@media (max-width: 360px) {
+    .ap-grid:not(.ap-grid--list) {
+        gap: 6px;
+        padding: 8px 12px 6px;
+    }
+    .ap-view-toggle {
+        width: 34px;
+        height: 34px;
+        left: 10px;
+    }
+}
+
+/* Tema claro */
+body[data-theme="light"] .ap-view-toggle {
+    background: rgba(0, 0, 0, 0.06);
+}
+body[data-theme="light"] .ap-view-toggle:active {
+    background: rgba(0, 0, 0, 0.14);
+}
+body[data-theme="light"] .ap-view-toggle svg {
+    stroke: #111111;
+}
+body[data-theme="light"] .ap-view-toggle svg circle {
+    fill: #111111;
+}
