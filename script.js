@@ -11046,7 +11046,10 @@ document.addEventListener('DOMContentLoaded', () => {
 /* ============================================================
    46. CARRUSEL DE RECOMENDADOS POR GÉNERO EN PANTALLA COMPLETA
    ------------------------------------------------------------
-   Función NUEVA e INDEPENDIENTE. No modifica ninguna otra.
+   Solución: el género se resuelve en 2 pasos:
+     1) Desde el DOM (subtítulo "Artista · Género")
+     2) Si no está en el DOM, desde Firestore (igual que la
+        sección 33 del buscador por género)
    ============================================================ */
 (function () {
     'use strict';
@@ -11056,19 +11059,23 @@ document.addEventListener('DOMContentLoaded', () => {
     const BATCH_SIZE = 8;
 
     /* Referencias */
-    let fsPlayerRef = null;
-    let drawerEl    = null;
-    let handleEl    = null;
-    let carouselEl  = null;
-    let titleEl     = null;
-    let moreBtn     = null;
-    let isOpen      = false;
+    let drawerEl   = null;
+    let handleEl   = null;
+    let carouselEl = null;
+    let titleEl    = null;
+    let moreBtn    = null;
+    let isOpen     = false;
 
-    /* Estado de la sesión de sugerencias */
+    /* Estado de la sesión */
     let lastActiveTitle    = '';
     let currentSessionSong = '';
     let currentGenre       = '';
     const shownTitles      = new Set();
+
+    /* Mapa de géneros traído de Firestore: <titulo_normalizado, género> */
+    let genreMap            = new Map();
+    let genreMapLoadedOnce  = false;
+    let genreMapLoading     = null;
 
     /* ---------- Utilidades ---------- */
     function normalize(s) {
@@ -11090,27 +11097,84 @@ document.addEventListener('DOMContentLoaded', () => {
         const img = item.querySelector('.thumbnail img');
         return img ? (img.getAttribute('src') || '') : '';
     }
-    function getGenre(item) {
-        if (!item) return '';
-        const sub = getItemSubtitle(item);
-        const idx = sub.indexOf('·');
-        if (idx === -1) return '';
-        const genre = sub.slice(idx + 1).trim();
-        if (!genre) return '';
-        const lower = genre.toLowerCase();
-        if (lower === 'subido' || lower === 'subidos') return '';
-        return genre;
+
+    /* ---------- Carga de géneros desde Firestore ---------- */
+    function pickGenre(d) {
+        return d.genero || d['género'] || d.genre || d.categoria ||
+               d.category || d.tipo || d['categoría'] || '';
     }
-    function shuffle(arr) {
-        const a = arr.slice();
-        for (let i = a.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [a[i], a[j]] = [a[j], a[i]];
-        }
-        return a;
+    async function loadGenresFromFirestore(force) {
+        if (!force && genreMapLoadedOnce) return genreMap;
+        if (genreMapLoading && !force) return genreMapLoading;
+        if (typeof firebase === 'undefined' || !firebase.firestore) return genreMap;
+
+        genreMapLoading = (async () => {
+            const map = new Map();
+
+            /* 1) canciones_usuarios (subidas) */
+            try {
+                const snap = await firebase.firestore()
+                    .collection('canciones_usuarios').limit(800).get();
+                snap.forEach(doc => {
+                    const d = doc.data() || {};
+                    const t = d.titulo || '';
+                    const g = pickGenre(d);
+                    if (t && g) map.set(normalize(t), String(g).trim());
+                });
+            } catch (e) { console.warn(LOG, 'canciones_usuarios:', e); }
+
+            /* 2) collectionGroup('canciones') (dropbox u otros) */
+            try {
+                const snap = await firebase.firestore()
+                    .collectionGroup('canciones').limit(800).get();
+                snap.forEach(doc => {
+                    const d = doc.data() || {};
+                    if (d.origen && d.origen !== 'dropbox') return;
+                    const t = d.titulo || '';
+                    const g = pickGenre(d);
+                    if (t && g) map.set(normalize(t), String(g).trim());
+                });
+            } catch (e) { console.warn(LOG, 'collectionGroup:', e); }
+
+            genreMap = map;
+            genreMapLoadedOnce = true;
+            genreMapLoading = null;
+            console.log(LOG, '✅ Géneros cargados desde Firestore:', map.size);
+
+            /* Si el panel está abierto, reconstruir con la info nueva */
+            if (isOpen) renderInitial();
+            else currentSessionSong = '';
+            return map;
+        })();
+
+        return genreMapLoading;
     }
 
-    /* ---------- Pool de canciones por género ---------- */
+    /* ---------- Resolución del género (DOM → Firestore) ---------- */
+    function getGenre(item) {
+        if (!item) return '';
+
+        /* 1) DOM: subtítulo "Artista · Género" */
+        const sub = getItemSubtitle(item);
+        const idx = sub.indexOf('·');
+        if (idx !== -1) {
+            const g = sub.slice(idx + 1).trim();
+            if (g) {
+                const lower = g.toLowerCase();
+                if (lower !== 'subido' && lower !== 'subidos') return g;
+            }
+        }
+
+        /* 2) Firestore */
+        const title = getItemTitle(item);
+        if (title && genreMap.size) {
+            const key = normalize(title);
+            if (key && genreMap.has(key)) return genreMap.get(key);
+        }
+        return '';
+    }
+
+    /* ---------- Pool de canciones del mismo género ---------- */
     function getPool(genre) {
         const active = getActiveItem();
         if (!active || !genre) return [];
@@ -11119,15 +11183,36 @@ document.addEventListener('DOMContentLoaded', () => {
         const playlist    = $('playlist');
         if (!playlist) return [];
 
-        const out = [];
+        const exact = [];
+        const loose = [];
+
         playlist.querySelectorAll('.playlist-item').forEach(item => {
             const t = getItemTitle(item);
             if (!t || t === activeTitle) return;
             const g = getGenre(item);
-            if (!g || normalize(g) !== genreNorm) return;
-            out.push(item);
+            if (!g) return;
+            const gNorm = normalize(g);
+            if (gNorm === genreNorm) {
+                exact.push(item);
+            } else if (gNorm && genreNorm && (gNorm.includes(genreNorm) || genreNorm.includes(gNorm))) {
+                /* Fallback: "Rock" ↔ "Rock Alternativo" */
+                loose.push(item);
+            }
         });
-        return out;
+
+        /* Preferimos coincidencia exacta; si no hay, usamos la flexible */
+        const result = exact.length ? exact : loose;
+        console.log(LOG, `Pool género "${genre}": exact=${exact.length} loose=${loose.length} → ${result.length}`);
+        return result;
+    }
+
+    function shuffle(arr) {
+        const a = arr.slice();
+        for (let i = a.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [a[i], a[j]] = [a[j], a[i]];
+        }
+        return a;
     }
     function pickBatch(pool, count) {
         const available = pool.filter(it => !shownTitles.has(getItemTitle(it)));
@@ -11175,7 +11260,6 @@ document.addEventListener('DOMContentLoaded', () => {
             item.click();
             setTimeout(closeDrawer, 200);
         });
-
         return card;
     }
 
@@ -11197,12 +11281,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ---------- Render (nueva sesión) ---------- */
+    /* ---------- Render ---------- */
     function renderInitial() {
-        if (!carouselEl) {
-            console.warn(LOG, 'renderInitial: carouselEl no existe');
-            return;
-        }
+        if (!carouselEl) return;
         shownTitles.clear();
         carouselEl.innerHTML = '';
         carouselEl.scrollLeft = 0;
@@ -11211,7 +11292,7 @@ document.addEventListener('DOMContentLoaded', () => {
         currentSessionSong = getItemTitle(active);
         currentGenre       = getGenre(active);
 
-        console.log(LOG, 'Sesión:', currentSessionSong, '| Género:', currentGenre);
+        console.log(LOG, '🎵 Canción activa:', currentSessionSong, '| Género detectado:', currentGenre || '(vacío)');
 
         if (titleEl) {
             titleEl.textContent = currentGenre ? ('Más de ' + currentGenre) : 'Recomendado';
@@ -11227,8 +11308,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const pool = getPool(currentGenre);
-        console.log(LOG, 'Pool de género:', pool.length, 'canciones');
-
         if (!pool.length) {
             const empty = document.createElement('div');
             empty.className = 'fs-drawer-empty';
@@ -11244,7 +11323,7 @@ document.addEventListener('DOMContentLoaded', () => {
         updateMoreButton(pool.length);
     }
 
-    /* ---------- Cargar más sin repetir ---------- */
+    /* ---------- Cargar más ---------- */
     function loadMore() {
         if (!carouselEl || !currentGenre) return;
         const pool  = getPool(currentGenre);
@@ -11266,9 +11345,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!drawerEl || isOpen) return;
         isOpen = true;
         const activeTitle = getItemTitle(getActiveItem());
-        if (currentSessionSong !== activeTitle) {
-            renderInitial();
-        }
+        if (currentSessionSong !== activeTitle) renderInitial();
         drawerEl.classList.add('visible');
         drawerEl.setAttribute('aria-hidden', 'false');
         if (handleEl) handleEl.classList.add('active');
@@ -11280,7 +11357,6 @@ document.addEventListener('DOMContentLoaded', () => {
         drawerEl.classList.remove('visible');
         drawerEl.setAttribute('aria-hidden', 'true');
         if (handleEl) handleEl.classList.remove('active');
-        console.log(LOG, 'Panel cerrado');
     }
     function toggleDrawer() { if (isOpen) closeDrawer(); else openDrawer(); }
 
@@ -11301,10 +11377,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!tracking) return;
                 tracking = false;
                 const dy = ev.clientY - startY;
-                if (dy > 15) {
-                    handle.dataset.swiped = '1';
-                    openDrawer();
-                }
+                if (dy > 15) { handle.dataset.swiped = '1'; openDrawer(); }
             };
             document.addEventListener('pointerup', onUp);
             document.addEventListener('pointercancel', onUp);
@@ -11312,10 +11385,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         handle.addEventListener('click', (e) => {
             e.stopPropagation();
-            if (handle.dataset.swiped === '1') {
-                delete handle.dataset.swiped;
-                return;
-            }
+            if (handle.dataset.swiped === '1') { delete handle.dataset.swiped; return; }
             toggleDrawer();
         });
     }
@@ -11323,19 +11393,10 @@ document.addEventListener('DOMContentLoaded', () => {
     /* ---------- Inyección ---------- */
     function injectDrawer() {
         const fsPlayer = $('fs-player');
-        if (!fsPlayer) {
-            console.warn(LOG, 'injectDrawer: #fs-player no encontrado');
-            return false;
-        }
-        fsPlayerRef = fsPlayer;
+        if (!fsPlayer) return false;
+        if (document.getElementById('fs-drawer-handle')) return true;
 
-        /* Si ya se inyectó, salir */
-        if (document.getElementById('fs-drawer-handle')) {
-            console.log(LOG, 'Ya inyectado previamente');
-            return true;
-        }
-
-        /* Handle superior */
+        /* Handle */
         const handle = document.createElement('div');
         handle.className = 'fs-drawer-handle';
         handle.id = 'fs-drawer-handle';
@@ -11368,7 +11429,6 @@ document.addEventListener('DOMContentLoaded', () => {
         titleEl    = drawer.querySelector('#fs-drawer-title');
         moreBtn    = drawer.querySelector('#fs-drawer-more');
 
-        /* Bloquea el gesto global del reproductor dentro del panel */
         drawer.addEventListener('pointerdown', (e) => { e.stopPropagation(); });
         drawer.addEventListener('click', (e) => {
             if (!e.target.closest('button')) e.stopPropagation();
@@ -11385,7 +11445,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         attachHandleSwipe(handle);
-        console.log(LOG, '✅ Handle y panel inyectados en #fs-player');
+        console.log(LOG, '✅ Handle y panel inyectados');
         return true;
     }
 
@@ -11423,15 +11483,33 @@ document.addEventListener('DOMContentLoaded', () => {
         return true;
     }
 
+    /* ---------- Preload de géneros ---------- */
+    function preloadGenres() {
+        if (typeof firebase === 'undefined' || !firebase.auth) {
+            /* Firebase aún no listo: reintentar */
+            setTimeout(preloadGenres, 400);
+            return;
+        }
+        /* Cargar en cuanto haya usuario */
+        firebase.auth().onAuthStateChanged((user) => {
+            if (user) loadGenresFromFirestore(false).catch(() => {});
+        });
+        if (firebase.auth().currentUser) {
+            loadGenresFromFirestore(false).catch(() => {});
+        }
+    }
+
     /* ---------- Arranque ---------- */
     function boot() {
+        /* Precarga de géneros lo antes posible */
+        preloadGenres();
+
         let attempts = 0;
         (function loop() {
             attempts++;
             const fsPlayer = $('fs-player');
             if (fsPlayer) {
-                const ok = injectDrawer();
-                if (ok) {
+                if (injectDrawer()) {
                     watchSongChange();
                     watchFullscreen();
                     console.log(LOG, '🚀 Sección 46 lista');
