@@ -2395,6 +2395,14 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} }
                 if (typeof firebase === 'undefined' || !firebase.auth) throw new Error('Firebase no disponible');
+
+                // ⬇️ Sincroniza las estadísticas pendientes ANTES de cerrar sesión.
+                // Si no se hace aquí, Firestore rechazará la escritura por reglas de seguridad.
+                if (typeof window.__sincronizarStatsAntesDeSalir === 'function') {
+                    try { await window.__sincronizarStatsAntesDeSalir(); }
+                    catch (e) { console.warn('[STATS] sync pre-logout falló:', e); }
+                }
+
                 await firebase.auth().signOut();
                 const submenu = document.getElementById('submenu');
                 const overlay = document.getElementById('submenu-overlay');
@@ -8705,48 +8713,45 @@ document.addEventListener('DOMContentLoaded', () => {
 })();
 
 /* ============================================================
-   39. ESTADÍSTICAS DE HORAS ESCUCHANDO MÚSICA
+   39. ESTADÍSTICAS DE HORAS ESCUCHANDO MÚSICA (optimizado)
+   ------------------------------------------------------------
+   - Play/Pausa → SOLO localStorage (0 lecturas / 0 escrituras)
+   - Ver estadísticas → 1 sola .get() sin onSnapshot
+   - Salir/app a fondo/logout → 1 sola escritura con increment()
    ============================================================ */
 (function () {
     'use strict';
 
     const $ = (id) => document.getElementById(id);
 
-    const INACTIVITY_MS     = 5 * 60 * 1000;
-    const TICK_MS           = 10000;
-    const SAVE_INTERVAL_MS  = 30000;
-    const MAX_TICK_DT_S     = 60;
+    const INACTIVITY_MS    = 5 * 60 * 1000;      // 5 min sin interactuar → no cuenta
+    const MAX_SESSION_SECS = 6 * 60 * 60;        // tope de seguridad por sesión
+
+    // localStorage
+    const LS_PENDIENTE = 'omega_stats_pendiente_v1'; // segundos sin sincronizar
+    const LS_INICIO    = 'omega_stats_inicio_v1';    // ms del inicio de la sesión actual
 
     const MESES_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio',
                       'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
-    let audioPlayer    = null;
-    let currentUser    = null;
-    let tickTimer      = null;
-
+    let audioPlayer     = null;
+    let currentUser     = null;
+    let mesesCache      = {};        // lo leído desde Firestore
     let lastInteraction = Date.now();
-    let lastTickTime    = Date.now();
-    let lastSaveTime    = Date.now();
+    let syncing         = false;
+    let _sessionStart   = 0;         // ms; 0 = sin sesión activa
 
-    let pendingSeconds  = 0;
-    let mesesCache      = {};
-    let _dirty          = false;
-
+    /* ---------- Utilidades ---------- */
     function monthKey(d) {
         const date = d || new Date();
-        const y = date.getFullYear();
-        const m = String(date.getMonth() + 1).padStart(2, '0');
-        return y + '-' + m;
+        return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0');
     }
-
     function monthLabel(key) {
         const parts = String(key || '').split('-');
-        const y = parts[0];
         const mi = parseInt(parts[1], 10) - 1;
         if (isNaN(mi) || mi < 0 || mi > 11) return key;
-        return MESES_ES[mi] + ' ' + y;
+        return MESES_ES[mi] + ' ' + parts[0];
     }
-
     function formatTime(seconds) {
         const s = Math.max(0, Math.floor(seconds || 0));
         const h = Math.floor(s / 3600);
@@ -8755,20 +8760,103 @@ document.addEventListener('DOMContentLoaded', () => {
         return h + ' h ' + m + ' min';
     }
 
-    function markInteraction() { lastInteraction = Date.now(); }
+    /* ---------- localStorage helpers ---------- */
+    function readPendiente() {
+        const v = parseFloat(localStorage.getItem(LS_PENDIENTE) || '0');
+        return isFinite(v) && v > 0 ? v : 0;
+    }
+    function writePendiente(secs) {
+        try {
+            if (secs > 0) localStorage.setItem(LS_PENDIENTE, String(secs));
+            else          localStorage.removeItem(LS_PENDIENTE);
+        } catch (_) {}
+    }
+    function readInicio() {
+        const v = parseInt(localStorage.getItem(LS_INICIO) || '0', 10);
+        return isFinite(v) && v > 0 ? v : 0;
+    }
+    function writeInicio(ms) {
+        try {
+            if (ms > 0) localStorage.setItem(LS_INICIO, String(ms));
+            else        localStorage.removeItem(LS_INICIO);
+        } catch (_) {}
+    }
 
+    function markInteraction() { lastInteraction = Date.now(); }
     function attachInteractionListeners() {
-        ['click', 'touchstart', 'pointerdown', 'keydown', 'scroll', 'wheel']
+        ['click','touchstart','pointerdown','keydown','scroll','wheel']
             .forEach(evt => document.addEventListener(evt, markInteraction, {
                 passive: true, capture: true
             }));
     }
 
-    async function loadMeses() {
-        if (!currentUser) { mesesCache = {}; return; }
+    /* ---------- Sesión de escucha (100% local) ---------- */
+    function startSession() {
+        if (_sessionStart > 0) return;
+        _sessionStart = Date.now();
+        writeInicio(_sessionStart);
+    }
+    function closeSession() {
+        const start = _sessionStart || readInicio();
+        _sessionStart = 0;
+        writeInicio(0);
+        if (!start) return;
+
+        const now = Date.now();
+        const elapsed = (now - start) / 1000;
+        if (!(elapsed > 0) || elapsed > MAX_SESSION_SECS) return;
+
+        // Solo cuenta si hubo actividad reciente o si el audio sigue sonando
+        const audioPlaying = audioPlayer && !audioPlayer.paused;
+        const dentro = audioPlaying || (now - lastInteraction) <= INACTIVITY_MS;
+        if (!dentro) return;
+
+        writePendiente(readPendiente() + elapsed);
+    }
+
+    /* ---------- Sincronización: 1 sola escritura, SIN leer antes ---------- */
+    async function sincronizarPendiente() {
+        const secs = readPendiente();
+        if (!currentUser || secs <= 0 || syncing) return;
+        syncing = true;
+        const key = monthKey();
         try {
-            const ref  = firebase.firestore().collection('historial_usuarios').doc(currentUser.uid);
-            const snap = await ref.get();
+            const ref = firebase.firestore()
+                .collection('historial_usuarios').doc(currentUser.uid);
+
+            // update con dot-path + increment → NO pisa otros meses y NO necesita .get()
+            try {
+                await ref.update({
+                    ['tiempo_escucha.' + key]:
+                        firebase.firestore.FieldValue.increment(secs)
+                });
+            } catch (e) {
+                const msg  = String((e && e.message) || '');
+                const code = (e && e.code) || '';
+                // Solo creamos el documento si realmente no existía
+                if (code === 'not-found' || /not.?found/i.test(msg)) {
+                    await ref.set({
+                        tiempo_escucha: { [key]: secs }
+                    }, { merge: true });
+                } else {
+                    throw e;
+                }
+            }
+            writePendiente(0);   // limpiar SOLO tras éxito
+        } catch (e) {
+            console.warn('[STATS] No se pudo sincronizar:', e);
+        } finally {
+            syncing = false;
+        }
+    }
+
+    /* ---------- Lectura: 1 sola .get(), sin onSnapshot ---------- */
+    async function cargarDesdeFirestore() {
+        if (!currentUser) { mesesCache = {}; renderStats(); return; }
+        try {
+            const ref = firebase.firestore()
+                .collection('historial_usuarios').doc(currentUser.uid);
+            const snap = await ref.get();   // ← una sola lectura
             if (snap.exists) {
                 const data = snap.data() || {};
                 mesesCache = (data.tiempo_escucha && typeof data.tiempo_escucha === 'object')
@@ -8778,60 +8866,25 @@ document.addEventListener('DOMContentLoaded', () => {
                 mesesCache = {};
             }
         } catch (e) {
-            console.warn('[STATS] No se pudo leer tiempo_escucha:', e);
+            console.warn('[STATS] Error leyendo tiempo_escucha:', e);
             mesesCache = {};
         }
         renderStats();
     }
 
-    async function saveMeses() {
-        if (!currentUser) return;
-
-        if (pendingSeconds > 0) {
-            const key = monthKey();
-            mesesCache[key] = (mesesCache[key] || 0) + pendingSeconds;
-            pendingSeconds = 0;
-            _dirty = true;
-        }
-        if (!_dirty) return;
-
-        try {
-            const ref = firebase.firestore().collection('historial_usuarios').doc(currentUser.uid);
-            await ref.set({ tiempo_escucha: mesesCache }, { merge: true });
-            _dirty = false;
-        } catch (e) {
-            console.warn('[STATS] No se pudo guardar tiempo_escucha:', e);
-        }
-    }
-
-    function tick() {
-        const now = Date.now();
-        const dt  = (now - lastTickTime) / 1000;
-        lastTickTime = now;
-
-        if (!audioPlayer) return;
-        if (audioPlayer.paused) return;
-        if (!audioPlayer.currentTime || audioPlayer.currentTime <= 0) return;
-        if (audioPlayer.duration && audioPlayer.currentTime >= audioPlayer.duration - 0.5) return;
-
-        if (now - lastInteraction > INACTIVITY_MS) return;
-
-        if (dt > 0 && dt <= MAX_TICK_DT_S) {
-            pendingSeconds += dt;
-            _dirty = true;
-        }
-
-        if (now - lastSaveTime >= SAVE_INTERVAL_MS) {
-            lastSaveTime = now;
-            saveMeses().then(renderStats);
-        } else {
-            renderStats();
-        }
-    }
-
+    /* ---------- Render ---------- */
     function renderStats() {
-        const curKey  = monthKey();
-        const curSecs = (mesesCache[curKey] || 0) + pendingSeconds;
+        const curKey    = monthKey();
+        const pendiente = readPendiente();
+
+        // Añade en vivo lo que dura la sesión actual (si hay una abierta)
+        let enVivo = 0;
+        if (_sessionStart > 0) {
+            const el = (Date.now() - _sessionStart) / 1000;
+            if (el > 0 && el < MAX_SESSION_SECS) enVivo = el;
+        }
+
+        const curSecs = (Number(mesesCache[curKey]) || 0) + pendiente + enVivo;
 
         const heroMonth = $('st-hero-month');
         const heroTime  = $('st-hero-time');
@@ -8841,13 +8894,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const list  = $('st-list');
         const empty = $('st-empty');
         if (!list) return;
-
         list.innerHTML = '';
 
         const keys = Object.keys(mesesCache)
-            .filter(k => k !== curKey && (mesesCache[k] || 0) > 0)
-            .sort()
-            .reverse();
+            .filter(k => k !== curKey && (Number(mesesCache[k]) || 0) > 0)
+            .sort().reverse();
 
         if (!keys.length) {
             if (empty) empty.style.display = '';
@@ -8876,6 +8927,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    /* ---------- Vistas ---------- */
     function closeOtherViews() {
         ['playlist-view','artist-profile','album-view','mi-playlist-view',
          'mensajes-view','chat-view','newmsg-view'].forEach(id => {
@@ -8886,8 +8938,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
-
-    function openView() {
+    async function openView() {
         const view = $('stats-view');
         if (!view) return;
         closeOtherViews();
@@ -8895,20 +8946,17 @@ document.addEventListener('DOMContentLoaded', () => {
         view.setAttribute('aria-hidden', 'false');
         const scroll = $('st-scroll');
         if (scroll) scroll.scrollTop = 0;
-        renderStats();
+        await cargarDesdeFirestore();      // ← única lectura
     }
-
     function closeView() {
         const view = $('stats-view');
         if (!view) return;
         view.classList.remove('visible');
         view.setAttribute('aria-hidden', 'true');
     }
-
     function watchOtherViews() {
-        const ids = ['playlist-view','artist-profile','album-view','mi-playlist-view',
-                     'mensajes-view','chat-view','newmsg-view'];
-        ids.forEach(id => {
+        ['playlist-view','artist-profile','album-view','mi-playlist-view',
+         'mensajes-view','chat-view','newmsg-view'].forEach(id => {
             const el = $(id);
             if (!el || el.dataset.statsWatch === '1') return;
             el.dataset.statsWatch = '1';
@@ -8924,6 +8972,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    /* ---------- Init ---------- */
     function init() {
         if (typeof firebase === 'undefined' || !firebase.auth) {
             setTimeout(init, 300);
@@ -8961,43 +9010,60 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }, true);
 
-        document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'hidden') {
-                saveMeses();
-            } else {
-                lastTickTime = Date.now();
-            }
-        });
-        window.addEventListener('pagehide', () => { saveMeses(); });
-        window.addEventListener('beforeunload', () => { saveMeses(); });
+        /* === Play / Pausa / Cambio de pista → SOLO localStorage === */
+        if (audioPlayer && audioPlayer.dataset.statsHook !== '1') {
+            audioPlayer.dataset.statsHook = '1';
+
+            audioPlayer.addEventListener('play', () => {
+                markInteraction();
+                startSession();
+            });
+            audioPlayer.addEventListener('pause', closeSession);
+            audioPlayer.addEventListener('ended', closeSession);
+
+            // Red de seguridad: si está sonando y no hay sesión, la abrimos
+            audioPlayer.addEventListener('timeupdate', () => {
+                if (!audioPlayer.paused && _sessionStart === 0) startSession();
+            });
+        }
 
         attachInteractionListeners();
 
-        if (audioPlayer && audioPlayer.dataset.statsHook !== '1') {
-            audioPlayer.dataset.statsHook = '1';
-            ['play', 'pause', 'seeking', 'seeked', 'loadedmetadata'].forEach(evt => {
-                audioPlayer.addEventListener(evt, () => {
-                    markInteraction();
-                    lastTickTime = Date.now();
-                    if (evt === 'pause') saveMeses().then(renderStats);
-                });
-            });
-        }
+        /* === Sincronización al salir / fondo === */
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') {
+                closeSession();
+                sincronizarPendiente();
+            } else {
+                lastInteraction = Date.now();
+                if (audioPlayer && !audioPlayer.paused) startSession();
+            }
+        });
+        window.addEventListener('pagehide', () => {
+            closeSession();
+            sincronizarPendiente();
+        });
+        window.addEventListener('beforeunload', () => {
+            closeSession();
+            sincronizarPendiente();
+        });
+
+        /* === API para que el logout sincronice antes de cerrar sesión === */
+        window.__sincronizarStatsAntesDeSalir = async () => {
+            closeSession();
+            await sincronizarPendiente();
+        };
 
         firebase.auth().onAuthStateChanged(async (user) => {
             if (user) {
                 currentUser = user;
-                lastTickTime = Date.now();
-                lastSaveTime = Date.now();
-                await loadMeses();
-                if (!tickTimer) tickTimer = setInterval(tick, TICK_MS);
+                lastInteraction = Date.now();
+                // Recupera una sesión que haya quedado colgada
+                if (readInicio() > 0) closeSession();
+                await cargarDesdeFirestore();
             } else {
-                if (currentUser) await saveMeses();
-                currentUser   = null;
-                mesesCache    = {};
-                pendingSeconds = 0;
-                _dirty = false;
-                if (tickTimer) { clearInterval(tickTimer); tickTimer = null; }
+                currentUser = null;
+                mesesCache  = {};
             }
         });
 
@@ -9886,6 +9952,7 @@ document.addEventListener('DOMContentLoaded', () => {
         init();
     }
 })();
+
 /* ============================================================
    44. CAMBIAR COLOR — MODO BLANCO / NEGRO
    ============================================================ */
@@ -9994,4 +10061,1535 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
         init();
     }
+})();
+
+/* ============================================================
+   45. COMUNIDAD OMEGA
+   ============================================================ */
+(function () {
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    const COL_POSTS = 'comunidad_publicaciones';
+    const SUB_COMENT = 'comentarios';
+
+    const MAIN_VIEWS = [
+        'playlist-view','artist-profile','album-view','mi-playlist-view',
+        'mensajes-view','chat-view','newmsg-view','stats-view'
+    ];
+    const COM_VIEWS = ['comunidad-view','comunidad-crear-view','comentarios-view'];
+
+    let currentUser      = null;
+    let unsubPosts       = null;
+    let unsubComments    = null;
+    let postsCache       = [];
+    let selectedSong     = null;
+    let activePostId     = null;
+    let activePostData   = null;
+    let editingPostId    = null;
+    let editingCommentId = null;
+    let menuBackdrop     = null;
+
+    /* ---------- Utilidades ---------- */
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[c]));
+    }
+    function timeAgo(date) {
+        if (!date) return '';
+        const diff = (Date.now() - date.getTime()) / 1000;
+        if (diff < 60) return 'ahora';
+        if (diff < 3600) return Math.floor(diff / 60) + 'm';
+        if (diff < 86400) return Math.floor(diff / 3600) + 'h';
+        if (diff < 604800) return Math.floor(diff / 86400) + 'd';
+        return date.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
+    }
+    function avatarHTML(u) {
+        const name = (u && u.autorNombre) || 'U';
+        const initial = name.trim()[0] ? name.trim()[0].toUpperCase() : '?';
+        if (u && u.autorFoto) {
+            return '<img src="' + esc(u.autorFoto) + '" alt="" onerror="this.style.display=\'none\';this.parentNode.textContent=\'' + initial + '\';">';
+        }
+        return initial;
+    }
+    function closeAllViews() {
+        [...MAIN_VIEWS, ...COM_VIEWS].forEach(id => {
+            const v = $(id);
+            if (v && v.classList.contains('visible')) {
+                v.classList.remove('visible');
+                v.setAttribute('aria-hidden', 'true');
+            }
+        });
+    }
+    function openView(id) {
+        closeAllViews();
+        const v = $(id);
+        if (v) { v.classList.add('visible'); v.setAttribute('aria-hidden', 'false'); }
+    }
+    function closeView(id) {
+        const v = $(id);
+        if (v) { v.classList.remove('visible'); v.setAttribute('aria-hidden', 'true'); }
+    }
+
+    /* ---------- Menú contextual ---------- */
+    function closeMenu() {
+        if (menuBackdrop && menuBackdrop.parentNode) menuBackdrop.parentNode.removeChild(menuBackdrop);
+        menuBackdrop = null;
+    }
+    function showMenu(title, options) {
+        closeMenu();
+        menuBackdrop = document.createElement('div');
+        menuBackdrop.className = 'com-omega-menu-backdrop';
+        const menu = document.createElement('div');
+        menu.className = 'com-omega-menu';
+        menu.setAttribute('role', 'dialog');
+        menu.setAttribute('aria-modal', 'true');
+
+        const titleEl = document.createElement('div');
+        titleEl.className = 'com-omega-menu-title';
+        titleEl.textContent = title || '';
+        menu.appendChild(titleEl);
+
+        options.forEach(op => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'com-omega-menu-btn' + (op.danger ? ' danger' : '');
+            btn.innerHTML = op.icon + '<span>' + op.label + '</span>';
+            btn.addEventListener('click', () => {
+                closeMenu();
+                try { op.onClick(); } catch (e) { console.warn(e); }
+            });
+            menu.appendChild(btn);
+        });
+
+        menuBackdrop.appendChild(menu);
+        document.body.appendChild(menuBackdrop);
+        requestAnimationFrame(() => menuBackdrop.classList.add('visible'));
+
+        menuBackdrop.addEventListener('click', (e) => {
+            if (e.target === menuBackdrop) closeMenu();
+        });
+    }
+    function confirmDialog(title, message, onYes) {
+        closeMenu();
+        menuBackdrop = document.createElement('div');
+        menuBackdrop.className = 'com-omega-menu-backdrop';
+        const box = document.createElement('div');
+        box.className = 'com-omega-menu';
+        box.setAttribute('role', 'dialog');
+        box.setAttribute('aria-modal', 'true');
+        box.innerHTML =
+            '<div class="com-omega-menu-title">' + esc(title) + '</div>' +
+            '<div style="padding: 6px 18px 14px; color:#b3b3b3; font-size:13.5px; line-height:1.45; text-align:center;">'
+                + esc(message) + '</div>' +
+            '<div style="display:flex; gap:10px; padding:0 14px 14px;">' +
+                '<button type="button" class="com-omega-menu-btn" data-action="no" style="border-radius:50px; justify-content:center; border:1px solid #2a2a2a; background:#262626; padding:12px 16px;">Cancelar</button>' +
+                '<button type="button" class="com-omega-menu-btn danger" data-action="yes" style="border-radius:50px; justify-content:center; background:#ff2a2a; color:#fff; padding:12px 16px;">Eliminar</button>' +
+            '</div>';
+        menuBackdrop.appendChild(box);
+        document.body.appendChild(menuBackdrop);
+        requestAnimationFrame(() => menuBackdrop.classList.add('visible'));
+
+        box.addEventListener('click', (e) => {
+            const t = e.target.closest('[data-action]');
+            if (!t) return;
+            const act = t.dataset.action;
+            closeMenu();
+            if (act === 'yes') { try { onYes(); } catch (_) {} }
+        });
+        menuBackdrop.addEventListener('click', (e) => {
+            if (e.target === menuBackdrop) closeMenu();
+        });
+    }
+
+    /* ========================================================
+       PUBLICACIONES — Cargar y renderizar
+       ======================================================== */
+    function renderPosts() {
+        const list  = $('cm-list');
+        const empty = $('cm-empty');
+        if (!list) return;
+        list.innerHTML = '';
+        if (!postsCache.length) {
+            if (empty) empty.style.display = '';
+            return;
+        }
+        if (empty) empty.style.display = 'none';
+
+        postsCache.forEach(p => list.appendChild(buildPostCard(p)));
+    }
+
+    function buildPostCard(post) {
+        const wrap = document.createElement('div');
+        wrap.className = 'cm-post';
+        wrap.dataset.postId = post.id;
+
+        const isOwner = currentUser && post.uid === currentUser.uid;
+
+        if (isOwner) {
+            const menuBtn = document.createElement('button');
+            menuBtn.type = 'button';
+            menuBtn.className = 'cm-post-menu-btn';
+            menuBtn.setAttribute('aria-label', 'Opciones');
+            menuBtn.textContent = '⋮';
+            menuBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                showPostMenu(post);
+            });
+            wrap.appendChild(menuBtn);
+        }
+
+        const header = document.createElement('div');
+        header.className = 'cm-post-header';
+        const av = document.createElement('div');
+        av.className = 'cm-post-avatar';
+        av.innerHTML = avatarHTML(post);
+        header.appendChild(av);
+
+        const info = document.createElement('div');
+        info.className = 'cm-post-author';
+        const nameEl = document.createElement('span');
+        nameEl.className = 'cm-post-author-name';
+        nameEl.textContent = post.autorNombre || 'Usuario';
+        info.appendChild(nameEl);
+        const timeEl = document.createElement('span');
+        timeEl.className = 'cm-post-author-time';
+        timeEl.textContent = timeAgo(post.fecha) + (post.editado ? ' · editado' : '');
+        info.appendChild(timeEl);
+        header.appendChild(info);
+        wrap.appendChild(header);
+
+        if (post.texto) {
+            const txt = document.createElement('div');
+            txt.className = 'cm-post-text';
+            txt.textContent = post.texto;
+            wrap.appendChild(txt);
+        }
+
+        if (post.cancion && post.cancion.titulo) {
+            const song = document.createElement('div');
+            song.className = 'cm-post-song';
+            song.innerHTML =
+                '<div class="cm-post-song-thumb">' +
+                    (post.cancion.portada
+                        ? '<img src="' + esc(post.cancion.portada) + '" alt="" loading="lazy">'
+                        : '') +
+                '</div>' +
+                '<div class="cm-post-song-info">' +
+                    '<span class="cm-post-song-title">' + esc(post.cancion.titulo) + '</span>' +
+                    '<span class="cm-post-song-sub">' + esc(post.cancion.artista || 'Artista') + '</span>' +
+                '</div>' +
+                '<div class="cm-post-song-play">▶</div>';
+            song.addEventListener('click', () => playSongFromPost(post.cancion));
+            wrap.appendChild(song);
+        }
+
+        const commentBtn = document.createElement('button');
+        commentBtn.type = 'button';
+        commentBtn.className = 'cm-post-comment';
+        commentBtn.innerHTML = 'Comentar' +
+            (post.comentariosCount > 0
+                ? '<span class="cm-post-comment-count">(' + post.comentariosCount + ')</span>'
+                : '');
+        commentBtn.addEventListener('click', () => openComments(post));
+        wrap.appendChild(commentBtn);
+
+        return wrap;
+    }
+
+    function showPostMenu(post) {
+        showMenu('Publicación', [
+            {
+                label: 'Editar',
+                icon: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>',
+                onClick: () => startEditPost(post)
+            },
+            {
+                label: 'Compartir por mensaje',
+                icon: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>',
+                onClick: () => sharePostByMessage(post)
+            },
+            {
+                label: 'Eliminar',
+                danger: true,
+                icon: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>',
+                onClick: () => confirmDeletePost(post)
+            }
+        ]);
+    }
+
+    /* ========================================================
+       FIRESTORE — CRUD
+       ======================================================== */
+    function listenPosts() {
+        if (unsubPosts) { unsubPosts(); unsubPosts = null; }
+        if (!currentUser) return;
+        unsubPosts = firebase.firestore()
+            .collection(COL_POSTS)
+            .orderBy('fecha', 'desc')
+            .limit(100)
+            .onSnapshot(async (snap) => {
+                const docs = snap.docs.map(d => {
+                    const data = d.data() || {};
+                    return {
+                        id: d.id,
+                        uid: data.uid || '',
+                        autorNombre: data.autorNombre || 'Usuario',
+                        autorFoto: data.autorFoto || '',
+                        texto: data.texto || '',
+                        cancion: data.cancion || null,
+                        fecha: data.fecha && typeof data.fecha.toDate === 'function'
+                            ? data.fecha.toDate() : null,
+                        editado: data.editado === true,
+                        comentariosCount: 0
+                    };
+                });
+                postsCache = docs;
+                renderPosts();
+            }, err => {
+                console.warn('[COMUNIDAD] Error posts:', err);
+                postsCache = [];
+                renderPosts();
+            });
+    }
+
+    async function createPost(texto, cancion) {
+        if (!currentUser) throw new Error('Sin sesión');
+        const ref = await firebase.firestore().collection(COL_POSTS).add({
+            uid: currentUser.uid,
+            autorNombre: currentUser.displayName || (currentUser.email ? currentUser.email.split('@')[0] : 'Usuario'),
+            autorFoto: currentUser.photoURL || '',
+            texto: texto || '',
+            cancion: cancion ? {
+                titulo: cancion.titulo || '',
+                artista: cancion.artista || '',
+                portada: cancion.portada || '',
+                audioUrl: cancion.audioUrl || ''
+            } : null,
+            fecha: firebase.firestore.FieldValue.serverTimestamp(),
+            editado: false
+        });
+        return ref.id;
+    }
+
+    async function updatePost(postId, nuevoTexto, nuevaCancion) {
+        if (!currentUser) return;
+        await firebase.firestore().collection(COL_POSTS).doc(postId).update({
+            texto: nuevoTexto || '',
+            cancion: nuevaCancion ? {
+                titulo: nuevaCancion.titulo || '',
+                artista: nuevaCancion.artista || '',
+                portada: nuevaCancion.portada || '',
+                audioUrl: nuevaCancion.audioUrl || ''
+            } : null,
+            editado: true
+        });
+    }
+
+    async function deletePostFull(postId) {
+        if (!currentUser) return;
+        const postRef = firebase.firestore().collection(COL_POSTS).doc(postId);
+
+        try {
+            const commentsSnap = await postRef.collection(SUB_COMENT).limit(500).get();
+            if (!commentsSnap.empty) {
+                const chunks = [];
+                let batch = firebase.firestore().batch();
+                let count = 0;
+                commentsSnap.forEach(doc => {
+                    batch.delete(doc.ref);
+                    count++;
+                    if (count === 450) {
+                        chunks.push(batch.commit());
+                        batch = firebase.firestore().batch();
+                        count = 0;
+                    }
+                });
+                if (count > 0) chunks.push(batch.commit());
+                await Promise.all(chunks);
+            }
+        } catch (e) {
+            console.warn('[COMUNIDAD] Error borrando comentarios:', e);
+        }
+
+        await postRef.delete();
+    }
+
+    /* ========================================================
+       VISTA PRINCIPAL
+       ======================================================== */
+    function openComunidad() {
+        openView('comunidad-view');
+        const sc = $('cm-scroll');
+        if (sc) sc.scrollTop = 0;
+        listenPosts();
+    }
+    function closeComunidad() {
+        closeView('comunidad-view');
+        if (unsubPosts) { unsubPosts(); unsubPosts = null; }
+    }
+
+    /* ========================================================
+       CREAR PUBLICACIÓN
+       ======================================================== */
+    function openCrearView(editPost) {
+        editingPostId = editPost ? editPost.id : null;
+        selectedSong = editPost && editPost.cancion ? Object.assign({}, editPost.cancion) : null;
+
+        const titleEl = $('cmc-title');
+        if (titleEl) titleEl.textContent = editPost ? 'Editar publicación' : 'Publicar algo';
+
+        const txt = $('cmc-textarea');
+        if (txt) txt.value = editPost ? (editPost.texto || '') : '';
+
+        const search = $('cmc-search');
+        if (search) search.value = '';
+        const res = $('cmc-song-results');
+        if (res) { res.innerHTML = ''; res.style.display = 'none'; }
+        renderSelectedSong();
+
+        const status = $('cmc-status');
+        if (status) { status.textContent = ''; status.classList.remove('ok'); }
+        const pubBtn = $('cmc-publish');
+        if (pubBtn) { pubBtn.disabled = false; pubBtn.textContent = editPost ? 'Guardar cambios' : 'Publicar'; }
+
+        openView('comunidad-crear-view');
+        setTimeout(() => txt && txt.focus(), 200);
+    }
+    function closeCrearView() {
+        closeView('comunidad-crear-view');
+        editingPostId = null;
+        selectedSong = null;
+    }
+    function renderSelectedSong() {
+        const box = $('cmc-song-selected');
+        if (!box) return;
+        if (!selectedSong) {
+            box.style.display = 'none';
+            box.innerHTML = '';
+            return;
+        }
+        box.style.display = '';
+        box.innerHTML =
+            '<div class="cmc-song-selected-thumb">' +
+                (selectedSong.portada
+                    ? '<img src="' + esc(selectedSong.portada) + '" alt="">'
+                    : '') +
+            '</div>' +
+            '<div class="cmc-song-selected-info">' +
+                '<span class="cmc-song-selected-title">' + esc(selectedSong.titulo || '') + '</span>' +
+                '<span class="cmc-song-selected-sub">' + esc(selectedSong.artista || 'Artista') + '</span>' +
+            '</div>' +
+            '<button type="button" class="cmc-song-remove" aria-label="Quitar canción">&times;</button>';
+        box.querySelector('.cmc-song-remove').addEventListener('click', () => {
+            selectedSong = null;
+            renderSelectedSong();
+        });
+    }
+
+    function searchSongsInPlaylist(q) {
+        const list = $('playlist');
+        if (!list) return [];
+        const needle = String(q || '').toLowerCase().trim();
+        if (!needle) return [];
+        const out = [];
+        list.querySelectorAll('.playlist-item').forEach(item => {
+            const title = (item.querySelector('.item-title')?.textContent || '').trim();
+            const sub   = (item.querySelector('.item-subtitle')?.textContent || '').trim();
+            const album = (item.querySelector('.Album')?.textContent || '').trim();
+            const blob = (title + ' ' + sub + ' ' + album).toLowerCase();
+            if (!blob.includes(needle)) return;
+            const img = item.querySelector('.thumbnail img');
+            out.push({
+                titulo: title,
+                artista: sub.split('·')[0].trim() || 'Artista',
+                portada: img ? (img.getAttribute('src') || '') : '',
+                audioUrl: item.dataset.src || ''
+            });
+            if (out.length >= 20) return;
+        });
+        return out;
+    }
+    function renderSongResults(items) {
+        const box = $('cmc-song-results');
+        if (!box) return;
+        box.innerHTML = '';
+        if (!items.length) {
+            box.style.display = 'none';
+            return;
+        }
+        items.forEach(song => {
+            const row = document.createElement('button');
+            row.type = 'button';
+            row.className = 'cmc-song-result-row';
+            row.innerHTML =
+                '<div class="cmc-song-result-thumb">' +
+                    (song.portada ? '<img src="' + esc(song.portada) + '" alt="" loading="lazy">' : '') +
+                '</div>' +
+                '<div class="cmc-song-result-info">' +
+                    '<span class="cmc-song-result-title">' + esc(song.titulo) + '</span>' +
+                    '<span class="cmc-song-result-sub">' + esc(song.artista) + '</span>' +
+                '</div>';
+            row.addEventListener('click', () => {
+                selectedSong = song;
+                renderSelectedSong();
+                const s = $('cmc-search');
+                if (s) s.value = '';
+                box.style.display = 'none';
+                box.innerHTML = '';
+            });
+            box.appendChild(row);
+        });
+        box.style.display = '';
+    }
+
+    async function publishFromCreateView() {
+        const status = $('cmc-status');
+        const btn    = $('cmc-publish');
+        const txt    = $('cmc-textarea');
+        if (!currentUser) return;
+
+        const texto = (txt?.value || '').trim();
+        if (!texto && !selectedSong) {
+            if (status) { status.textContent = 'Escribe algo o añade una canción'; status.classList.remove('ok'); }
+            return;
+        }
+        if (btn) { btn.disabled = true; btn.textContent = 'Publicando…'; }
+        if (status) { status.textContent = ''; status.classList.remove('ok'); }
+
+        try {
+            if (editingPostId) {
+                await updatePost(editingPostId, texto, selectedSong);
+                if (status) { status.textContent = '✓ Publicación actualizada'; status.classList.add('ok'); }
+            } else {
+                await createPost(texto, selectedSong);
+                if (status) { status.textContent = '✓ Publicación creada'; status.classList.add('ok'); }
+            }
+            setTimeout(() => { closeCrearView(); openComunidad(); }, 500);
+        } catch (e) {
+            console.warn('[COMUNIDAD] Error al publicar:', e);
+            if (status) { status.textContent = 'Error al publicar. Intenta de nuevo.'; status.classList.remove('ok'); }
+            if (btn) { btn.disabled = false; btn.textContent = editingPostId ? 'Guardar cambios' : 'Publicar'; }
+        }
+    }
+
+    /* ========================================================
+       COMPARTIR POST POR MENSAJE
+       ======================================================== */
+    function sharePostByMessage(post) {
+        const user = firebase.auth().currentUser;
+        if (!user) return;
+        const cancionAttachment = post.cancion ? {
+            titulo: post.cancion.titulo,
+            artista: post.cancion.artista,
+            portada: post.cancion.portada,
+            audioUrl: post.cancion.audioUrl
+        } : null;
+
+        window.__pendingCommunityShare = {
+            texto: post.texto || '',
+            autor: post.autorNombre || 'Usuario',
+            cancion: cancionAttachment
+        };
+
+        const link = document.getElementById('mensajes-link');
+        if (link) link.click();
+
+        setTimeout(() => {
+            const btn = document.getElementById('msg-new-btn');
+            if (btn) btn.click();
+
+            setTimeout(() => {
+                const toast = document.getElementById('omega-toast');
+                if (toast) {
+                    toast.textContent = 'Elige a quién enviar la publicación';
+                    toast.classList.add('visible');
+                    setTimeout(() => toast.classList.remove('visible'), 2200);
+                }
+            }, 260);
+        }, 260);
+    }
+
+    /* Hook: inyecta el adjunto pendiente cuando se abre un chat */
+    function hookChatAttachmentInjection() {
+        if (window.__comunidadChatInjectionHooked) return;
+        window.__comunidadChatInjectionHooked = true;
+
+        const chatView = document.getElementById('chat-view');
+        if (!chatView) return;
+        const obs = new MutationObserver(() => {
+            if (!chatView.classList.contains('visible')) return;
+            const pend = window.__pendingCommunityShare;
+            if (!pend) return;
+
+            setTimeout(() => {
+                const input = document.getElementById('chat-input');
+                if (input && pend.texto && !input.value) {
+                    const autor = pend.autor ? '@' + pend.autor + ': ' : '';
+                    input.value = autor + pend.texto;
+                }
+                // Intentamos inyectar la canción adjunta si el sistema de mensajes la soporta
+                window.dispatchEvent(new CustomEvent('omega:comunidadAttach', {
+                    detail: { cancion: pend.cancion }
+                }));
+                window.__pendingCommunityShare = null;
+            }, 500);
+        });
+        obs.observe(chatView, { attributes: true, attributeFilter: ['class'] });
+    }
+
+    /* ========================================================
+       EDICIÓN / ELIMINACIÓN
+       ======================================================== */
+    function startEditPost(post) {
+        openCrearView(post);
+    }
+    function confirmDeletePost(post) {
+        confirmDialog(
+            '¿Eliminar publicación?',
+            'Se eliminará la publicación y todos sus comentarios. Esta acción no se puede deshacer.',
+            async () => {
+                try {
+                    await deletePostFull(post.id);
+                } catch (e) {
+                    console.warn('[COMUNIDAD] Error eliminando:', e);
+                }
+            }
+        );
+    }
+
+    /* ========================================================
+       COMENTARIOS
+       ======================================================== */
+    function openComments(post) {
+        activePostId = post.id;
+        activePostData = post;
+        openView('comentarios-view');
+
+        const prev = $('com-post-preview');
+        if (prev) {
+            prev.innerHTML = '';
+            if (post.texto) {
+                prev.textContent = post.texto;
+            } else if (post.cancion && post.cancion.titulo) {
+                prev.textContent = '🎵 ' + post.cancion.titulo;
+            } else {
+                prev.textContent = '(Sin texto)';
+            }
+        }
+
+        const input = $('com-input');
+        if (input) input.value = '';
+        listenComments(post.id);
+        setTimeout(() => input && input.focus(), 220);
+    }
+    function closeComments() {
+        closeView('comentarios-view');
+        if (unsubComments) { unsubComments(); unsubComments = null; }
+        activePostId = null;
+        activePostData = null;
+        editingCommentId = null;
+    }
+    function listenComments(postId) {
+        if (unsubComments) { unsubComments(); unsubComments = null; }
+        unsubComments = firebase.firestore()
+            .collection(COL_POSTS).doc(postId)
+            .collection(SUB_COMENT)
+            .orderBy('fecha', 'asc')
+            .limit(200)
+            .onSnapshot(snap => {
+                const comments = snap.docs.map(d => {
+                    const data = d.data() || {};
+                    return {
+                        id: d.id,
+                        uid: data.uid || '',
+                        autorNombre: data.autorNombre || 'Usuario',
+                        autorFoto: data.autorFoto || '',
+                        texto: data.texto || '',
+                        fecha: data.fecha && typeof data.fecha.toDate === 'function'
+                            ? data.fecha.toDate() : null,
+                        editado: data.editado === true
+                    };
+                });
+                renderComments(comments);
+            }, err => {
+                console.warn('[COMUNIDAD] Error comentarios:', err);
+                renderComments([]);
+            });
+    }
+    function renderComments(comments) {
+        const list = $('com-list');
+        const empty = $('com-empty');
+        if (!list) return;
+        list.innerHTML = '';
+        if (!comments.length) {
+            if (empty) empty.style.display = '';
+            return;
+        }
+        if (empty) empty.style.display = 'none';
+
+        comments.forEach(c => list.appendChild(buildCommentRow(c)));
+    }
+    function buildCommentRow(c) {
+        const row = document.createElement('div');
+        row.className = 'com-row';
+        row.dataset.commentId = c.id;
+
+        const av = document.createElement('div');
+        av.className = 'com-avatar';
+        av.innerHTML = avatarHTML({ autorNombre: c.autorNombre, autorFoto: c.autorFoto });
+        row.appendChild(av);
+
+        const body = document.createElement('div');
+        body.className = 'com-body';
+
+        const name = document.createElement('span');
+        name.className = 'com-name';
+        name.textContent = c.autorNombre;
+        body.appendChild(name);
+
+        const time = document.createElement('span');
+        time.className = 'com-time';
+        time.textContent = timeAgo(c.fecha) + (c.editado ? ' · editado' : '');
+        body.appendChild(time);
+
+        const txt = document.createElement('div');
+        txt.className = 'com-text';
+        txt.textContent = c.texto || '';
+        body.appendChild(txt);
+
+        row.appendChild(body);
+
+        if (currentUser && c.uid === currentUser.uid) {
+            const menuBtn = document.createElement('button');
+            menuBtn.type = 'button';
+            menuBtn.className = 'com-menu-btn';
+            menuBtn.setAttribute('aria-label', 'Opciones del comentario');
+            menuBtn.textContent = '⋮';
+            menuBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                showCommentMenu(c, row);
+            });
+            row.appendChild(menuBtn);
+        }
+
+        return row;
+    }
+
+    function showCommentMenu(comment, rowEl) {
+        showMenu('Comentario', [
+            {
+                label: 'Editar',
+                icon: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>',
+                onClick: () => startEditComment(comment, rowEl)
+            },
+            {
+                label: 'Eliminar',
+                danger: true,
+                icon: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>',
+                onClick: () => confirmDeleteComment(comment)
+            }
+        ]);
+    }
+
+    function startEditComment(comment, rowEl) {
+        if (editingCommentId === comment.id) return;
+        editingCommentId = comment.id;
+
+        const txt = rowEl.querySelector('.com-text');
+        if (!txt) return;
+        const original = comment.texto;
+
+        const box = document.createElement('div');
+        box.className = 'com-edit-box';
+        box.innerHTML =
+            '<input type="text" class="com-edit-input" value="' + esc(original) + '">' +
+            '<button type="button" class="com-edit-btn com-edit-cancel">Cancelar</button>' +
+            '<button type="button" class="com-edit-btn com-edit-save">Guardar</button>';
+
+        const input = box.querySelector('.com-edit-input');
+        txt.style.display = 'none';
+        txt.parentNode.insertBefore(box, txt.nextSibling);
+
+        setTimeout(() => input && input.focus(), 60);
+
+        const cancelar = () => {
+            editingCommentId = null;
+            box.remove();
+            txt.style.display = '';
+        };
+        const guardar = async () => {
+            const nuevo = (input.value || '').trim();
+            if (!nuevo) { cancelar(); return; }
+            try {
+                await firebase.firestore()
+                    .collection(COL_POSTS).doc(activePostId)
+                    .collection(SUB_COMENT).doc(comment.id)
+                    .update({ texto: nuevo, editado: true });
+                editingCommentId = null;
+            } catch (e) {
+                console.warn('[COMUNIDAD] Error editando comentario:', e);
+                cancelar();
+            }
+        };
+        box.querySelector('.com-edit-cancel').addEventListener('click', cancelar);
+        box.querySelector('.com-edit-save').addEventListener('click', guardar);
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); guardar(); }
+            else if (e.key === 'Escape') { cancelar(); }
+        });
+    }
+
+    function confirmDeleteComment(comment) {
+        confirmDialog(
+            '¿Eliminar comentario?',
+            'Se eliminará tu comentario. Esta acción no se puede deshacer.',
+            async () => {
+                try {
+                    await firebase.firestore()
+                        .collection(COL_POSTS).doc(activePostId)
+                        .collection(SUB_COMENT).doc(comment.id)
+                        .delete();
+                } catch (e) {
+                    console.warn('[COMUNIDAD] Error eliminando comentario:', e);
+                }
+            }
+        );
+    }
+
+    async function sendComment() {
+        if (!currentUser || !activePostId) return;
+        const input = $('com-input');
+        const texto = (input?.value || '').trim();
+        if (!texto) return;
+
+        if (input) input.value = '';
+        try {
+            await firebase.firestore()
+                .collection(COL_POSTS).doc(activePostId)
+                .collection(SUB_COMENT)
+                .add({
+                    uid: currentUser.uid,
+                    autorNombre: currentUser.displayName || (currentUser.email ? currentUser.email.split('@')[0] : 'Usuario'),
+                    autorFoto: currentUser.photoURL || '',
+                    texto,
+                    fecha: firebase.firestore.FieldValue.serverTimestamp(),
+                    editado: false
+                });
+        } catch (e) {
+            console.warn('[COMUNIDAD] Error enviando comentario:', e);
+            if (input) input.value = texto;
+        }
+    }
+
+    /* ========================================================
+       REPRODUCIR CANCIÓN DE UN POST
+       ======================================================== */
+    function playSongFromPost(cancion) {
+        if (!cancion || !cancion.audioUrl) return;
+        const list = $('playlist');
+        if (!list) return;
+        const target = String(cancion.titulo || '').toLowerCase();
+        for (const it of list.querySelectorAll('.playlist-item')) {
+            const t = (it.querySelector('.item-title')?.textContent || '').trim().toLowerCase();
+            if (t && t === target) { it.click(); return; }
+        }
+        const div = document.createElement('div');
+        div.className = 'playlist-item';
+        div.dataset.src = cancion.audioUrl;
+        div.dataset.comunidadSong = '1';
+        div.dataset.title = cancion.titulo || '';
+        const cover = cancion.portada || 'https://via.placeholder.com/60/1a1a1a/666?text=%E2%99%AA';
+        div.innerHTML =
+            '<div class="thumbnail"><img src="' + esc(cover) + '" alt="" loading="lazy"></div>' +
+            '<div class="item-info">' +
+                '<span class="item-title">' + esc(cancion.titulo || '') + '</span>' +
+                '<span class="item-subtitle">' + esc(cancion.artista || 'Artista') + '</span>' +
+            '</div>';
+        const homeView = list.querySelector('#home-view');
+        if (homeView) list.insertBefore(div, homeView.nextSibling);
+        else list.insertBefore(div, list.firstChild);
+        setTimeout(() => div.click(), 30);
+    }
+
+    /* ========================================================
+       INIT
+       ======================================================== */
+    function init() {
+        if (typeof firebase === 'undefined' || !firebase.auth) {
+            setTimeout(init, 300);
+            return;
+        }
+
+        const bnCom = $('bn-comunidad');
+        if (bnCom && bnCom.dataset.bnReady !== '1') {
+            bnCom.dataset.bnReady = '1';
+            bnCom.addEventListener('click', () => {
+                if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} }
+                openComunidad();
+            });
+        }
+
+        const back = $('cm-back');
+        if (back && back.dataset.ready !== '1') {
+            back.dataset.ready = '1';
+            back.addEventListener('click', closeComunidad);
+        }
+
+        const pubBtn = $('cm-publish-btn');
+        if (pubBtn && pubBtn.dataset.ready !== '1') {
+            pubBtn.dataset.ready = '1';
+            pubBtn.addEventListener('click', () => openCrearView(null));
+        }
+
+        const cback = $('cmc-back');
+        if (cback && cback.dataset.ready !== '1') {
+            cback.dataset.ready = '1';
+            cback.addEventListener('click', closeCrearView);
+        }
+        const cpub = $('cmc-publish');
+        if (cpub && cpub.dataset.ready !== '1') {
+            cpub.dataset.ready = '1';
+            cpub.addEventListener('click', publishFromCreateView);
+        }
+
+        const search = $('cmc-search');
+        if (search && search.dataset.ready !== '1') {
+            search.dataset.ready = '1';
+            let deb = null;
+            search.addEventListener('input', () => {
+                if (deb) clearTimeout(deb);
+                const q = search.value;
+                deb = setTimeout(() => {
+                    const items = searchSongsInPlaylist(q);
+                    renderSongResults(items);
+                }, 140);
+            });
+            search.addEventListener('focus', () => {
+                const items = searchSongsInPlaylist(search.value);
+                if (items.length) renderSongResults(items);
+            });
+        }
+
+        const cback2 = $('com-back');
+        if (cback2 && cback2.dataset.ready !== '1') {
+            cback2.dataset.ready = '1';
+            cback2.addEventListener('click', closeComments);
+        }
+        const sendBtn = $('com-send');
+        if (sendBtn && sendBtn.dataset.ready !== '1') {
+            sendBtn.dataset.ready = '1';
+            sendBtn.addEventListener('click', sendComment);
+        }
+        const comInput = $('com-input');
+        if (comInput && comInput.dataset.ready !== '1') {
+            comInput.dataset.ready = '1';
+            comInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') { e.preventDefault(); sendComment(); }
+            });
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'Escape') return;
+            if (menuBackdrop) { e.stopPropagation(); closeMenu(); return; }
+            if ($('comentarios-view')?.classList.contains('visible')) { e.stopPropagation(); closeComments(); return; }
+            if ($('comunidad-crear-view')?.classList.contains('visible')) { e.stopPropagation(); closeCrearView(); return; }
+            if ($('comunidad-view')?.classList.contains('visible')) { e.stopPropagation(); closeComunidad(); }
+        }, true);
+
+        MAIN_VIEWS.forEach(id => {
+            const el = document.getElementById(id);
+            if (!el || el.dataset.comWatch === '1') return;
+            el.dataset.comWatch = '1';
+            const obs = new MutationObserver((muts) => {
+                for (const m of muts) {
+                    if (m.attributeName === 'class' && el.classList.contains('visible')) {
+                        COM_VIEWS.forEach(cid => {
+                            const v = document.getElementById(cid);
+                            if (v && v.classList.contains('visible')) {
+                                v.classList.remove('visible');
+                                v.setAttribute('aria-hidden', 'true');
+                            }
+                        });
+                        break;
+                    }
+                }
+            });
+            obs.observe(el, { attributes: true, attributeFilter: ['class'] });
+        });
+
+        hookChatAttachmentInjection();
+
+        firebase.auth().onAuthStateChanged(user => {
+            currentUser = user;
+            if (!user) {
+                if (unsubPosts) { unsubPosts(); unsubPosts = null; }
+                if (unsubComments) { unsubComments(); unsubComments = null; }
+                postsCache = [];
+                renderPosts();
+            } else {
+                if ($('comunidad-view')?.classList.contains('visible')) listenPosts();
+            }
+        });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+
+    window.__openComunidad = openComunidad;
+})();
+/* ============================================================
+   46. SUBIR CANCIÓN DESDE YOUTUBE
+   ------------------------------------------------------------
+   - El usuario pega sólo la URL del video de YouTube.
+   - Se obtiene automáticamente:
+       · título    (oEmbed de YouTube, sin API key)
+       · portada   (miniatura maxresdefault, con fallback hqdefault)
+       · artista   (nombre del canal)
+       · género    (detección por palabras clave del título/canal)
+   - Se guarda en la colección 'canciones_usuarios' con
+       origen: 'youtube'
+       youtubeUrl, youtubeId
+   - La reproducción de canciones YouTube se hace vía iframe
+     (overlay), sin tocar el reproductor <audio> existente.
+   ============================================================ */
+(function () {
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    // Acepta: watch?v=, youtu.be/, shorts/, embed/, music.youtube.com
+    const YT_REGEX = /(?:youtube\.com\/(?:watch\?[^#]*v=|embed\/|shorts\/|v\/|live\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/;
+
+    /* ---------- Detección de género ---------- */
+    const GENRE_KEYWORDS = {
+        'Reggaetón':    ['reggaeton', 'regueton', 'perreo', 'reggaeton latino'],
+        'Trap':         ['trap', 'trap latino', 'trapeton'],
+        'Bachata':      ['bachata'],
+        'Corridos':     ['corrido', 'corridos tumbados', 'tumbado', 'corrido tumbado'],
+        'K-Pop':        ['k-pop', 'kpop', 'k pop'],
+        'Hip Hop':      ['hip hop', 'hip-hop', 'hiphop', 'rap ', ' rapero', 'freestyle'],
+        'Pop':          ['pop ', ' pop', 'pop latino', 'pop en español'],
+        'Rock':         ['rock', 'metal sinfónico'],
+        'Metal':        ['metal', 'heavy metal', 'death metal', 'black metal'],
+        'Punk':         ['punk'],
+        'Salsa':        ['salsa'],
+        'Cumbia':       ['cumbia'],
+        'Merengue':     ['merengue'],
+        'Vallenato':    ['vallenato'],
+        'Bolero':       ['bolero'],
+        'Mariachi':     ['mariachi'],
+        'Ranchera':     ['ranchera', 'rancheras'],
+        'Banda':        ['banda ', 'banda sinaloense', 'banda ms'],
+        'Norteño':      ['norteño', 'norteno', 'norteña'],
+        'Balada':       ['balada', 'baladas', 'romantica', 'romántica', 'romanticas'],
+        'Electrónica':  ['electro', 'edm', 'house music', 'techno', 'trance', 'dance music', 'dubstep'],
+        'Reggae':       ['reggae'],
+        'Jazz':         ['jazz'],
+        'Blues':        ['blues'],
+        'Country':      ['country'],
+        'Funk':         ['funk'],
+        'Soul':         ['soul'],
+        'Gospel':       ['gospel'],
+        'Ska':          [' ska '],
+        'Indie':        ['indie'],
+        'R&B':          ['r&b', 'rnb', 'rhythm and blues'],
+        'Clásica':      ['clasica', 'clásica', 'classical', 'orquesta sinfónica'],
+        'Instrumental': ['instrumental', 'type beat', ' beat ', 'pista'],
+        'Lofi':         ['lofi', 'lo-fi', 'chill beat'],
+        'Chill':        ['chill', 'relax', 'study music'],
+        'Trap':         ['trap'],
+        'Sierreño':     ['sierreño', 'sierreno'],
+        'Grupero':      ['grupero', 'grupera']
+    };
+
+    // Orden de prioridad para géneros "duros" (se evalúan primero)
+    const PRIORITY_GENRES = ['Reggaetón', 'Trap', 'Corridos', 'K-Pop', 'Hip Hop', 'Bachata', 'Metal'];
+
+    function detectGenre(title, author) {
+        const hay = ((title || '') + ' ' + (author || '')).toLowerCase()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+        // 1ª pasada: géneros prioritarios
+        for (const g of PRIORITY_GENRES) {
+            const kws = GENRE_KEYWORDS[g] || [];
+            for (const kw of kws) {
+                const norm = kw.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+                if (hay.includes(norm)) return g;
+            }
+        }
+        // 2ª pasada: el resto
+        for (const g in GENRE_KEYWORDS) {
+            if (PRIORITY_GENRES.includes(g)) continue;
+            const kws = GENRE_KEYWORDS[g];
+            for (const kw of kws) {
+                const norm = kw.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+                if (hay.includes(norm)) return g;
+            }
+        }
+        return 'Otro';
+    }
+
+    /* ---------- Utilidades ---------- */
+    function extractVideoId(url) {
+        if (!url) return null;
+        const m = String(url).match(YT_REGEX);
+        return m ? m[1] : null;
+    }
+
+    function cleanTitle(rawTitle) {
+        if (!rawTitle) return '';
+        // Quita cosas tipo "(Official Video)", "[HD]", "Lyric Video", etc.
+        let t = String(rawTitle);
+        t = t.replace(/\((?:official\s*(?:music\s*)?(?:video|audio|lyric[s]?|hd|4k)|video oficial|audio oficial|lyric[s]? video|hd|4k)\)/gi, '');
+        t = t.replace(/\[(?:official\s*(?:music\s*)?(?:video|audio|lyric[s]?|hd|4k)|video oficial|audio oficial|lyric[s]? video|hd|4k)\]/gi, '');
+        t = t.replace(/\s{2,}/g, ' ').trim();
+        return t || rawTitle;
+    }
+
+    function checkThumbnail(url, fallback) {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => resolve(url);
+            img.onerror = () => resolve(fallback);
+            img.src = url;
+        });
+    }
+
+    async function fetchOEmbed(videoId) {
+        const url = 'https://www.youtube.com/oembed?url=' +
+                    encodeURIComponent('https://www.youtube.com/watch?v=' + videoId) +
+                    '&format=json';
+        const res = await fetch(url, { method: 'GET' });
+        if (!res.ok) throw new Error('No se pudo obtener la información del video (' + res.status + ')');
+        return res.json();
+    }
+
+    /* ---------- Estado ---------- */
+    let currentMeta = null;
+    let currentUser = null;
+
+    /* ---------- UI: preview ---------- */
+    function renderPreview() {
+        const box = $('yt-preview');
+        if (!box) return;
+        if (!currentMeta) {
+            box.style.display = 'none';
+            box.innerHTML = '';
+            return;
+        }
+        box.style.display = '';
+        box.innerHTML =
+            '<div class="yt-preview-thumb">' +
+                '<img alt="" loading="lazy">' +
+            '</div>' +
+            '<div class="yt-preview-info">' +
+                '<span class="yt-preview-title"></span>' +
+                '<span class="yt-preview-sub"></span>' +
+                '<span class="yt-preview-genre"></span>' +
+            '</div>';
+
+        const img = box.querySelector('.yt-preview-thumb img');
+        img.onerror = function () {
+            this.onerror = null;
+            this.src = currentMeta.thumbnailFallback;
+        };
+        img.src = currentMeta.thumbnail;
+
+        box.querySelector('.yt-preview-title').textContent = currentMeta.title;
+        box.querySelector('.yt-preview-sub').textContent   = currentMeta.author;
+        box.querySelector('.yt-preview-genre').textContent = '🎵 ' + currentMeta.genre;
+    }
+
+    function setStatus(msg, isOk) {
+        const s = $('yt-status');
+        if (!s) return;
+        s.textContent = msg || '';
+        s.classList.toggle('ok', !!isOk);
+    }
+
+    function setBusy(busy) {
+        const input = $('yt-url-input');
+        const btn   = $('yt-fetch-btn');
+        const save  = $('yt-save-btn');
+        if (input) input.disabled = busy;
+        if (btn)   btn.disabled = busy;
+        if (save)  save.disabled = busy || !currentMeta;
+    }
+
+    /* ---------- Flujo principal ---------- */
+    async function processUrl(rawUrl) {
+        const id = extractVideoId(rawUrl);
+        if (!id) {
+            setStatus('URL de YouTube no válida. Pega el enlace completo del video.', false);
+            currentMeta = null;
+            renderPreview();
+            const save = $('yt-save-btn');
+            if (save) save.disabled = true;
+            return;
+        }
+        setStatus('', false);
+        setBusy(true);
+        const box = $('yt-preview');
+        if (box) {
+            box.style.display = '';
+            box.innerHTML = '<div class="yt-loading">Obteniendo información del video…</div>';
+        }
+
+        try {
+            const info = await fetchOEmbed(id);
+            const rawTitle = info.title || 'Sin título';
+            const cleanT   = cleanTitle(rawTitle);
+            const author   = info.author_name || 'Artista desconocido';
+
+            const maxres = 'https://img.youtube.com/vi/' + id + '/maxresdefault.jpg';
+            const hq     = 'https://img.youtube.com/vi/' + id + '/hqdefault.jpg';
+            const thumb  = await checkThumbnail(maxres, hq);
+
+            const genre = detectGenre(cleanT, author);
+
+            currentMeta = {
+                videoId: id,
+                title: cleanT,
+                author: author,
+                genre: genre,
+                thumbnail: thumb,
+                thumbnailFallback: hq,
+                youtubeUrl: 'https://www.youtube.com/watch?v=' + id
+            };
+            renderPreview();
+            setStatus('Información lista. Presiona "Guardar canción".', true);
+            const save = $('yt-save-btn');
+            if (save) save.disabled = false;
+        } catch (err) {
+            console.warn('[YT-UPLOAD] Error obteniendo info:', err);
+            setStatus('No se pudo obtener la información del video. Verifica el enlace.', false);
+            currentMeta = null;
+            renderPreview();
+            const save = $('yt-save-btn');
+            if (save) save.disabled = true;
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    async function saveSong() {
+        if (!currentMeta) return;
+        if (!currentUser) {
+            setStatus('Debes iniciar sesión para guardar.', false);
+            return;
+        }
+        const save = $('yt-save-btn');
+        if (save) { save.disabled = true; save.textContent = 'Guardando…'; }
+        setStatus('Guardando…', false);
+
+        try {
+            const payload = {
+                titulo:     currentMeta.title,
+                artista:    currentMeta.author,
+                imagenUrl:  currentMeta.thumbnail,
+                // El audio se reproduce vía iframe cuando el reproductor lo detecte,
+                // pero igual guardamos una URL utilizable como referencia.
+                audioUrl:   currentMeta.youtubeUrl,
+                youtubeUrl: currentMeta.youtubeUrl,
+                youtubeId:  currentMeta.videoId,
+                genero:     currentMeta.genre,
+                album:      '',
+                uid:        currentUser.uid,
+                origen:     'youtube',
+                fecha:      firebase.firestore.FieldValue.serverTimestamp()
+            };
+            await firebase.firestore().collection('canciones_usuarios').add(payload);
+
+            setStatus('✓ Canción guardada correctamente', true);
+            currentMeta = null;
+            const input = $('yt-url-input');
+            if (input) input.value = '';
+            renderPreview();
+            if (save) save.textContent = 'Guardar canción';
+
+            // Avisar a la app para que refresque las vistas
+            if (typeof window.__buildArtists === 'function') {
+                try { window.__buildArtists(); } catch (_) {}
+            }
+            if (typeof window.__buildAlbums === 'function') {
+                try { window.__buildAlbums(); } catch (_) {}
+            }
+            if (typeof window.__applySearchVisibility === 'function') {
+                try { window.__applySearchVisibility(); } catch (_) {}
+            }
+
+            // Volver al reproductor después de un momento
+            setTimeout(closeView, 1100);
+        } catch (err) {
+            console.error('[YT-UPLOAD] Error guardando:', err);
+            setStatus('No se pudo guardar la canción. Intenta de nuevo.', false);
+            if (save) { save.disabled = false; save.textContent = 'Guardar canción'; }
+        }
+    }
+
+    /* ---------- Vista ---------- */
+    function closeOtherViews() {
+        ['playlist-view','artist-profile','album-view','mi-playlist-view',
+         'mensajes-view','chat-view','newmsg-view','stats-view',
+         'comunidad-view','comunidad-crear-view','comentarios-view'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el && el.classList.contains('visible')) {
+                el.classList.remove('visible');
+                el.setAttribute('aria-hidden', 'true');
+            }
+        });
+    }
+
+    function openView() {
+        closeOtherViews();
+        const v = $('youtube-upload-view');
+        if (!v) return;
+        v.classList.add('visible');
+        v.setAttribute('aria-hidden', 'false');
+        setTimeout(() => {
+            const input = $('yt-url-input');
+            if (input) input.focus();
+        }, 220);
+    }
+    function closeView() {
+        const v = $('youtube-upload-view');
+        if (!v) return;
+        v.classList.remove('visible');
+        v.setAttribute('aria-hidden', 'true');
+    }
+
+    /* ---------- Reproductor iframe de YouTube ---------- */
+    function ensureYtOverlay() {
+        let player = document.getElementById('yt-player-overlay');
+        if (player) return player;
+        player = document.createElement('div');
+        player.id = 'yt-player-overlay';
+        player.className = 'yt-player-overlay';
+        player.setAttribute('aria-hidden', 'true');
+        player.innerHTML =
+            '<div class="yt-player-backdrop"></div>' +
+            '<div class="yt-player-box" role="dialog" aria-modal="true">' +
+                '<div class="yt-player-header">' +
+                    '<span class="yt-player-title" id="yt-player-title">YouTube</span>' +
+                    '<button type="button" class="yt-player-close" id="yt-player-close" aria-label="Cerrar">&times;</button>' +
+                '</div>' +
+                '<div class="yt-player-frame-wrap" id="yt-player-frame-wrap"></div>' +
+            '</div>';
+        document.body.appendChild(player);
+        player.querySelector('#yt-player-close').addEventListener('click', closeYtPlayer);
+        player.querySelector('.yt-player-backdrop').addEventListener('click', closeYtPlayer);
+        return player;
+    }
+
+    function openYtPlayer(videoId, title) {
+        if (!videoId) return;
+        const player = ensureYtOverlay();
+        const wrap = player.querySelector('#yt-player-frame-wrap');
+        const tEl  = player.querySelector('#yt-player-title');
+        if (tEl) tEl.textContent = title || 'YouTube';
+        wrap.innerHTML = '';
+        const iframe = document.createElement('iframe');
+        iframe.src = 'https://www.youtube.com/embed/' + videoId +
+                     '?autoplay=1&rel=0&playsinline=1';
+        iframe.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
+        iframe.setAttribute('allowfullscreen', '');
+        iframe.setAttribute('frameborder', '0');
+        wrap.appendChild(iframe);
+        player.classList.add('visible');
+        player.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeYtPlayer() {
+        const player = document.getElementById('yt-player-overlay');
+        if (!player) return;
+        player.classList.remove('visible');
+        player.setAttribute('aria-hidden', 'true');
+        const wrap = player.querySelector('#yt-player-frame-wrap');
+        if (wrap) wrap.innerHTML = '';
+    }
+
+    /* ---------- Intercepción de reproducción ---------- */
+    function handleYouTubeSrc(src, activeItem) {
+        const id = extractVideoId(src);
+        if (!id) return false;
+        const title = activeItem
+            ? (activeItem.querySelector('.item-title')?.textContent.trim() || '')
+            : '';
+        openYtPlayer(id, title);
+        return true;
+    }
+
+    function hookYoutubePlayback() {
+        const audio = document.getElementById('audio-player');
+        if (!audio || audio.dataset.ytHook === '1') return;
+        audio.dataset.ytHook = '1';
+
+        // 1) Si el reproductor recibe un src de YouTube, no intentamos
+        //    reproducirlo con <audio>: abrimos el iframe.
+        audio.addEventListener('error', function (e) {
+            const src = audio.src || '';
+            const id = extractVideoId(src);
+            if (!id) return;
+            e.stopImmediatePropagation();
+            e.preventDefault();
+            // Detener intentos de audio
+            try { audio.pause(); } catch (_) {}
+            const active = document.querySelector('#playlist .playlist-item.active');
+            handleYouTubeSrc(src, active);
+        }, true);
+
+        // 2) Bloquea play() del audio cuando el src es de YouTube
+        const origPlay = audio.play.bind(audio);
+        audio.play = function () {
+            const src = audio.src || '';
+            if (extractVideoId(src)) {
+                const active = document.querySelector('#playlist .playlist-item.active');
+                handleYouTubeSrc(src, active);
+                return Promise.resolve();
+            }
+            return origPlay();
+        };
+    }
+
+    // 3) Intercepta el click sobre un item de YouTube antes que el resto
+    function hookYoutubeClicks() {
+        const playlist = document.getElementById('playlist');
+        if (!playlist || playlist.dataset.ytClickHook === '1') return;
+        playlist.dataset.ytClickHook = '1';
+
+        playlist.addEventListener('click', function (e) {
+            const item = e.target.closest('.playlist-item');
+            if (!item) return;
+            const src = item.dataset.src || '';
+            const id = extractVideoId(src);
+            if (!id) return;
+
+            e.stopPropagation();
+            e.preventDefault();
+            e.stopImmediatePropagation();
+
+            document.querySelectorAll('#playlist .playlist-item')
+                .forEach(i => i.classList.remove('active'));
+            item.classList.add('active');
+
+            handleYouTubeSrc(src, item);
+        }, true);
+    }
+
+    /* ---------- Init ---------- */
+    function init() {
+        if (typeof firebase !== 'undefined' && firebase.auth) {
+            firebase.auth().onAuthStateChanged(u => { currentUser = u; });
+        }
+
+        // Link del submenú
+        const link = document.getElementById('youtube-upload-link');
+        if (link && link.dataset.ytReady !== '1') {
+            link.dataset.ytReady = '1';
+            link.addEventListener('click', function (e) {
+                e.preventDefault();
+                const sm = document.getElementById('submenu');
+                const so = document.getElementById('submenu-overlay');
+                if (sm) sm.classList.remove('visible');
+                if (so) so.classList.remove('visible');
+                setTimeout(openView, 120);
+            });
+        }
+
+        // Back
+        const back = document.getElementById('yt-back');
+        if (back && back.dataset.ytReady !== '1') {
+            back.dataset.ytReady = '1';
+            back.addEventListener('click', closeView);
+        }
+
+        // Fetch
+        const fetchBtn = document.getElementById('yt-fetch-btn');
+        if (fetchBtn && fetchBtn.dataset.ytReady !== '1') {
+            fetchBtn.dataset.ytReady = '1';
+            fetchBtn.addEventListener('click', function () {
+                const input = document.getElementById('yt-url-input');
+                if (input) processUrl(input.value.trim());
+            });
+        }
+
+        // Input: autofetch al pegar
+        const input = document.getElementById('yt-url-input');
+        if (input && input.dataset.ytReady !== '1') {
+            input.dataset.ytReady = '1';
+            input.addEventListener('paste', function () {
+                setTimeout(() => {
+                    const v = input.value.trim();
+                    if (extractVideoId(v)) processUrl(v);
+                }, 40);
+            });
+            input.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const v = input.value.trim();
+                    if (v) processUrl(v);
+                }
+            });
+        }
+
+        // Guardar
+        const save = document.getElementById('yt-save-btn');
+        if (save && save.dataset.ytReady !== '1') {
+            save.dataset.ytReady = '1';
+            save.addEventListener('click', saveSong);
+        }
+
+        // Escape
+        document.addEventListener('keydown', function (e) {
+            if (e.key !== 'Escape') return;
+            const v = document.getElementById('youtube-upload-view');
+            if (v && v.classList.contains('visible')) {
+                e.stopPropagation();
+                closeView();
+                return;
+            }
+            const ytp = document.getElementById('yt-player-overlay');
+            if (ytp && ytp.classList.contains('visible')) {
+                e.stopPropagation();
+                closeYtPlayer();
+            }
+        }, true);
+
+        // Cierre automático cuando se abren otras vistas principales
+        ['playlist-view','artist-profile','album-view','mi-playlist-view',
+         'mensajes-view','chat-view','newmsg-view','stats-view',
+         'comunidad-view','comunidad-crear-view','comentarios-view'].forEach(id => {
+            const el = document.getElementById(id);
+            if (!el || el.dataset.ytViewWatch === '1') return;
+            el.dataset.ytViewWatch = '1';
+            const obs = new MutationObserver(() => {
+                if (el.classList.contains('visible')) {
+                    const v = document.getElementById('youtube-upload-view');
+                    if (v && v.classList.contains('visible')) {
+                        v.classList.remove('visible');
+                        v.setAttribute('aria-hidden', 'true');
+                    }
+                }
+            });
+            obs.observe(el, { attributes: true, attributeFilter: ['class'] });
+        });
+
+        hookYoutubePlayback();
+        hookYoutubeClicks();
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+    // Reintentos por si el DOM todavía no tiene los nodos (el script
+    // se ejecuta antes que otras partes construyan el HTML dinámico).
+    [500, 1500, 3000].forEach(ms => setTimeout(init, ms));
 })();
