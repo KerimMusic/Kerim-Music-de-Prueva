@@ -78,6 +78,7 @@
 
             <ul class="submenu-list">
                 <li><a href="#" id="mi-playlist-link" class="submenu-link" type="button">Mi Playlist</a></li>
+                <li><a href="#" id="youtube-upload-link" class="submenu-link" type="button">Subir desde YouTube</a></li>
                 <li><a href="#" id="stats-link" class="submenu-link" type="button">Estadísticas de horas</a></li>
                 <li><a href="#" id="mensajes-link" class="submenu-link" type="button">Mensajes <span class="msg-badge" id="msg-badge" style="display:none;">0</span></a></li>
                 <li><a href="#" id="edit-name-link" class="submenu-link" type="button">Editar nombre</a></li>
@@ -411,6 +412,162 @@
             </div>
         </div>
 
+        <!-- =========================================================
+             VISTA: COMUNIDAD OMEGA
+             ========================================================= -->
+        <div class="comunidad-view" id="comunidad-view" aria-hidden="true">
+            <div class="cm-header">
+                <button class="cm-back" id="cm-back" type="button" aria-label="Volver">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none"
+                         stroke="#ffffff" stroke-width="2.4" stroke-linecap="round"
+                         stroke-linejoin="round">
+                        <polyline points="15 18 9 12 15 6"/>
+                    </svg>
+                </button>
+                <h1 class="cm-title">Comunidad Omega</h1>
+                <button class="cm-publish-btn" id="cm-publish-btn" type="button">
+                    Publica Algo
+                </button>
+            </div>
+
+            <div class="cm-scroll" id="cm-scroll">
+                <div class="cm-list" id="cm-list"></div>
+                <div class="cm-empty" id="cm-empty" style="display:none;">
+                    <div class="cm-empty-title">Aún no hay publicaciones</div>
+                    <div class="cm-empty-sub">Sé el primero en publicar algo en la Comunidad Omega</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- =========================================================
+             VISTA: CREAR PUBLICACIÓN
+             ========================================================= -->
+        <div class="comunidad-crear-view" id="comunidad-crear-view" aria-hidden="true">
+            <div class="cm-header">
+                <button class="cm-back" id="cmc-back" type="button" aria-label="Volver">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none"
+                         stroke="#ffffff" stroke-width="2.4" stroke-linecap="round"
+                         stroke-linejoin="round">
+                        <polyline points="15 18 9 12 15 6"/>
+                    </svg>
+                </button>
+                <h1 class="cm-title" id="cmc-title">Publicar algo</h1>
+                <span style="width:36px;"></span>
+            </div>
+
+            <div class="cm-scroll" id="cmc-scroll">
+                <div class="cmc-textarea-wrap">
+                    <textarea class="cmc-textarea" id="cmc-textarea"
+                              placeholder="¿Qué estás pensando?" rows="6"></textarea>
+                </div>
+
+                <div class="cmc-song-picker">
+                    <label class="cmc-label">🎵 Añadir una canción (opcional)</label>
+                    <input type="text" class="cmc-search" id="cmc-search"
+                           placeholder="Buscar canción de OmegaBeats..." autocomplete="off">
+                    <div class="cmc-song-results" id="cmc-song-results" style="display:none;"></div>
+                    <div class="cmc-song-selected" id="cmc-song-selected" style="display:none;"></div>
+                </div>
+
+                <p class="cmc-status" id="cmc-status"></p>
+            </div>
+
+            <div class="cmc-footer">
+                <button class="cmc-publish" id="cmc-publish" type="button">Publicar</button>
+            </div>
+        </div>
+
+        <!-- =========================================================
+             VISTA: COMENTARIOS DE UNA PUBLICACIÓN
+             ========================================================= -->
+        <div class="comentarios-view" id="comentarios-view" aria-hidden="true">
+            <div class="cm-header">
+                <button class="cm-back" id="com-back" type="button" aria-label="Volver">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none"
+                         stroke="#ffffff" stroke-width="2.4" stroke-linecap="round"
+                         stroke-linejoin="round">
+                        <polyline points="15 18 9 12 15 6"/>
+                    </svg>
+                </button>
+                <h1 class="cm-title">Comentarios</h1>
+                <span style="width:36px;"></span>
+            </div>
+
+            <div class="com-scroll" id="com-scroll">
+                <div class="com-post-preview" id="com-post-preview"></div>
+                <div class="com-list" id="com-list"></div>
+                <div class="com-empty" id="com-empty" style="display:none;">
+                    <div class="cm-empty-title">Sin comentarios</div>
+                    <div class="cm-empty-sub">Sé el primero en comentar</div>
+                </div>
+            </div>
+
+            <div class="com-composer">
+                <input type="text" class="com-input" id="com-input"
+                       placeholder="Escribe un comentario..." autocomplete="off">
+                <button class="com-send" id="com-send" type="button" aria-label="Enviar">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#ffffff"
+                         stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="22" y1="2" x2="11" y2="13"/>
+                        <polygon points="22 2 15 22 11 13 2 9 22 2" fill="#ffffff" stroke="none"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- =========================================================
+             VISTA: SUBIR CANCIÓN DESDE YOUTUBE
+             ========================================================= -->
+        <div class="youtube-upload-view" id="youtube-upload-view" aria-hidden="true">
+            <div class="yt-header">
+                <button class="yt-back" id="yt-back" type="button" aria-label="Volver">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none"
+                         stroke="#ffffff" stroke-width="2.4" stroke-linecap="round"
+                         stroke-linejoin="round">
+                        <polyline points="15 18 9 12 15 6"/>
+                    </svg>
+                </button>
+                <h1 class="yt-title">Subir desde YouTube</h1>
+            </div>
+
+            <div class="yt-scroll">
+                <div class="yt-hero">
+                    <div class="yt-hero-icon">
+                        <svg viewBox="0 0 24 24" width="52" height="52" fill="#ff0000">
+                            <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                        </svg>
+                    </div>
+                    <h2 class="yt-hero-title">Pega la URL del video</h2>
+                    <p class="yt-hero-sub">Obtendremos automáticamente la portada, el título y el género</p>
+                </div>
+
+                <div class="yt-input-wrap">
+                    <input type="text" class="yt-url-input" id="yt-url-input"
+                           placeholder="https://www.youtube.com/watch?v=..."
+                           autocomplete="off" spellcheck="false">
+                    <button type="button" class="yt-fetch-btn" id="yt-fetch-btn">Obtener info</button>
+                </div>
+
+                <div class="yt-preview" id="yt-preview" style="display:none;"></div>
+
+                <p class="yt-status" id="yt-status"></p>
+
+                <div class="yt-tips">
+                    <div class="yt-tip-title">💡 Cómo se completa la información</div>
+                    <ul class="yt-tip-list">
+                        <li><b>Título</b> — se obtiene del propio video.</li>
+                        <li><b>Portada</b> — miniatura en alta calidad del video.</li>
+                        <li><b>Artista</b> — canal de YouTube que subió el video.</li>
+                        <li><b>Género</b> — se detecta automáticamente por palabras clave del título.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="yt-footer">
+                <button type="button" class="yt-save-btn" id="yt-save-btn" disabled>Guardar canción</button>
+            </div>
+        </div>
+
         <!-- ==================== BOTTOM NAVIGATION BAR ==================== -->
         <nav class="bottom-nav" id="bottom-nav">
             <button class="bn-item" id="bn-mensajes" type="button">
@@ -437,6 +594,16 @@
                     </svg>
                 </div>
                 <span class="bn-label">Mi playlists</span>
+            </button>
+            <button class="bn-item" id="bn-comunidad" type="button">
+                <div class="bn-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="2" y1="12" x2="22" y2="12"/>
+                        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                    </svg>
+                </div>
+                <span class="bn-label">Comunidad</span>
             </button>
         </nav>
 
