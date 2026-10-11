@@ -11023,30 +11023,39 @@ document.addEventListener('DOMContentLoaded', () => {
    Función NUEVA e INDEPENDIENTE. No modifica el diseño ni la
    lógica de las secciones anteriores.
    ------------------------------------------------------------
-   Cómo funciona:
-   - Se inyecta un "handle" (barrita) en la parte superior del
-     reproductor a pantalla completa (#fs-player).
-   - Al deslizar ese handle hacia abajo (o al tocarlo), se abre
-     un panel con un carrusel horizontal de canciones del MISMO
-     GÉNERO que la canción que está sonando.
-   - Las canciones se muestran en orden aleatorio y se
-     actualizan si cambia la canción activa mientras el panel
-     está abierto.
-   - Al pulsar una tarjeta se reproduce esa canción.
-   - El handle hace stopPropagation en pointerdown para NO
-     interferir con el gesto actual de swipe del #fs-player.
+   Características:
+   - Handle superior (barrita) para abrir/cerrar el panel.
+   - Carrusel horizontal con canciones del MISMO GÉNERO que la
+     canción activa, en orden aleatorio.
+   - SIN DUPLICADOS: cada canción aparece una sola vez por
+     sesión. Si cambia la canción activa, la sesión se reinicia.
+   - Botón "+ Más sugerencias" que carga un nuevo lote de
+     canciones del mismo género evitando las ya mostradas.
+   - Cuando el pool de género se agota, el botón se desactiva y
+     avisa "No hay más sugerencias".
+   - El handle y el panel hacen stopPropagation en pointerdown
+     para no interferir con el gesto global de #fs-player
+     (swipe down = canción anterior).
    ============================================================ */
 (function () {
     'use strict';
 
     const $ = (id) => document.getElementById(id);
+    const BATCH_SIZE = 8;   // canciones que se cargan por lote
 
     let drawerEl   = null;
     let handleEl   = null;
     let carouselEl = null;
     let titleEl    = null;
+    let moreBtn    = null;
     let isOpen     = false;
-    let lastActiveTitle = '';
+
+    let lastActiveTitle    = '';
+    let currentSessionSong = '';   // título con el que se armó la sesión actual
+    let currentGenre       = '';
+
+    /* Títulos ya mostrados en la sesión (evita duplicados) */
+    const shownTitles = new Set();
 
     /* ---------- Utilidades ---------- */
     function normalize(s) {
@@ -11068,8 +11077,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const img = item.querySelector('.thumbnail img');
         return img ? (img.getAttribute('src') || '') : '';
     }
-    /* Extrae el género del subtítulo ("Artista · Género").
-       Ignora "Subido" (canciones subidas por usuarios). */
+    /* Género = parte del subtítulo después del "·", ignorando "Subido" */
     function getGenre(item) {
         if (!item) return '';
         const sub = getItemSubtitle(item);
@@ -11081,111 +11089,186 @@ document.addEventListener('DOMContentLoaded', () => {
         if (lower === 'subido' || lower === 'subidos') return '';
         return genre;
     }
-
-    /* ---------- Búsqueda de recomendaciones por género ---------- */
-    function getRecommendations() {
-        const active = getActiveItem();
-        if (!active) return [];
-        const genre = getGenre(active);
-        if (!genre) return [];
-        const activeTitle = getItemTitle(active);
-        const genreNorm = normalize(genre);
-        const playlist = $('playlist');
-        if (!playlist) return [];
-
-        const candidates = [];
-        playlist.querySelectorAll('.playlist-item').forEach(item => {
-            const title = getItemTitle(item);
-            if (!title || title === activeTitle) return;
-            const g = getGenre(item);
-            if (!g) return;
-            if (normalize(g) !== genreNorm) return;
-            candidates.push(item);
-        });
-
-        /* Orden aleatorio */
-        for (let i = candidates.length - 1; i > 0; i--) {
+    function shuffle(arr) {
+        const a = arr.slice();
+        for (let i = a.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
-            [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+            [a[i], a[j]] = [a[j], a[i]];
         }
-        return candidates;
+        return a;
     }
 
-    /* ---------- Render del carrusel ---------- */
-    function buildCarousel() {
-        if (!carouselEl) return;
-        carouselEl.innerHTML = '';
-
+    /* ---------- Pool de candidatos por género ---------- */
+    function getPool(genre) {
         const active = getActiveItem();
-        const genre  = getGenre(active);
+        if (!active || !genre) return [];
+        const activeTitle = getItemTitle(active);
+        const genreNorm   = normalize(genre);
+        const playlist    = $('playlist');
+        if (!playlist) return [];
 
-        if (titleEl) {
-            titleEl.textContent = genre ? ('Más de ' + genre) : 'Recomendado';
+        const out = [];
+        playlist.querySelectorAll('.playlist-item').forEach(item => {
+            const t = getItemTitle(item);
+            if (!t || t === activeTitle) return;
+            const g = getGenre(item);
+            if (!g || normalize(g) !== genreNorm) return;
+            out.push(item);
+        });
+        return out;
+    }
+
+    /* Devuelve hasta `count` items al azar, excluyendo los ya mostrados */
+    function pickBatch(pool, count) {
+        const available = pool.filter(it => !shownTitles.has(getItemTitle(it)));
+        if (!available.length) return [];
+        return shuffle(available).slice(0, count);
+    }
+
+    /* ---------- Construcción de tarjeta ---------- */
+    function makeCard(item) {
+        const title = getItemTitle(item);
+        const cover = getItemCover(item);
+        const sub   = getItemSubtitle(item);
+
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = 'fs-drawer-card';
+        card.setAttribute('aria-label', title);
+
+        const thumb = document.createElement('div');
+        thumb.className = 'fs-drawer-card-thumb';
+        if (cover) {
+            const img = document.createElement('img');
+            img.src = cover;
+            img.alt = title;
+            img.loading = 'lazy';
+            thumb.appendChild(img);
+        }
+        card.appendChild(thumb);
+
+        const t = document.createElement('span');
+        t.className = 'fs-drawer-card-title';
+        t.textContent = title;
+        card.appendChild(t);
+
+        if (sub) {
+            const s = document.createElement('span');
+            s.className = 'fs-drawer-card-sub';
+            s.textContent = sub;
+            card.appendChild(s);
         }
 
-        const list = getRecommendations();
+        card.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} }
+            item.click();
+            /* Cerramos el panel para dejar ver el reproductor */
+            setTimeout(closeDrawer, 200);
+        });
 
-        if (!list.length) {
+        return card;
+    }
+
+    /* ---------- Estado del botón "+ Más sugerencias" ---------- */
+    function updateMoreButton(poolLength) {
+        if (!moreBtn) return;
+
+        if (!currentGenre) {
+            moreBtn.disabled = true;
+            moreBtn.textContent = '+ Más sugerencias';
+            return;
+        }
+        const remaining = Math.max(0, poolLength - shownTitles.size);
+        if (remaining <= 0) {
+            moreBtn.disabled = true;
+            moreBtn.textContent = 'No hay más sugerencias';
+        } else {
+            moreBtn.disabled = false;
+            moreBtn.textContent = '+ Más sugerencias';
+        }
+    }
+
+    /* ---------- Render inicial (reset de sesión) ---------- */
+    function renderInitial() {
+        if (!carouselEl) return;
+
+        /* Reset de la sesión */
+        shownTitles.clear();
+        carouselEl.innerHTML = '';
+        carouselEl.scrollLeft = 0;
+
+        const active = getActiveItem();
+        currentSessionSong = getItemTitle(active);
+        currentGenre       = getGenre(active);
+
+        if (titleEl) {
+            titleEl.textContent = currentGenre ? ('Más de ' + currentGenre) : 'Recomendado';
+        }
+
+        if (!currentGenre) {
             const empty = document.createElement('div');
             empty.className = 'fs-drawer-empty';
-            empty.textContent = genre
-                ? 'No hay más canciones de este género'
-                : 'Esta canción no tiene género asignado';
+            empty.textContent = 'Esta canción no tiene género asignado';
             carouselEl.appendChild(empty);
+            updateMoreButton(0);
             return;
         }
 
-        list.forEach(item => {
-            const title = getItemTitle(item);
-            const cover = getItemCover(item);
-            const sub   = getItemSubtitle(item);
+        const pool = getPool(currentGenre);
+        if (!pool.length) {
+            const empty = document.createElement('div');
+            empty.className = 'fs-drawer-empty';
+            empty.textContent = 'No hay más canciones de este género';
+            carouselEl.appendChild(empty);
+            updateMoreButton(0);
+            return;
+        }
 
-            const card = document.createElement('button');
-            card.type = 'button';
-            card.className = 'fs-drawer-card';
-            card.setAttribute('aria-label', title);
-
-            const thumb = document.createElement('div');
-            thumb.className = 'fs-drawer-card-thumb';
-            if (cover) {
-                const img = document.createElement('img');
-                img.src = cover;
-                img.alt = title;
-                img.loading = 'lazy';
-                thumb.appendChild(img);
-            }
-            card.appendChild(thumb);
-
-            const t = document.createElement('span');
-            t.className = 'fs-drawer-card-title';
-            t.textContent = title;
-            card.appendChild(t);
-
-            if (sub) {
-                const s = document.createElement('span');
-                s.className = 'fs-drawer-card-sub';
-                s.textContent = sub;
-                card.appendChild(s);
-            }
-
-            card.addEventListener('click', (e) => {
-                e.stopPropagation();
-                if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} }
-                item.click();
-                setTimeout(closeDrawer, 220);
-            });
-
-            carouselEl.appendChild(card);
-        });
-
-        carouselEl.scrollLeft = 0;
+        const picks = pickBatch(pool, BATCH_SIZE);
+        picks.forEach(p => shownTitles.add(getItemTitle(p)));
+        picks.forEach(p => carouselEl.appendChild(makeCard(p)));
+        updateMoreButton(pool.length);
     }
 
-    /* ---------- Abrir / cerrar panel ---------- */
+    /* ---------- Cargar más (sin repetir las ya mostradas) ---------- */
+    function loadMore() {
+        if (!carouselEl || !currentGenre) return;
+
+        const pool = getPool(currentGenre);
+        const picks = pickBatch(pool, BATCH_SIZE);
+
+        if (!picks.length) {
+            updateMoreButton(pool.length);
+            return;
+        }
+
+        picks.forEach(p => shownTitles.add(getItemTitle(p)));
+        picks.forEach(p => carouselEl.appendChild(makeCard(p)));
+        updateMoreButton(pool.length);
+
+        /* Desplaza el carrusel al final para mostrar las nuevas */
+        setTimeout(() => {
+            try {
+                carouselEl.scrollTo({
+                    left: carouselEl.scrollWidth,
+                    behavior: 'smooth'
+                });
+            } catch (_) { carouselEl.scrollLeft = carouselEl.scrollWidth; }
+        }, 60);
+    }
+
+    /* ---------- Abrir / cerrar ---------- */
     function openDrawer() {
         if (!drawerEl || isOpen) return;
         isOpen = true;
-        buildCarousel();
+
+        /* Si la canción cambió desde la última vez, reconstruimos la sesión */
+        const activeTitle = getItemTitle(getActiveItem());
+        if (currentSessionSong !== activeTitle) {
+            renderInitial();
+        }
+
         drawerEl.classList.add('visible');
         drawerEl.setAttribute('aria-hidden', 'false');
         if (handleEl) handleEl.classList.add('active');
@@ -11207,8 +11290,8 @@ document.addEventListener('DOMContentLoaded', () => {
         let tracking = false;
 
         handle.addEventListener('pointerdown', (e) => {
-            /* 🔑 Detiene la propagación para que el gesto global de
-               #fs-player (swipe down = canción anterior) NO se dispare. */
+            /* 🔑 Evita que el gesto global del reproductor
+               (swipe down = canción anterior) se dispare. */
             e.stopPropagation();
             if (e.pointerType === 'mouse' && e.button !== 0) return;
             startY = e.clientY;
@@ -11221,7 +11304,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 tracking = false;
                 const dy = ev.clientY - startY;
                 if (dy > 15) {
-                    /* Evita que luego se dispare el click de toggle */
                     handle.dataset.swiped = '1';
                     openDrawer();
                 }
@@ -11230,7 +11312,6 @@ document.addEventListener('DOMContentLoaded', () => {
             document.addEventListener('pointercancel', onUp);
         });
 
-        /* Tap para alternar apertura/cierre */
         handle.addEventListener('click', (e) => {
             e.stopPropagation();
             if (handle.dataset.swiped === '1') {
@@ -11241,7 +11322,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    /* ---------- Inyección en el DOM del fullscreen ---------- */
+    /* ---------- Inyección del DOM ---------- */
     function injectDrawer() {
         const fsPlayer = $('fs-player');
         if (!fsPlayer) return false;
@@ -11252,7 +11333,7 @@ document.addEventListener('DOMContentLoaded', () => {
         handle.className = 'fs-drawer-handle';
         handle.id = 'fs-drawer-handle';
         handle.setAttribute('role', 'button');
-        handle.setAttribute('aria-label', 'Desliza hacia abajo para ver recomendaciones');
+        handle.setAttribute('aria-label', 'Desliza hacia abajo para ver sugerencias');
         handle.innerHTML = '<div class="fs-drawer-handle-bar"></div>';
         fsPlayer.appendChild(handle);
         handleEl = handle;
@@ -11267,11 +11348,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 '<span class="fs-drawer-title" id="fs-drawer-title">Recomendado</span>' +
                 '<button class="fs-drawer-close" id="fs-drawer-close" type="button" aria-label="Cerrar">&times;</button>' +
             '</div>' +
-            '<div class="fs-drawer-carousel" id="fs-drawer-carousel"></div>';
+            '<div class="fs-drawer-carousel" id="fs-drawer-carousel"></div>' +
+            '<div class="fs-drawer-footer">' +
+                '<button class="fs-drawer-more" id="fs-drawer-more" type="button">+ Más sugerencias</button>' +
+            '</div>';
         fsPlayer.appendChild(drawer);
         drawerEl   = drawer;
         carouselEl = drawer.querySelector('#fs-drawer-carousel');
         titleEl    = drawer.querySelector('#fs-drawer-title');
+        moreBtn    = drawer.querySelector('#fs-drawer-more');
 
         /* Bloquea el gesto global cuando el usuario interactúa con el panel */
         drawer.addEventListener('pointerdown', (e) => { e.stopPropagation(); });
@@ -11282,6 +11367,11 @@ document.addEventListener('DOMContentLoaded', () => {
         drawer.querySelector('#fs-drawer-close').addEventListener('click', (e) => {
             e.stopPropagation();
             closeDrawer();
+        });
+        moreBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (navigator.vibrate) { try { navigator.vibrate(10); } catch (_) {} }
+            loadMore();
         });
 
         attachHandleSwipe(handle);
@@ -11299,7 +11389,15 @@ document.addEventListener('DOMContentLoaded', () => {
             const newTitle = (playerTitleEl.textContent || '').trim();
             if (newTitle === lastActiveTitle) return;
             lastActiveTitle = newTitle;
-            if (isOpen) buildCarousel();
+
+            if (isOpen) {
+                /* Si el panel está abierto, refrescamos con la nueva sesión */
+                renderInitial();
+            } else {
+                /* Si está cerrado, marcamos la sesión como obsoleta
+                   para que se reconstruya en la próxima apertura. */
+                currentSessionSong = '';
+            }
         });
         obs.observe(playerTitleEl, { childList: true, characterData: true, subtree: true });
     }
@@ -11307,8 +11405,8 @@ document.addEventListener('DOMContentLoaded', () => {
     function watchFullscreen() {
         const fsPlayer = $('fs-player');
         if (!fsPlayer) return false;
-        if (fsPlayer.dataset.fsDrawerWatch === '1') return true;
-        fsPlayer.dataset.fsDrawerWatch = '1';
+        if (fsPlayer.dataset.fsDrawerFullWatch === '1') return true;
+        fsPlayer.dataset.fsDrawerFullWatch = '1';
 
         let lastVisible = false;
         const obs = new MutationObserver(() => {
@@ -11321,7 +11419,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return true;
     }
 
-    /* ---------- Arranque con reintentos (por si fs-player aún no existe) ---------- */
+    /* ---------- Arranque con reintentos ---------- */
     function boot() {
         let attempts = 0;
         (function loop() {
