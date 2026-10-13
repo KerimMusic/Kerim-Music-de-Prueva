@@ -12059,3 +12059,438 @@ document.addEventListener('DOMContentLoaded', () => {
     /* API pública por si quieres forzar una actualización manual */
     window.__updateBuyBeatButton = updateBuyButton;
 })();
+/* ============================================================
+   49. FUNCIÓN DE COMPRA DE BEATS
+   ------------------------------------------------------------
+   - Sobrescribe window.__onBuyBeat (usado por la sección 48).
+   - Abre un modal con portada, precios y opciones.
+   - Lee precios/contacto del beat desde Firebase.
+   - Genera mensaje y abre WhatsApp o Telegram.
+   ============================================================ */
+(function () {
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let currentBeat  = null;   // { titulo, artista, portada, audioUrl }
+    let beatData     = null;   // { precioMp3, precioWav, whatsapp, telegram, creador }
+    let selectedFormat = null;
+    let pendingContact = null;
+
+    /* ---------- Utilidades ---------- */
+    function norm(s) {
+        return String(s || '').toLowerCase()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9]/g, '');
+    }
+    function pickField(d, names) {
+        for (const n of names) {
+            const v = d[n];
+            if (v !== undefined && v !== null && v !== '') return v;
+        }
+        return '';
+    }
+    function parsePrice(v) {
+        if (v === null || v === undefined || v === '') return '';
+        if (typeof v === 'number') return v;
+        const s = String(v).replace(/[^0-9.,]/g, '').replace(',', '.');
+        const n = parseFloat(s);
+        return isFinite(n) ? n : '';
+    }
+    function formatPrice(v) {
+        if (v === '' || v === null || v === undefined) return 'No disponible';
+        const n = Number(v);
+        if (!isFinite(n)) return String(v);
+        return '$' + n.toLocaleString('es-MX') + ' MXN';
+    }
+    function cleanWhatsApp(num) {
+        if (!num) return '';
+        let n = String(num).replace(/[^\d]/g, '');
+        if (n.length === 10) n = '52' + n;      // asume México
+        return n;
+    }
+    function cleanTelegram(user) {
+        if (!user) return '';
+        let u = String(user).trim();
+        u = u.replace(/^@/, '');
+        u = u.replace(/^https?:\/\/(t\.me|telegram\.me)\//i, '');
+        u = u.replace(/\/+$/, '');
+        return u;
+    }
+    function openExternalUrl(url) {
+        try {
+            const a = document.createElement('a');
+            a.href = url;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => a.remove(), 120);
+        } catch (_) {
+            window.open(url, '_blank');
+        }
+    }
+
+    /* ---------- Búsqueda del beat en Firebase ---------- */
+    async function findBeatDoc(titulo) {
+        if (typeof firebase === 'undefined' || !firebase.firestore) return null;
+        const db = firebase.firestore();
+        const target = norm(titulo);
+        if (!target) return null;
+
+        // 1) Radio_Muisc (documento con id = nombre del beat)
+        try {
+            const snap = await db.collection('Radio_Muisc').get();
+            let best = null;
+            snap.forEach(doc => {
+                if (best) return;
+                const n = norm(doc.id);
+                if (n === target) best = { id: doc.id, data: doc.data() || {} };
+            });
+            if (!best) {
+                snap.forEach(doc => {
+                    if (best) return;
+                    const n = norm(doc.id);
+                    if (n && target && (n.includes(target) || target.includes(n))) {
+                        best = { id: doc.id, data: doc.data() || {} };
+                    }
+                });
+            }
+            if (best) return best;
+        } catch (e) { console.warn('[BUY] Radio_Muisc:', e); }
+
+        // 2) canciones_usuarios
+        try {
+            const snap = await db.collection('canciones_usuarios').get();
+            let best = null;
+            snap.forEach(doc => {
+                if (best) return;
+                const d = doc.data() || {};
+                if (norm(d.titulo || d.title || '') === target) {
+                    best = { id: doc.id, data: d };
+                }
+            });
+            if (best) return best;
+        } catch (e) { console.warn('[BUY] canciones_usuarios:', e); }
+
+        // 3) collectionGroup('canciones')
+        try {
+            const snap = await db.collectionGroup('canciones').get();
+            let best = null;
+            snap.forEach(doc => {
+                if (best) return;
+                const d = doc.data() || {};
+                if (d.origen && d.origen !== 'dropbox') return;
+                if (norm(d.titulo || d.title || '') === target) {
+                    best = { id: doc.id, data: d };
+                }
+            });
+            if (best) return best;
+        } catch (e) { console.warn('[BUY] collectionGroup:', e); }
+
+        return null;
+    }
+
+    function extractBeatInfo(d) {
+        return {
+            precioMp3: parsePrice(pickField(d, [
+                'precio_mp3','precioMp3','precioMP3','precio_MP3',
+                'price_mp3','priceMp3','mp3_precio','precio'
+            ])),
+            precioWav: parsePrice(pickField(d, [
+                'precio_wav','precioWav','precioWAV','precio_WAV',
+                'price_wav','priceWav','wav_precio'
+            ])),
+            whatsapp: String(pickField(d, [
+                'whatsapp','WhatsApp','numero_whatsapp','wa',
+                'telefono','teléfono','numero','celular','phone'
+            ]) || '').trim(),
+            telegram: String(pickField(d, [
+                'telegram','usuario_telegram','telegram_user',
+                'telegramUsername','tg'
+            ]) || '').trim(),
+            creador: String(pickField(d, [
+                'creador','autor','beatmaker','nombre_creador',
+                'artista','producer','productor'
+            ]) || '').trim()
+        };
+    }
+
+    /* ---------- Apertura del modal ---------- */
+    function openBuyModal(song) {
+        const modal = $('buy-modal');
+        if (!modal) return;
+
+        currentBeat    = song;
+        beatData       = null;
+        selectedFormat = null;
+        pendingContact = null;
+
+        const coverImg = $('buy-modal-cover-img');
+        if (coverImg) {
+            if (song.portada) coverImg.src = song.portada;
+            else coverImg.removeAttribute('src');
+        }
+        $('buy-modal-song-title').textContent   = song.titulo || 'Beat';
+        $('buy-modal-song-creator').textContent = song.artista || 'Cargando…';
+        $('buy-price-mp3').textContent = '$ ---';
+        $('buy-price-wav').textContent = '$ ---';
+        $('buy-status').textContent = '';
+        $('buy-status').classList.remove('ok');
+
+        const actionBtn = $('buy-action-btn');
+        actionBtn.disabled = true;
+        actionBtn.textContent = 'HACER COMPRA';
+
+        modal.querySelectorAll('.buy-option').forEach(b => {
+            b.classList.remove('selected', 'disabled');
+            b.disabled = false;
+        });
+
+        const cc = $('buy-contact-choices');
+        cc.style.display = 'none';
+        cc.innerHTML = '';
+
+        modal.classList.add('visible');
+        modal.setAttribute('aria-hidden', 'false');
+
+        loadBeatInfo(song);
+    }
+
+    async function loadBeatInfo(song) {
+        const status = $('buy-status');
+        try {
+            const doc = await findBeatDoc(song.titulo);
+            if (!doc) {
+                if (status) status.textContent = 'No se encontró información de este beat en el catálogo.';
+                return;
+            }
+            beatData = extractBeatInfo(doc.data);
+
+            $('buy-price-mp3').textContent = formatPrice(beatData.precioMp3);
+            $('buy-price-wav').textContent = formatPrice(beatData.precioWav);
+
+            if (beatData.creador) {
+                $('buy-modal-song-creator').textContent = beatData.creador;
+            }
+
+            const mp3Btn = document.querySelector('.buy-option[data-format="mp3"]');
+            const wavBtn = document.querySelector('.buy-option[data-format="wav"]');
+            if (mp3Btn && beatData.precioMp3 === '') {
+                mp3Btn.disabled = true;
+                mp3Btn.classList.add('disabled');
+            }
+            if (wavBtn && beatData.precioWav === '') {
+                wavBtn.disabled = true;
+                wavBtn.classList.add('disabled');
+            }
+        } catch (e) {
+            console.warn('[BUY] Error cargando datos:', e);
+            if (status) status.textContent = 'Error al cargar la información del beat.';
+        }
+    }
+
+    function closeBuyModal() {
+        const modal = $('buy-modal');
+        if (!modal) return;
+        modal.classList.remove('visible');
+        modal.setAttribute('aria-hidden', 'true');
+        currentBeat = null;
+        beatData = null;
+        selectedFormat = null;
+        pendingContact = null;
+    }
+
+    /* ---------- Selección de formato ---------- */
+    function selectFormat(format) {
+        selectedFormat = format;
+        pendingContact = null;
+
+        const modal = $('buy-modal');
+        modal.querySelectorAll('.buy-option').forEach(b => {
+            b.classList.toggle('selected', b.dataset.format === format);
+        });
+
+        const btn = $('buy-action-btn');
+        btn.disabled = false;
+        if (format === 'mp3')          btn.textContent = 'HACER COMPRA · MP3';
+        else if (format === 'wav')     btn.textContent = 'HACER COMPRA · WAV';
+        else                            btn.textContent = 'SOLICITAR COTIZACIÓN';
+
+        renderContactChoices();
+    }
+
+    function renderContactChoices() {
+        const cc = $('buy-contact-choices');
+        if (!cc || !beatData) { if (cc) cc.style.display = 'none'; return; }
+
+        const hasWa = !!cleanWhatsApp(beatData.whatsapp);
+        const hasTg = !!cleanTelegram(beatData.telegram);
+
+        if (!hasWa && !hasTg) {
+            cc.style.display = 'none';
+            cc.innerHTML = '';
+            return;
+        }
+
+        if (hasWa && hasTg) {
+            cc.style.display = '';
+            cc.innerHTML =
+                '<div class="buy-contact-title">¿Cómo quieres contactar al creador?</div>' +
+                '<div class="buy-contact-buttons">' +
+                    '<button type="button" class="buy-contact-btn buy-contact-btn--wa" data-contact="whatsapp">WhatsApp</button>' +
+                    '<button type="button" class="buy-contact-btn buy-contact-btn--tg" data-contact="telegram">Telegram</button>' +
+                '</div>';
+            cc.querySelectorAll('.buy-contact-btn').forEach(b => {
+                b.addEventListener('click', () => {
+                    cc.querySelectorAll('.buy-contact-btn').forEach(x => x.classList.remove('selected'));
+                    b.classList.add('selected');
+                    pendingContact = b.dataset.contact;
+                    const status = $('buy-status');
+                    if (status) { status.textContent = ''; status.classList.remove('ok'); }
+                });
+            });
+        } else if (hasWa) {
+            cc.style.display = 'none';
+            pendingContact = 'whatsapp';
+        } else if (hasTg) {
+            cc.style.display = 'none';
+            pendingContact = 'telegram';
+        }
+    }
+
+    /* ---------- Mensaje de compra ---------- */
+    function buildMessage() {
+        const titulo  = (currentBeat && currentBeat.titulo) || 'este beat';
+        const creador = (beatData && beatData.creador) || (currentBeat && currentBeat.artista) || 'el creador';
+
+        let formato = '';
+        let precio  = '';
+        if (selectedFormat === 'mp3') {
+            formato = 'MP3';
+            precio  = formatPrice(beatData.precioMp3);
+        } else if (selectedFormat === 'wav') {
+            formato = 'WAV';
+            precio  = formatPrice(beatData.precioWav);
+        } else {
+            formato = 'Personalizado';
+        }
+
+        let msg = 'Hola, estoy interesado en comprar tu beat *' + titulo + '*.\n';
+        msg += 'Creador: ' + creador + '.\n';
+        msg += 'Opción seleccionada: ' + formato + '.\n';
+        if (selectedFormat === 'custom') {
+            msg += 'Me gustaría solicitar una cotización personalizada para este beat.\n';
+        } else {
+            msg += 'Precio: ' + precio + '.\n';
+        }
+        msg += 'Me gustaría recibir información para continuar con la compra.';
+        return msg;
+    }
+
+    /* ---------- Acción principal ---------- */
+    async function doBuy() {
+        if (!currentBeat || !selectedFormat || !beatData) return;
+        const status = $('buy-status');
+
+        const hasWa = !!cleanWhatsApp(beatData.whatsapp);
+        const hasTg = !!cleanTelegram(beatData.telegram);
+
+        if (!hasWa && !hasTg) {
+            if (status) {
+                status.textContent = 'El creador no ha configurado un medio de contacto.';
+                status.classList.remove('ok');
+            }
+            return;
+        }
+
+        if (hasWa && hasTg && !pendingContact) {
+            if (status) {
+                status.textContent = 'Elige WhatsApp o Telegram para continuar.';
+                status.classList.remove('ok');
+            }
+            return;
+        }
+
+        const contact = pendingContact || (hasWa ? 'whatsapp' : 'telegram');
+        const message = buildMessage();
+        const encoded = encodeURIComponent(message);
+
+        if (contact === 'whatsapp') {
+            const num = cleanWhatsApp(beatData.whatsapp);
+            if (!num) {
+                if (status) {
+                    status.textContent = 'El número de WhatsApp no es válido.';
+                    status.classList.remove('ok');
+                }
+                return;
+            }
+            openExternalUrl('https://wa.me/' + num + '?text=' + encoded);
+            if (status) {
+                status.textContent = '✓ Abriendo WhatsApp…';
+                status.classList.add('ok');
+            }
+        } else if (contact === 'telegram') {
+            const user = cleanTelegram(beatData.telegram);
+            if (!user) {
+                if (status) {
+                    status.textContent = 'El usuario de Telegram no es válido.';
+                    status.classList.remove('ok');
+                }
+                return;
+            }
+            // Telegram no admite mensaje pre-rellenado por URL → copiamos al portapapeles
+            try {
+                await navigator.clipboard.writeText(message);
+                if (status) {
+                    status.textContent = '✓ Mensaje copiado. Pégalo en el chat de Telegram.';
+                    status.classList.add('ok');
+                }
+            } catch (_) {
+                if (status) {
+                    status.textContent = 'Abre Telegram y pega el mensaje de tu compra.';
+                    status.classList.remove('ok');
+                }
+            }
+            setTimeout(() => openExternalUrl('https://t.me/' + user), 500);
+        }
+    }
+
+    /* ---------- Init ---------- */
+    function init() {
+        // 1) Enganchar el botón "Comprar" del reproductor fullscreen
+        window.__onBuyBeat = function (song) {
+            if (!song) return;
+            openBuyModal(song);
+        };
+
+        const modal = $('buy-modal');
+        if (!modal) return;
+
+        const closeBtn = $('buy-modal-close');
+        const backdrop = $('buy-modal-backdrop');
+        if (closeBtn) closeBtn.addEventListener('click', closeBuyModal);
+        if (backdrop) backdrop.addEventListener('click', closeBuyModal);
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && modal.classList.contains('visible')) closeBuyModal();
+        }, true);
+
+        modal.querySelectorAll('.buy-option').forEach(btn => {
+            btn.addEventListener('click', () => {
+                if (btn.disabled) return;
+                if (navigator.vibrate) { try { navigator.vibrate(10); } catch (_) {} }
+                selectFormat(btn.dataset.format);
+            });
+        });
+
+        const actionBtn = $('buy-action-btn');
+        if (actionBtn) actionBtn.addEventListener('click', doBuy);
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+})();
