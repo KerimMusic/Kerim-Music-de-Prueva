@@ -4330,3 +4330,277 @@ body[data-theme="light"] .ap-view-toggle svg circle {
         font-size: 10.5px;
     }
 }
+/* ============================================================
+   49. MODAL DE COMPRA DE BEATS
+   ============================================================ */
+.buy-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 10200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 14px;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.25s ease, visibility 0.25s ease;
+}
+.buy-modal.visible { opacity: 1; visibility: visible; }
+
+.buy-modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.85);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+}
+
+.buy-modal-box {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 400px;
+    max-height: 92vh;
+    background: #000000;
+    border: 1px solid #1f1f1f;
+    border-radius: 22px;
+    padding: 22px 18px 20px;
+    overflow-y: auto;
+    color: #ffffff;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.9);
+    transform: scale(0.94);
+    transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+    touch-action: pan-y;
+    overscroll-behavior: contain;
+}
+.buy-modal.visible .buy-modal-box { transform: scale(1); }
+
+.buy-modal-close {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 34px;
+    height: 34px;
+    border: none;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 0 3px 0;
+    z-index: 3;
+}
+.buy-modal-close:active { background: rgba(255, 255, 255, 0.18); transform: scale(0.9); }
+
+.buy-modal-title {
+    text-align: center;
+    font-size: 22px;
+    font-weight: 900;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #ffffff;
+    margin: 0 0 16px;
+}
+
+.buy-modal-cover {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    border-radius: 14px 14px 0 0;
+    overflow: hidden;
+    background: linear-gradient(180deg, #b8e0f5 0%, #a8d886 60%, #7ab648 100%);
+    position: relative;
+}
+.buy-modal-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.buy-modal-song {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 12px 4px 14px;
+    text-align: center;
+    border-bottom: 1px solid #1a1a1a;
+    margin-bottom: 10px;
+}
+.buy-modal-song-title   { font-size: 17px; font-weight: 800; color: #ffffff; }
+.buy-modal-song-creator { font-size: 13px; color: #ff2a2a; font-weight: 700; }
+
+.buy-options { display: flex; flex-direction: column; gap: 10px; padding: 6px 0 14px; }
+
+.buy-option {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 12px 6px;
+    background: none;
+    border: none;
+    color: #ffffff;
+    font-family: inherit;
+    cursor: pointer;
+    text-align: left;
+    border-radius: 12px;
+    transition: background 0.2s ease;
+}
+.buy-option:active:not(.disabled) { background: rgba(255, 255, 255, 0.05); }
+.buy-option.disabled { opacity: 0.4; cursor: not-allowed; }
+
+.buy-option-name {
+    font-size: 22px;
+    font-weight: 900;
+    color: #ffffff;
+    min-width: 88px;
+    letter-spacing: 0.3px;
+}
+
+.buy-option-price {
+    flex: 1;
+    text-align: center;
+    font-size: 14px;
+    font-weight: 800;
+    color: #ffffff;
+}
+
+.buy-switch {
+    position: relative;
+    width: 52px;
+    height: 30px;
+    border-radius: 50px;
+    background: #333333;
+    flex-shrink: 0;
+    transition: background 0.25s ease;
+    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+.buy-switch::after {
+    content: "";
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #ffffff;
+    transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+.buy-option.selected .buy-switch { background: #ff2a2a; }
+.buy-option.selected .buy-switch::after { transform: translateX(22px); }
+
+.buy-description {
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: #ffffff;
+    text-align: center;
+    padding: 6px 6px 16px;
+    font-weight: 600;
+}
+.buy-description strong {
+    font-weight: 900;
+    font-size: 15px;
+    display: block;
+    margin-bottom: 8px;
+}
+
+.buy-contact-choices {
+    padding: 10px 0 12px;
+    border-top: 1px solid #1a1a1a;
+    margin-bottom: 6px;
+}
+.buy-contact-title {
+    font-size: 12px;
+    font-weight: 800;
+    color: #ff2a2a;
+    text-align: center;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+}
+.buy-contact-buttons { display: flex; gap: 10px; }
+
+.buy-contact-btn {
+    flex: 1;
+    border-radius: 50px;
+    padding: 12px 16px;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 800;
+    cursor: pointer;
+    background: #1a1a1a;
+    color: #ffffff;
+    border: 2px solid #262626;
+    transition: all 0.2s ease;
+}
+.buy-contact-btn:active { transform: scale(0.97); }
+.buy-contact-btn.selected {
+    background: rgba(255, 42, 42, 0.15);
+    border-color: #ff2a2a;
+    color: #ff2a2a;
+}
+.buy-contact-btn--wa.selected {
+    background: rgba(37, 211, 102, 0.15);
+    border-color: #25d366;
+    color: #25d366;
+}
+.buy-contact-btn--tg.selected {
+    background: rgba(79, 182, 229, 0.15);
+    border-color: #0088cc;
+    color: #4fb6e5;
+}
+
+.buy-action-btn {
+    width: 100%;
+    background: #ff2a2a;
+    color: #ffffff;
+    border: none;
+    border-radius: 50px;
+    padding: 18px 24px;
+    font-family: inherit;
+    font-size: 18px;
+    font-weight: 900;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    cursor: pointer;
+    box-shadow: 0 12px 32px rgba(255, 42, 42, 0.4);
+    transition: transform 0.15s ease, opacity 0.2s ease;
+    margin-top: 6px;
+}
+.buy-action-btn:active:not(:disabled) { transform: scale(0.97); opacity: 0.92; }
+.buy-action-btn:disabled {
+    background: #2a2a2a;
+    color: #666666;
+    box-shadow: none;
+    cursor: not-allowed;
+}
+
+.buy-status {
+    font-size: 13px;
+    color: #ff5757;
+    text-align: center;
+    margin: 12px 0 0;
+    min-height: 18px;
+    line-height: 1.4;
+}
+.buy-status.ok { color: #4ade80; font-weight: 700; }
+
+/* Tema claro */
+body[data-theme="light"] .buy-modal-box {
+    background: #ffffff;
+    border-color: #e5e5e5;
+    color: #111111;
+}
+body[data-theme="light"] .buy-modal-title { color: #111111; }
+body[data-theme="light"] .buy-modal-song { border-bottom-color: #e5e5e5; }
+body[data-theme="light"] .buy-modal-song-title { color: #111111; }
+body[data-theme="light"] .buy-option-name,
+body[data-theme="light"] .buy-option-price,
+body[data-theme="light"] .buy-description { color: #111111; }
+body[data-theme="light"] .buy-option:active:not(.disabled) { background: rgba(0, 0, 0, 0.04); }
+body[data-theme="light"] .buy-contact-choices { border-top-color: #e5e5e5; }
+body[data-theme="light"] .buy-contact-btn { background: #f5f5f5; color: #111111; border-color: #e0e0e0; }
+body[data-theme="light"] .buy-modal-close { background: rgba(0, 0, 0, 0.06); color: #111111; }
+body[data-theme="light"] .buy-action-btn:disabled { background: #eeeeee; color: #999999; }
+body[data-theme="light"] .buy-switch { background: #cccccc; }
+body[data-theme="light"] .buy-switch::after { background: #ffffff; }
