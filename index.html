@@ -648,6 +648,52 @@
             <p class="share-modal-status" id="share-modal-status"></p>
         </div>
     </div>
+    <!-- ==================== MODAL DE COMPRA DE BEATS ==================== -->
+<div class="buy-modal" id="buy-modal" aria-hidden="true">
+    <div class="buy-modal-backdrop" id="buy-modal-backdrop"></div>
+    <div class="buy-modal-box" role="dialog" aria-modal="true" aria-labelledby="buy-modal-title">
+        <button class="buy-modal-close" id="buy-modal-close" type="button" aria-label="Cerrar">&times;</button>
+        <h2 class="buy-modal-title" id="buy-modal-title">COMPRAR BEATS</h2>
+
+        <div class="buy-modal-cover">
+            <img id="buy-modal-cover-img" alt="Portada del beat" loading="lazy">
+        </div>
+
+        <div class="buy-modal-song">
+            <span class="buy-modal-song-title" id="buy-modal-song-title">Beat</span>
+            <span class="buy-modal-song-creator" id="buy-modal-song-creator">Creador</span>
+        </div>
+
+        <div class="buy-options">
+            <button type="button" class="buy-option" data-format="mp3">
+                <span class="buy-option-name">Mp3</span>
+                <span class="buy-option-price" id="buy-price-mp3">$ ---</span>
+                <span class="buy-switch" aria-hidden="true"></span>
+            </button>
+            <button type="button" class="buy-option" data-format="wav">
+                <span class="buy-option-name">Wav</span>
+                <span class="buy-option-price" id="buy-price-wav">$ ---</span>
+                <span class="buy-switch" aria-hidden="true"></span>
+            </button>
+            <button type="button" class="buy-option" data-format="custom">
+                <span class="buy-option-name">Personalizados</span>
+                <span class="buy-option-price"></span>
+                <span class="buy-switch" aria-hidden="true"></span>
+            </button>
+        </div>
+
+        <div class="buy-description">
+            <strong>🎵 Beats originales y de alta calidad</strong>
+            Todos nuestros beats son originales, creados con dedicación y pasión por la música, ofreciendo un sonido de alta calidad para llevar tus proyectos musicales al siguiente nivel. Encuentra el ritmo perfecto para tu próximo éxito con OmegaBeats.
+        </div>
+
+        <div class="buy-contact-choices" id="buy-contact-choices" style="display:none;"></div>
+
+        <button type="button" class="buy-action-btn" id="buy-action-btn" disabled>HACER COMPRA</button>
+
+        <p class="buy-status" id="buy-status"></p>
+    </div>
+</div>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
