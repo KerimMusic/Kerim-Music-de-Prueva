@@ -11868,3 +11868,194 @@ document.addEventListener('DOMContentLoaded', () => {
         init();
     }
 })();
+/* ============================================================
+   48. BOTÓN "COMPRAR" PARA BEATS EN REPRODUCTOR FULLSCREEN
+   ------------------------------------------------------------
+   - Detecta "Beat" / "Beats" en el título actual (sin importar
+     mayúsculas/minúsculas) usando límites de palabra.
+   - Muestra el botón "Comprar" debajo del título SOLO en ese caso.
+   - El botón aparece únicamente cuando el reproductor fullscreen
+     está abierto.
+   ============================================================ */
+(function () {
+    'use strict';
+
+    /* Coincide con: Beat, Beats, BEAT, BEATS, Mis Beats, Trap Beats, etc. */
+    const BEAT_REGEX = /\bbeats?\b/i;
+
+    let buyBtn      = null;
+    let lastTitle   = '';
+    let lastVisible = false;
+
+    function detectBeat(title) {
+        return BEAT_REGEX.test(String(title || ''));
+    }
+
+    /* Crea (o recupera) el botón y lo inserta justo tras el título */
+    function ensureBuyButton() {
+        if (buyBtn && buyBtn.isConnected) return buyBtn;
+
+        const existing = document.getElementById('fs-buy-btn');
+        if (existing) { buyBtn = existing; return existing; }
+
+        const fsContent = document.getElementById('fs-content');
+        const titleEl   = document.getElementById('fs-title');
+        if (!fsContent || !titleEl) return null;
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.id = 'fs-buy-btn';
+        btn.className = 'fs-buy-btn';
+        btn.textContent = 'Comprar';
+        btn.setAttribute('aria-label', 'Comprar este beat');
+
+        btn.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (navigator.vibrate) { try { navigator.vibrate(14); } catch (_) {} }
+            handleBuyClick();
+        });
+
+        /* Insertar justo después del título, dentro del contenido */
+        if (titleEl.nextSibling) {
+            fsContent.insertBefore(btn, titleEl.nextSibling);
+        } else {
+            fsContent.appendChild(btn);
+        }
+
+        buyBtn = btn;
+        return btn;
+    }
+
+    /* Datos de la canción activa (para pasárselos al manejador) */
+    function getCurrentSongInfo() {
+        const titleEl     = document.getElementById('player-title');
+        const coverEl     = document.getElementById('player-cover');
+        const activeItem  = document.querySelector('#playlist .playlist-item.active');
+        const titulo      = (titleEl && titleEl.textContent || '').trim();
+        if (!titulo) return null;
+        return {
+            titulo:   titulo,
+            portada:  coverEl ? (coverEl.getAttribute('src') || '') : '',
+            audioUrl: activeItem ? (activeItem.dataset.src || '') : '',
+            artista:  (activeItem
+                        ? (activeItem.querySelector('.item-subtitle')?.textContent || '')
+                        : '').split('·')[0].trim()
+        };
+    }
+
+    /* Acción por defecto del botón "Comprar".
+       Puedes sobrescribirla así, desde donde quieras:
+           window.__onBuyBeat = function (song) {
+               // song = { titulo, artista, portada, audioUrl }
+               // aquí abres tu checkout, WhatsApp, link de pago, etc.
+           };
+    */
+    function handleBuyClick() {
+        const song = getCurrentSongInfo();
+        if (!song) return;
+
+        if (typeof window.__onBuyBeat === 'function') {
+            try { window.__onBuyBeat(song); return; } catch (err) {
+                console.warn('[BUY] Error en manejador personalizado:', err);
+            }
+        }
+
+        /* Fallback por defecto: toast informativo */
+        let toast = document.getElementById('omega-toast');
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.id = 'omega-toast';
+            toast.setAttribute('role', 'status');
+            toast.setAttribute('aria-live', 'polite');
+            document.body.appendChild(toast);
+        }
+        toast.textContent = '🎵 Comprar: ' + song.titulo;
+        toast.classList.remove('visible');
+        void toast.offsetWidth;
+        toast.classList.add('visible');
+        clearTimeout(toast._omegaBuyTimer);
+        toast._omegaBuyTimer = setTimeout(function () {
+            toast.classList.remove('visible');
+        }, 2000);
+    }
+
+    /* Actualiza visibilidad del botón según el título y el fullscreen */
+    function updateBuyButton() {
+        const titleEl = document.getElementById('player-title');
+        if (!titleEl) return;
+
+        const title     = (titleEl.textContent || '').trim();
+        const fsPlayer  = document.getElementById('fs-player');
+        const fsVisible = !!(fsPlayer && fsPlayer.classList.contains('visible'));
+        const shouldShow = fsVisible && detectBeat(title);
+
+        /* Evitar trabajo repetido */
+        if (shouldShow === lastVisible && title === lastTitle) return;
+        lastTitle   = title;
+        lastVisible = shouldShow;
+
+        const btn = ensureBuyButton();
+        if (!btn) return;
+
+        if (shouldShow) btn.classList.add('visible');
+        else            btn.classList.remove('visible');
+    }
+
+    /* Escucha cambios en el título del mini reproductor (fuente de verdad) */
+    function watchPlayerTitle() {
+        const titleEl = document.getElementById('player-title');
+        if (!titleEl || titleEl.dataset.buyBeatWatch === '1') return;
+        titleEl.dataset.buyBeatWatch = '1';
+
+        const obs = new MutationObserver(function () { updateBuyButton(); });
+        obs.observe(titleEl, { childList: true, characterData: true, subtree: true });
+        updateBuyButton();
+    }
+
+    /* Escucha la apertura/cierre del fullscreen */
+    function watchFullscreen() {
+        const fsPlayer = document.getElementById('fs-player');
+        if (!fsPlayer || fsPlayer.dataset.buyBeatFsWatch === '1') return;
+        fsPlayer.dataset.buyBeatFsWatch = '1';
+
+        const obs = new MutationObserver(function () {
+            if (fsPlayer.classList.contains('visible')) {
+                /* El título se sincroniza poco después de abrir */
+                setTimeout(updateBuyButton, 60);
+                setTimeout(updateBuyButton, 250);
+            } else {
+                if (buyBtn) buyBtn.classList.remove('visible');
+                lastVisible = false;
+            }
+        });
+        obs.observe(fsPlayer, { attributes: true, attributeFilter: ['class'] });
+    }
+
+    function init() {
+        let tries = 0;
+        (function loop() {
+            tries++;
+            const fsPlayer  = document.getElementById('fs-player');
+            const fsContent = document.getElementById('fs-content');
+            if (fsPlayer && fsContent) {
+                ensureBuyButton();
+                watchPlayerTitle();
+                watchFullscreen();
+                updateBuyButton();
+                return;
+            }
+            if (tries < 80) setTimeout(loop, 200);
+            else console.warn('[BUY] No se encontró #fs-player / #fs-content');
+        })();
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+
+    /* API pública por si quieres forzar una actualización manual */
+    window.__updateBuyBeatButton = updateBuyButton;
+})();
