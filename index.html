@@ -694,6 +694,51 @@
         <p class="buy-status" id="buy-status"></p>
     </div>
 </div>
+    <!-- =========================================================
+     SALA DE MÚSICA — Vista de géneros
+     ========================================================= -->
+<div class="sala-view" id="sala-view" aria-hidden="true">
+    <div class="sala-header">
+        <button class="sala-back" id="sala-back" type="button" aria-label="Volver">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none"
+                 stroke="#ffffff" stroke-width="2.4" stroke-linecap="round"
+                 stroke-linejoin="round">
+                <polyline points="15 18 9 12 15 6"/>
+            </svg>
+        </button>
+        <h1 class="sala-title">Géneros musicales</h1>
+    </div>
+    <div class="sala-scroll" id="sala-scroll">
+        <div class="sala-genres-grid" id="sala-genres-grid"></div>
+        <div class="sala-empty" id="sala-empty" style="display:none;">
+            <div class="sala-empty-title">Aún no hay géneros</div>
+            <div class="sala-empty-sub">Sube canciones con género para verlos aquí</div>
+        </div>
+    </div>
+</div>
+
+<!-- =========================================================
+     SALA DE MÚSICA — Vista de canciones por género
+     ========================================================= -->
+<div class="sala-view" id="sala-genero-view" aria-hidden="true">
+    <div class="sala-header">
+        <button class="sala-back" id="sala-genero-back" type="button" aria-label="Volver">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none"
+                 stroke="#ffffff" stroke-width="2.4" stroke-linecap="round"
+                 stroke-linejoin="round">
+                <polyline points="15 18 9 12 15 6"/>
+            </svg>
+        </button>
+        <h1 class="sala-title" id="sala-genero-title">Género</h1>
+    </div>
+    <div class="sala-scroll" id="sala-genero-scroll">
+        <div class="sala-song-list" id="sala-song-list"></div>
+        <div class="sala-empty" id="sala-genero-empty" style="display:none;">
+            <div class="sala-empty-title">Sin canciones</div>
+            <div class="sala-empty-sub">No se encontraron canciones en este género</div>
+        </div>
+    </div>
+</div>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
