@@ -556,6 +556,104 @@
     </div>
 </div>
 
+<!-- =========================================================
+     VISTA: SALA MÚSICA — RADIO EN VIVO
+     ========================================================= -->
+<div class="sala-musica-view" id="sala-musica-view" aria-hidden="true">
+
+    <div class="sm-header">
+        <button class="sm-back" id="sm-back" type="button" aria-label="Volver">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none"
+                 stroke="#ffffff" stroke-width="2.4" stroke-linecap="round"
+                 stroke-linejoin="round">
+                <polyline points="15 18 9 12 15 6"/>
+            </svg>
+        </button>
+        <h1 class="sm-header-title">🎵 Sala Música — Radio en vivo</h1>
+    </div>
+
+    <div class="sm-scroll" id="sm-scroll">
+
+        <p class="sm-description">
+            Esto es una radio en vivo donde vas a escuchar música de todos los
+            géneros pertenecientes a OmegaBeats. Descubre nuevos artistas y
+            déjate sorprender por cada canción.
+        </p>
+
+        <!-- Portada con transición animada -->
+        <div class="sm-player-card">
+            <div class="sm-cover-wrap" id="sm-cover-wrap">
+                <img class="sm-cover" id="sm-cover-a" alt="Portada de la canción">
+                <img class="sm-cover" id="sm-cover-b" alt="Portada de la canción">
+                <div class="sm-live-badge" id="sm-live-badge">Live</div>
+            </div>
+
+            <div class="sm-song-info">
+                <span class="sm-song-title" id="sm-song-title">Radio en vivo</span>
+                <span class="sm-song-artist" id="sm-song-artist">
+                    Presiona Comenzar para iniciar la estación
+                </span>
+            </div>
+        </div>
+
+        <!-- Botón Comenzar -->
+        <button class="sm-start-btn" id="sm-start-btn" type="button">Comenzar</button>
+
+        <!-- Sección de comentarios -->
+        <div class="sm-comments-section">
+            <div class="sm-comments-top">
+                <h2 class="sm-comments-heading">Comentarios</h2>
+                <button class="sm-comment-btn" id="sm-comment-btn" type="button">
+                    Comentar
+                </button>
+            </div>
+
+            <div class="sm-comments-list" id="sm-comments-list"></div>
+
+            <div class="sm-comments-empty" id="sm-comments-empty" style="display:none;">
+                <span class="sm-comments-empty-icon">💬</span>
+                <span class="sm-comments-empty-text">Sé el primero en comentar</span>
+            </div>
+        </div>
+
+        <div class="sm-bottom-space"></div>
+    </div>
+</div>
+
+<!-- Modal para escribir comentario -->
+<div class="sm-modal" id="sm-comment-modal" aria-hidden="true">
+    <div class="sm-modal-backdrop" id="sm-comment-backdrop"></div>
+    <div class="sm-modal-box" role="dialog" aria-modal="true">
+        <div class="sm-modal-header">
+            <h3 class="sm-modal-title">Nuevo comentario</h3>
+            <button class="sm-modal-close" id="sm-comment-close" type="button" aria-label="Cerrar">&times;</button>
+        </div>
+        <textarea class="sm-modal-textarea" id="sm-comment-input"
+                  placeholder="Escribe tu comentario..." rows="5" maxlength="400"></textarea>
+        <p class="sm-modal-status" id="sm-comment-status"></p>
+        <div class="sm-modal-actions">
+            <button class="sm-modal-btn sm-modal-btn-cancel" id="sm-comment-cancel" type="button">Cancelar</button>
+            <button class="sm-modal-btn sm-modal-btn-confirm" id="sm-comment-publish" type="button">Publicar</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal confirmar eliminación -->
+<div class="sm-modal" id="sm-delete-modal" aria-hidden="true">
+    <div class="sm-modal-backdrop" id="sm-delete-backdrop"></div>
+    <div class="sm-modal-box" role="dialog" aria-modal="true">
+        <div class="sm-modal-header">
+            <h3 class="sm-modal-title">¿Eliminar comentario?</h3>
+            <button class="sm-modal-close" id="sm-delete-close" type="button" aria-label="Cerrar">&times;</button>
+        </div>
+        <p class="sm-modal-text">Esta acción no se puede deshacer.</p>
+        <div class="sm-modal-actions">
+            <button class="sm-modal-btn sm-modal-btn-cancel" id="sm-delete-cancel" type="button">Cancelar</button>
+            <button class="sm-modal-btn sm-modal-btn-danger" id="sm-delete-confirm" type="button">Eliminar</button>
+        </div>
+    </div>
+</div>
+        
         <!-- ==================== BOTTOM NAVIGATION BAR ==================== -->
         <nav class="bottom-nav" id="bottom-nav">
             <button class="bn-item" id="bn-mensajes" type="button">
