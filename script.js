@@ -12347,21 +12347,20 @@ document.addEventListener('DOMContentLoaded', () => {
 /* ============================================================
    XX. SALA MÚSICA — RADIO EN VIVO + COMENTARIOS
    ------------------------------------------------------------
-   - El botón Comenzar inicia la radio aleatoria.
-   - Si hay canción cargada y la radio está activa → play/pausa.
-   - Si el usuario elige una canción del reproductor normal,
-     la radio se detiene y vuelve a estado inicial.
-   - 🆕 Los anuncios en Sala Música se muestran cada 2 canciones.
+   RADIO TOTALMENTE INDEPENDIENTE:
+   - Usa su propio <audio> (#sala-audio-player)
+   - No modifica el estado del reproductor normal
+   - Sus anuncios se cuentan por separado (cada 2 canciones)
+   - Al arrancar pausa el reproductor normal
+   - Al elegir una canción del reproductor normal, la radio se detiene
    ============================================================ */
 (function () {
     'use strict';
 
     const $ = (id) => document.getElementById(id);
     const LOG = '[SALA-MUSICA]';
-    const SHUFFLE_KEY = 'omega_shuffle_v1';
-    const REPEAT_KEY  = 'omega_repeat_mode_v1';
     const COMMENTS_SUB = 'sala_musica_comentarios';
-    const SM_SONGS_PER_AD = 2;   // 🆕 anuncio tras cada 2 canciones en Sala Música
+    const SM_SONGS_PER_AD = 2;   // anuncio tras cada 2 canciones en Sala Música
 
     /* ---------- Utilidades ---------- */
     function norm(s) {
@@ -12406,113 +12405,125 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /* ============================================================
-       RADIO — SHUFFLE / REPEAT
+       AUDIO DEDICADO DE SALA MÚSICA
        ============================================================ */
-    let savedShuffleState = null;
-    let savedRepeatState  = null;
-
-    function forceShuffleOn() {
-        if (savedShuffleState === null) {
-            try { savedShuffleState = localStorage.getItem(SHUFFLE_KEY) || '1'; }
-            catch (_) { savedShuffleState = '1'; }
-        }
-        try { localStorage.setItem(SHUFFLE_KEY, '1'); } catch (_) {}
-        window.__omegaShuffleOn = true;
-
-        const btn = document.getElementById('fs-shuffle');
-        if (btn) {
-            btn.classList.add('active');
-            btn.setAttribute('aria-label', 'Aleatorio activado');
-            btn.setAttribute('title', 'Aleatorio activado');
-        }
-    }
-    function forceRepeatOff() {
-        if (savedRepeatState === null) {
-            try { savedRepeatState = localStorage.getItem(REPEAT_KEY) || 'off'; }
-            catch (_) { savedRepeatState = 'off'; }
-        }
-        try { localStorage.setItem(REPEAT_KEY, 'off'); } catch (_) {}
-
-        const btn = document.getElementById('fs-repeat');
-        if (btn) {
-            btn.classList.remove('active', 'mode-one');
-            btn.setAttribute('aria-label', 'Repetir desactivado');
-            btn.setAttribute('title', 'Repetir desactivado');
-        }
-    }
-    function restorePlaybackModes() {
-        if (savedShuffleState !== null) {
-            try { localStorage.setItem(SHUFFLE_KEY, savedShuffleState); } catch (_) {}
-            const s = savedShuffleState;
-            window.__omegaShuffleOn = (s === '1');
-            const btn = document.getElementById('fs-shuffle');
-            if (btn) {
-                btn.classList.toggle('active', s === '1');
-                btn.setAttribute('aria-label', s === '1' ? 'Aleatorio activado' : 'Aleatorio desactivado');
-                btn.setAttribute('title', s === '1' ? 'Aleatorio activado' : 'Aleatorio desactivado');
-            }
-            savedShuffleState = null;
-        }
-        if (savedRepeatState !== null) {
-            try { localStorage.setItem(REPEAT_KEY, savedRepeatState); } catch (_) {}
-            const r = savedRepeatState;
-            const btn = document.getElementById('fs-repeat');
-            if (btn) {
-                btn.classList.toggle('active', r !== 'off');
-                btn.classList.toggle('mode-one', r === 'one');
-                const label = r === 'one' ? 'Repetir 1 canción'
-                            : r === 'all' ? 'Repetir todo'
-                            : 'Repetir desactivado';
-                btn.setAttribute('aria-label', label);
-                btn.setAttribute('title', label);
-            }
-            savedRepeatState = null;
-        }
+    function getSalaAudio() {
+        return document.getElementById('sala-audio-player');
     }
 
     /* ============================================================
        ESTADO DE LA RADIO
        ============================================================ */
-    let radioStarted    = false;   // ¿La radio está activa?
-    let smInternalClick = false;   // ¿El click viene de Sala Música?
-    let smSongsPlayed   = 0;       // 🆕 contador local de canciones completadas
+    let radioStarted    = false;    // ¿La radio está activa?
+    let smInternalClick = false;    // ¿El click viene de Sala Música?
+    let smSongsPlayed   = 0;        // contador local de canciones completadas
+    let currentSalaItem = null;     // item actualmente sonando en Sala Música
+
+    /* ------------------------------------------------------------
+       Cargar y reproducir un item en el audio de Sala Música
+       ------------------------------------------------------------ */
+    function loadSalaItem(item, autoplay) {
+        if (!item) return;
+        const salaAudio = getSalaAudio();
+        if (!salaAudio) return;
+
+        const src = item.dataset.src || '';
+        if (!src) {
+            console.warn(LOG, 'Item sin src:', getItemTitle(item));
+            return;
+        }
+
+        /* Pausar reproductor normal para no tener dos audios a la vez */
+        const normalAudio = document.getElementById('audio-player');
+        if (normalAudio && !normalAudio.paused) {
+            try { normalAudio.pause(); } catch (_) {}
+        }
+
+        /* Marcar activo */
+        getAllItems().forEach(i => i.classList.remove('active'));
+        item.classList.add('active');
+        currentSalaItem = item;
+
+        /* Reflejo visual en el mini-player (informativo) */
+        const cover = getItemCover(item);
+        const title = getItemTitle(item);
+        const playerCover = document.getElementById('player-cover');
+        const playerTitle = document.getElementById('player-title');
+        if (playerCover) {
+            if (cover) playerCover.src = cover;
+            else playerCover.removeAttribute('src');
+        }
+        if (playerTitle) playerTitle.textContent = title;
+
+        /* Cargar en el audio dedicado */
+        salaAudio.src = src;
+        salaAudio.currentTime = 0;
+
+        if (autoplay !== false) {
+            const p = salaAudio.play();
+            if (p && p.catch) p.catch(() => {});
+        }
+
+        syncFromPlayer();
+    }
+
+    /* ------------------------------------------------------------
+       Siguiente item aleatorio (dentro de Sala Música)
+       ------------------------------------------------------------ */
+    function playNextSalaItem() {
+        const items = getAllItems();
+        if (!items.length) return;
+
+        let candidates = items;
+        if (currentSalaItem && items.length > 1) {
+            candidates = items.filter(it => it !== currentSalaItem);
+        }
+        if (!candidates.length) candidates = items;
+
+        const next = candidates[Math.floor(Math.random() * candidates.length)];
+        loadSalaItem(next, true);
+    }
 
     /* ------------------------------------------------------------
        BOTÓN COMENZAR
        ------------------------------------------------------------ */
     function startRadio() {
-        const audio = document.getElementById('audio-player');
+        const salaAudio = getSalaAudio();
+        if (!salaAudio) return;
 
-        /* Radio activa → play/pausa */
-        if (radioStarted && audio) {
-            if (audio.paused) {
-                const p = audio.play();
+        /* Ya activa → play/pausa */
+        if (radioStarted) {
+            if (salaAudio.paused) {
+                const p = salaAudio.play();
                 if (p && p.catch) p.catch(() => {});
             } else {
-                audio.pause();
+                salaAudio.pause();
             }
             return;
         }
 
-        /* Radio inactiva → iniciar nueva reproducción aleatoria */
+        /* Iniciar nueva radio */
         const items = getAllItems();
         if (!items.length) {
             console.warn(LOG, 'No hay canciones disponibles');
             return;
         }
-        forceShuffleOn();
-        forceRepeatOff();
 
+        /* Limpiar filtros del reproductor normal */
         if (typeof clearArtistFilter === 'function') {
             try { clearArtistFilter(); } catch (_) {}
-        } else {
-            window.__artistFilter = null;
-            window.__artistFilterName = '';
         }
         if (typeof window.__clearPlaybackQueue === 'function') {
             try { window.__clearPlaybackQueue(); } catch (_) {}
         }
 
+        /* Pausar reproductor normal */
+        const normalAudio = document.getElementById('audio-player');
+        if (normalAudio && !normalAudio.paused) {
+            try { normalAudio.pause(); } catch (_) {}
+        }
+
+        /* Elegir la primera canción aleatoria */
         let candidates = items;
         const active = document.querySelector('#playlist .playlist-item.active');
         if (active && items.length > 1) candidates = items.filter(it => it !== active);
@@ -12521,38 +12532,37 @@ document.addEventListener('DOMContentLoaded', () => {
         const first = candidates[Math.floor(Math.random() * candidates.length)];
         if (!first) return;
 
-        smInternalClick = true;
-        try {
-            first.click();
-        } catch (err) {
-            console.warn(LOG, 'Error al iniciar radio:', err);
-            smInternalClick = false;
-            return;
-        }
-        smInternalClick = false;
-
         radioStarted = true;
-        smSongsPlayed = 0;                                              // 🆕 reset contador
-        if (window.__adsApi && window.__adsApi.setSkipAutoTrigger) {    // 🆕
-            window.__adsApi.setSkipAutoTrigger(true);                   // 🆕
+        smSongsPlayed = 0;
+
+        if (window.__adsApi && window.__adsApi.setSkipAutoTrigger) {
+            window.__adsApi.setSkipAutoTrigger(true);
         }
+
+        loadSalaItem(first, true);
         updateStartButton();
         console.log(LOG, '▶ Radio iniciada:', getItemTitle(first));
     }
 
     /* ------------------------------------------------------------
-       DETENER RADIO (sin tocar el audio)
+       DETENER RADIO
        ------------------------------------------------------------ */
     function stopRadio() {
         if (!radioStarted) return;
         radioStarted = false;
-        smSongsPlayed = 0;                                              // 🆕
-        if (window.__adsApi && window.__adsApi.setSkipAutoTrigger) {    // 🆕
-            window.__adsApi.setSkipAutoTrigger(false);                  // 🆕
+        smSongsPlayed = 0;
+
+        if (window.__adsApi && window.__adsApi.setSkipAutoTrigger) {
+            window.__adsApi.setSkipAutoTrigger(false);
         }
-        restorePlaybackModes();
+
+        const salaAudio = getSalaAudio();
+        if (salaAudio && !salaAudio.paused) {
+            try { salaAudio.pause(); } catch (_) {}
+        }
+
         updateStartButton();
-        console.log(LOG, '⏹ Radio detenida (selección externa)');
+        console.log(LOG, '⏹ Radio detenida');
     }
 
     /* ------------------------------------------------------------
@@ -12568,14 +12578,14 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        const audio = document.getElementById('audio-player');
-        if (!audio || !audio.src || !audio.currentSrc) {
+        const salaAudio = getSalaAudio();
+        if (!salaAudio || !salaAudio.src || !salaAudio.currentSrc) {
             btn.textContent = 'Comenzar';
             btn.classList.remove('playing');
             return;
         }
 
-        if (audio.paused) {
+        if (salaAudio.paused) {
             btn.textContent = 'Continuar';
             btn.classList.remove('playing');
         } else {
@@ -12585,7 +12595,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /* ------------------------------------------------------------
-       DETECTAR SELECCIÓN EXTERNA
+       DETECTAR SELECCIÓN EXTERNA (reproductor normal)
        ------------------------------------------------------------ */
     function attachExternalStopWatcher() {
         const pl = document.getElementById('playlist');
@@ -12593,29 +12603,29 @@ document.addEventListener('DOMContentLoaded', () => {
         pl.dataset.smExternalStop = '1';
 
         pl.addEventListener('click', (e) => {
-            if (smInternalClick) return;
-            if (window.__queueAdvancing) return;
-            if (!radioStarted) return;
+            if (smInternalClick) return;               // click interno de Sala
+            if (window.__queueAdvancing) return;       // avance de cola
+            if (!radioStarted) return;                 // nada que detener
 
             const item = e.target.closest('.playlist-item');
             if (!item) return;
 
+            /* El usuario elige una canción del reproductor normal */
             stopRadio();
+            /* El reproductor normal hará su trabajo independientemente */
         }, true);
     }
 
     /* ------------------------------------------------------------
-       🆕 CONTADOR DE ANUNCIOS DE SALA MÚSICA
-       Cada 2 canciones completas → 1 ciclo de anuncios
+       CONTADOR DE ANUNCIOS — CADA 2 CANCIONES (solo en Sala Música)
        ------------------------------------------------------------ */
     function attachSalaAdsCounter() {
-        const audio = document.getElementById('audio-player');
-        if (!audio || audio.dataset.smAdsCounter === '1') return;
-        audio.dataset.smAdsCounter = '1';
+        const salaAudio = getSalaAudio();
+        if (!salaAudio || salaAudio.dataset.smAdsCounter === '1') return;
+        salaAudio.dataset.smAdsCounter = '1';
 
-        // capture: corre ANTES del handler que elige la siguiente canción
-        document.addEventListener('ended', (e) => {
-            if (e.target !== audio) return;
+        /* Cuando la canción de Sala Música termina */
+        salaAudio.addEventListener('ended', () => {
             if (!radioStarted) return;
             if (!window.__adsApi) return;
             if (window.__adsApi.isAdPlaying && window.__adsApi.isAdPlaying()) return;
@@ -12623,20 +12633,27 @@ document.addEventListener('DOMContentLoaded', () => {
             smSongsPlayed++;
             console.log(LOG, '🎵 Sala Música: canción completada', smSongsPlayed, '/', SM_SONGS_PER_AD);
 
+            /* Si llegamos al umbral, mostrar anuncio */
             if (smSongsPlayed >= SM_SONGS_PER_AD) {
                 smSongsPlayed = 0;
-                console.log(LOG, '📢 Mostrando anuncio tras 2 canciones');
+                console.log(LOG, '📢 Mostrando anuncio tras ' + SM_SONGS_PER_AD + ' canciones');
 
                 window.__adsApi.mostrarCiclo(function () {
-                    const a = document.getElementById('audio-player');
-                    if (!a) return;
-                    try {
-                        const p = a.play();
-                        if (p && p.catch) p.catch(() => {});
-                    } catch (_) {}
+                    if (!radioStarted) return;
+                    /* Al terminar el anuncio, cargar la siguiente canción */
+                    playNextSalaItem();
                 });
+                return;
             }
-        }, true);
+
+            /* Aún no toca anuncio → siguiente canción */
+            playNextSalaItem();
+        });
+
+        /* Mantener el botón actualizado */
+        salaAudio.addEventListener('play',   () => updateStartButton());
+        salaAudio.addEventListener('pause',  () => updateStartButton());
+        salaAudio.addEventListener('loadedmetadata', () => updateStartButton());
     }
 
     /* ============================================================
@@ -12726,8 +12743,7 @@ document.addEventListener('DOMContentLoaded', () => {
        ============================================================ */
     function closeAllOtherViews() {
         ['playlist-view','artist-profile','album-view','mi-playlist-view',
-         'mensajes-view','chat-view','newmsg-view','stats-view',
-         'generos-view','genre-songs-view'].forEach(id => {
+         'mensajes-view','chat-view','newmsg-view','stats-view'].forEach(id => {
             const v = document.getElementById(id);
             if (v && v.classList.contains('visible')) {
                 v.classList.remove('visible');
@@ -13118,21 +13134,13 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        const audioEl = document.getElementById('audio-player');
-        if (audioEl && audioEl.dataset.smPlayWatch !== '1') {
-            audioEl.dataset.smPlayWatch = '1';
-            audioEl.addEventListener('play',   () => updateStartButton());
-            audioEl.addEventListener('pause',  () => updateStartButton());
-            audioEl.addEventListener('ended',  () => updateStartButton());
-            audioEl.addEventListener('loadedmetadata', () => updateStartButton());
-        }
-
-        /* 🆕 Detectar selección externa */
+        /* Detectar selección externa */
         attachExternalStopWatcher();
 
-        /* 🆕 Contador de anuncios cada 2 canciones en Sala Música */
+        /* Contador de anuncios cada 2 canciones en Sala Música */
         attachSalaAdsCounter();
 
+        /* Comentarios */
         const cBtn = $('sm-comment-btn');
         if (cBtn && cBtn.dataset.smReady !== '1') {
             cBtn.dataset.smReady = '1';
@@ -13219,7 +13227,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 attachExternalStopWatcher();
                 attachSalaAdsCounter();
                 updateStartButton();
-                console.log(LOG, '🚀 Sala Música lista');
+                console.log(LOG, '🚀 Sala Música lista (audio independiente)');
                 return;
             }
             if (tries < 60) setTimeout(loop, 250);
