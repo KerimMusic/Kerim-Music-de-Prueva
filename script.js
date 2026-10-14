@@ -12495,23 +12495,19 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 })();
 /* ============================================================
-   XX. SALA MÚSICA — ESTACIÓN DE RADIO ALEATORIA
+   XX. SALA MÚSICA — RADIO EN VIVO + COMENTARIOS
    ------------------------------------------------------------
    Función INDEPENDIENTE. No modifica reproductor, playlists,
    historial, estadísticas, mensajes ni comunidad.
-   - El botón "Escuchar" inicia reproducción aleatoria directamente.
-   - No abre ninguna ventana ni muestra listas de géneros.
-   - Utiliza el reproductor existente (item.click()).
-   - Respeta las reglas actuales: oyentes, historial, "Volver a Oír".
-   - Si el usuario pausa, la música no se reanuda sola.
    ============================================================ */
 (function () {
     'use strict';
 
     const $ = (id) => document.getElementById(id);
-    const LOG = '[SALA-RADIO]';
+    const LOG = '[SALA-MUSICA]';
     const SHUFFLE_KEY = 'omega_shuffle_v1';
     const REPEAT_KEY  = 'omega_repeat_mode_v1';
+    const COMMENTS_SUB = 'sala_musica_comentarios'; // subcolección por usuario
 
     /* ---------- Utilidades ---------- */
     function norm(s) {
@@ -12539,16 +12535,28 @@ document.addEventListener('DOMContentLoaded', () => {
     function getAllItems() {
         return Array.from(document.querySelectorAll('#playlist .playlist-item'));
     }
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;',
+            '"': '&quot;', "'": '&#39;'
+        }[c]));
+    }
+    function timeAgo(date) {
+        if (!date) return '';
+        const diff = (Date.now() - date.getTime()) / 1000;
+        if (diff < 60)     return 'ahora';
+        if (diff < 3600)   return Math.floor(diff / 60) + 'm';
+        if (diff < 86400)  return Math.floor(diff / 3600) + 'h';
+        if (diff < 604800) return Math.floor(diff / 86400) + 'd';
+        return date.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
+    }
 
-    /* ---------- Forzar configuración de radio ---------- */
+    /* ============================================================
+       CONFIGURACIÓN RADIO
+       ============================================================ */
     function forceShuffleOn() {
-        /* 1) Persistir en localStorage (efecto al recargar) */
         try { localStorage.setItem(SHUFFLE_KEY, '1'); } catch (_) {}
-
-        /* 2) Flag que leen las secciones 3 y 40 */
         window.__omegaShuffleOn = true;
-
-        /* 3) Sincronizar UI del botón shuffle del fullscreen */
         const btn = document.getElementById('fs-shuffle');
         if (btn && !btn.classList.contains('active')) {
             btn.classList.add('active');
@@ -12556,7 +12564,6 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.setAttribute('title', 'Aleatorio activado');
         }
     }
-
     function forceRepeatOff() {
         try { localStorage.setItem(REPEAT_KEY, 'off'); } catch (_) {}
         const btn = document.getElementById('fs-repeat');
@@ -12567,59 +12574,445 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ---------- Iniciar la radio ---------- */
+    let radioStarted = false;
+
     function startRadio() {
         const items = getAllItems();
         if (!items.length) {
-            console.warn(LOG, 'No hay canciones disponibles en el reproductor');
+            console.warn(LOG, 'No hay canciones disponibles');
             return;
         }
-
-        /* 1) Configuración tipo radio */
         forceShuffleOn();
         forceRepeatOff();
 
-        /* 2) Limpiar filtro de artista (por si venía de una playlist
-              o perfil de artista). Así el pool es "todas las canciones". */
         if (typeof clearArtistFilter === 'function') {
             try { clearArtistFilter(); } catch (_) {}
         } else {
             window.__artistFilter = null;
             window.__artistFilterName = '';
         }
-
-        /* 3) Limpiar la cola de contexto (si venía de una playlist) */
         if (typeof window.__clearPlaybackQueue === 'function') {
             try { window.__clearPlaybackQueue(); } catch (_) {}
         }
 
-        /* 4) Elegir canción aleatoria evitando la que ya está sonando */
         let candidates = items;
         const active = document.querySelector('#playlist .playlist-item.active');
-        if (active && items.length > 1) {
-            candidates = items.filter(it => it !== active);
-        }
+        if (active && items.length > 1) candidates = items.filter(it => it !== active);
         if (!candidates.length) candidates = items;
 
         const first = candidates[Math.floor(Math.random() * candidates.length)];
         if (!first) return;
 
-        /* 5) Reproducir con el reproductor existente.
-              Esto ejecuta toda la lógica original:
-              - registrar oyente
-              - guardar en historial
-              - guardar en "Volver a Oír"
-              - Android bridge
-        */
         try {
             first.click();
-            console.log(LOG, '▶ Radio iniciada con:', getItemTitle(first));
+            radioStarted = true;
+            updateStartButton();
+            console.log(LOG, '▶ Radio iniciada:', getItemTitle(first));
         } catch (err) {
             console.warn(LOG, 'Error al iniciar radio:', err);
         }
     }
 
-    /* ---------- Render: portada con artistas aleatorios ---------- */
+    function updateStartButton() {
+        const btn = $('sm-start-btn');
+        if (!btn) return;
+        if (radioStarted) {
+            btn.textContent = 'Sonando…';
+            btn.classList.add('playing');
+        } else {
+            btn.textContent = 'Comenzar';
+            btn.classList.remove('playing');
+        }
+    }
+
+    /* ============================================================
+       PORTADA CON TRANSICIÓN ANIMADA
+       ============================================================ */
+    let coverA = null, coverB = null;
+    let showingA = true;
+    let lastCoverSrc = '';
+    let lastSongTitle = '';
+
+    function initCoverElements() {
+        coverA = $('sm-cover-a');
+        coverB = $('sm-cover-b');
+        if (coverA) coverA.classList.add('active');
+    }
+
+    function setCover(src) {
+        if (!coverA || !coverB) return;
+        if (!src) {
+            coverA.classList.remove('active');
+            coverB.classList.remove('active');
+            lastCoverSrc = '';
+            return;
+        }
+        if (src === lastCoverSrc) return;
+        lastCoverSrc = src;
+
+        const incoming = showingA ? coverB : coverA;
+        const outgoing = showingA ? coverA : coverB;
+
+        /* Esperar a que la imagen cargue antes de animarla */
+        const doSwap = () => {
+            incoming.classList.add('active');
+            outgoing.classList.remove('active');
+            showingA = !showingA;
+        };
+
+        incoming.onload  = doSwap;
+        incoming.onerror = () => { incoming.src = ''; };
+
+        /* Si la imagen ya está en caché, onload podría no dispararse */
+        incoming.src = src;
+        if (incoming.complete && incoming.naturalWidth) {
+            setTimeout(doSwap, 30);
+        }
+    }
+
+    function setSongInfo(title, artist) {
+        const t = $('sm-song-title');
+        const a = $('sm-song-artist');
+        if (t) t.textContent = title || 'Radio en vivo';
+        if (a) a.textContent = artist || 'OmegaBeats';
+    }
+
+    function updateBadgeVisibility(playing) {
+        const badge = $('sm-live-badge');
+        if (!badge) return;
+        /* Cuando hay canción sonando, mostramos el badge Live siempre */
+        badge.classList.remove('hidden');
+    }
+
+    /* Observar cambios en el reproductor existente */
+    function syncFromPlayer() {
+        const coverEl = $('player-cover');
+        const titleEl = $('player-title');
+        const src = coverEl ? (coverEl.getAttribute('src') || '') : '';
+        const title = titleEl ? (titleEl.textContent || '').trim() : '';
+
+        if (title && title !== lastSongTitle) {
+            lastSongTitle = title;
+        }
+
+        setCover(src);
+
+        /* Artista desde el item activo */
+        let artist = 'OmegaBeats';
+        const active = document.querySelector('#playlist .playlist-item.active');
+        if (active) artist = getItemArtist(active) || 'OmegaBeats';
+        setSongInfo(title || 'Radio en vivo', artist);
+    }
+
+    function startPlayerObserver() {
+        const coverEl = $('player-cover');
+        const titleEl = $('player-title');
+        if (!coverEl || !titleEl) return;
+        if (coverEl.dataset.smWatch === '1') return;
+        coverEl.dataset.smWatch = '1';
+
+        const obs = new MutationObserver(syncFromPlayer);
+        obs.observe(coverEl, { attributes: true, attributeFilter: ['src'] });
+        obs.observe(titleEl, { childList: true, characterData: true, subtree: true });
+    }
+
+    /* ============================================================
+       ABRIR / CERRAR VISTA
+       ============================================================ */
+    function closeAllOtherViews() {
+        ['playlist-view','artist-profile','album-view','mi-playlist-view',
+         'mensajes-view','chat-view','newmsg-view','stats-view',
+         'generos-view','genre-songs-view'].forEach(id => {
+            const v = document.getElementById(id);
+            if (v && v.classList.contains('visible')) {
+                v.classList.remove('visible');
+                v.setAttribute('aria-hidden', 'true');
+            }
+        });
+    }
+
+    function hideFullscreenPlayer() {
+        const fsPlayer = $('fs-player');
+        if (fsPlayer && fsPlayer.classList.contains('visible')) {
+            fsPlayer.classList.remove('visible');
+            fsPlayer.setAttribute('aria-hidden', 'true');
+        }
+    }
+
+    function openSalaMusica() {
+        const view = $('sala-musica-view');
+        if (!view) return;
+
+        hideFullscreenPlayer();
+        closeAllOtherViews();
+
+        document.body.classList.add('sm-open');
+        view.classList.add('visible');
+        view.setAttribute('aria-hidden', 'false');
+
+        const sc = $('sm-scroll');
+        if (sc) sc.scrollTop = 0;
+
+        /* Sincronizar portada actual */
+        syncFromPlayer();
+    }
+
+    function closeSalaMusica() {
+        const view = $('sala-musica-view');
+        if (!view) return;
+        view.classList.remove('visible');
+        view.setAttribute('aria-hidden', 'true');
+        document.body.classList.remove('sm-open');
+    }
+
+    /* ============================================================
+       COMENTARIOS — Firebase
+       ============================================================ */
+    let currentUser = null;
+    let unsubComments = null;
+
+    function getCommentsCollectionGroup() {
+        return firebase.firestore().collectionGroup(COMMENTS_SUB);
+    }
+
+    function listenComments() {
+        if (unsubComments) { unsubComments(); unsubComments = null; }
+        if (!currentUser) { renderComments([]); return; }
+
+        try {
+            unsubComments = getCommentsCollectionGroup()
+                .orderBy('fecha', 'desc')
+                .limit(150)
+                .onSnapshot(snap => {
+                    const list = [];
+                    snap.forEach(doc => {
+                        const d = doc.data() || {};
+                        list.push({
+                            id: doc.id,
+                            uid: d.uid || '',
+                            nombre: d.nombre || 'Usuario',
+                            foto: d.foto || '',
+                            texto: d.texto || '',
+                            fecha: d.fecha && typeof d.fecha.toDate === 'function'
+                                ? d.fecha.toDate() : null
+                        });
+                    });
+                    renderComments(list);
+                }, err => {
+                    console.warn(LOG, 'Error escuchando comentarios:', err);
+                    renderComments([]);
+                });
+        } catch (e) {
+            console.warn(LOG, 'No se pudo suscribir a comentarios:', e);
+            renderComments([]);
+        }
+    }
+
+    function avatarHTML(c) {
+        const initial = (c.nombre || 'U').trim()[0]?.toUpperCase() || '?';
+        if (c.foto) {
+            return '<img src="' + esc(c.foto) + '" alt="" onerror="this.style.display=\'none\';this.parentNode.textContent=\'' + initial + '\';">';
+        }
+        return initial;
+    }
+
+    function renderComments(list) {
+        const container = $('sm-comments-list');
+        const empty = $('sm-comments-empty');
+        if (!container) return;
+        container.innerHTML = '';
+
+        if (!list.length) {
+            if (empty) empty.style.display = 'flex';
+            return;
+        }
+        if (empty) empty.style.display = 'none';
+
+        const uid = currentUser ? currentUser.uid : '';
+
+        list.forEach(c => {
+            const row = document.createElement('div');
+            row.className = 'sm-comment-row';
+            if (c.uid === uid) row.classList.add('mine');
+            row.dataset.commentId = c.id;
+            row.dataset.uid = c.uid;
+
+            const av = document.createElement('div');
+            av.className = 'sm-comment-avatar';
+            av.innerHTML = avatarHTML(c);
+            row.appendChild(av);
+
+            const body = document.createElement('div');
+            body.className = 'sm-comment-body';
+
+            const head = document.createElement('div');
+            head.className = 'sm-comment-head';
+
+            const name = document.createElement('span');
+            name.className = 'sm-comment-name';
+            name.textContent = c.nombre || 'Usuario';
+            head.appendChild(name);
+
+            const time = document.createElement('span');
+            time.className = 'sm-comment-time';
+            time.textContent = timeAgo(c.fecha);
+            head.appendChild(time);
+
+            body.appendChild(head);
+
+            const text = document.createElement('div');
+            text.className = 'sm-comment-text';
+            text.textContent = c.texto || '';
+            body.appendChild(text);
+
+            row.appendChild(body);
+
+            /* Solo los propios permiten long-press para eliminar */
+            if (c.uid === uid) {
+                attachLongPress(row, c);
+            }
+
+            container.appendChild(row);
+        });
+    }
+
+    /* Long-press 1 segundo para eliminar */
+    let pressTimer = null;
+    let pressRow = null;
+
+    function attachLongPress(row, comment) {
+        const start = (e) => {
+            if (e.pointerType === 'mouse' && e.button !== 0) return;
+            cancelPress();
+            pressRow = row;
+            row.classList.add('pressing');
+            pressTimer = setTimeout(() => {
+                pressTimer = null;
+                if (navigator.vibrate) { try { navigator.vibrate(30); } catch (_) {} }
+                row.classList.remove('pressing');
+                askDeleteComment(comment);
+            }, 1000);
+        };
+        const cancel = () => {
+            if (pressRow) pressRow.classList.remove('pressing');
+            cancelPress();
+        };
+        row.addEventListener('pointerdown', start);
+        row.addEventListener('pointerup', cancel);
+        row.addEventListener('pointercancel', cancel);
+        row.addEventListener('pointerleave', cancel);
+        row.addEventListener('pointermove', (e) => {
+            if (pressTimer) {
+                /* mover mucho cancela */
+                if (Math.abs(e.movementX) + Math.abs(e.movementY) > 15) cancel();
+            }
+        });
+    }
+    function cancelPress() {
+        if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+    }
+
+    /* ============================================================
+       MODAL COMENTARIO
+       ============================================================ */
+    function openCommentModal() {
+        const modal = $('sm-comment-modal');
+        const input = $('sm-comment-input');
+        const status = $('sm-comment-status');
+        if (!modal) return;
+        if (input) input.value = '';
+        if (status) { status.textContent = ''; status.classList.remove('ok'); }
+        modal.classList.add('visible');
+        modal.setAttribute('aria-hidden', 'false');
+        setTimeout(() => input && input.focus(), 180);
+    }
+    function closeCommentModal() {
+        const modal = $('sm-comment-modal');
+        if (!modal) return;
+        modal.classList.remove('visible');
+        modal.setAttribute('aria-hidden', 'true');
+    }
+
+    async function publishComment() {
+        if (!currentUser) return;
+        const input = $('sm-comment-input');
+        const status = $('sm-comment-status');
+        const btn = $('sm-comment-publish');
+        const texto = (input?.value || '').trim();
+
+        if (!texto) {
+            if (status) { status.textContent = 'Escribe un comentario'; status.classList.remove('ok'); }
+            return;
+        }
+        if (btn) { btn.disabled = true; btn.textContent = 'Publicando…'; }
+        if (status) { status.textContent = ''; status.classList.remove('ok'); }
+
+        try {
+            await firebase.firestore()
+                .collection('historial_usuarios').doc(currentUser.uid)
+                .collection(COMMENTS_SUB)
+                .add({
+                    uid: currentUser.uid,
+                    nombre: currentUser.displayName
+                          || (currentUser.email ? currentUser.email.split('@')[0] : 'Usuario'),
+                    foto: currentUser.photoURL || '',
+                    texto: texto,
+                    fecha: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            if (status) { status.textContent = '✓ Publicado'; status.classList.add('ok'); }
+            setTimeout(closeCommentModal, 500);
+        } catch (e) {
+            console.warn(LOG, 'Error publicando:', e);
+            if (status) {
+                status.textContent = 'No se pudo publicar. Intenta de nuevo.';
+                status.classList.remove('ok');
+            }
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = 'Publicar'; }
+        }
+    }
+
+    /* ============================================================
+       MODAL ELIMINAR COMENTARIO
+       ============================================================ */
+    let pendingDelete = null;
+
+    function askDeleteComment(comment) {
+        if (!currentUser || comment.uid !== currentUser.uid) return;
+        pendingDelete = comment;
+        const modal = $('sm-delete-modal');
+        if (!modal) return;
+        modal.classList.add('visible');
+        modal.setAttribute('aria-hidden', 'false');
+    }
+    function closeDeleteModal() {
+        const modal = $('sm-delete-modal');
+        if (!modal) return;
+        modal.classList.remove('visible');
+        modal.setAttribute('aria-hidden', 'true');
+        pendingDelete = null;
+    }
+
+    async function confirmDeleteComment() {
+        if (!pendingDelete || !currentUser) return;
+        const btn = $('sm-delete-confirm');
+        if (btn) { btn.disabled = true; btn.textContent = 'Eliminando…'; }
+        try {
+            await firebase.firestore()
+                .collection('historial_usuarios').doc(currentUser.uid)
+                .collection(COMMENTS_SUB)
+                .doc(pendingDelete.id)
+                .delete();
+            closeDeleteModal();
+        } catch (e) {
+            console.warn(LOG, 'Error eliminando:', e);
+            if (btn) { btn.disabled = false; btn.textContent = 'Eliminar'; }
+        }
+    }
+
+    /* ============================================================
+       INYECCIÓN DE LA SECCIÓN HOME
+       ============================================================ */
     function renderCover() {
         const wrap = $('sala-musica-artists');
         if (!wrap) return;
@@ -12637,10 +13030,8 @@ document.addEventListener('DOMContentLoaded', () => {
             seen.add(key);
             artists.push({ name, cover });
         });
-
         if (!artists.length) return;
 
-        /* Mezclar y tomar hasta 8 */
         for (let i = artists.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [artists[i], artists[j]] = [artists[j], artists[i]];
@@ -12657,7 +13048,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    /* ---------- Inyectar la sección "Sala Musical" ---------- */
     function injectSalaSection() {
         const homeView = $('home-view');
         if (!homeView) return false;
@@ -12683,18 +13073,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 '</div>' +
             '</div>';
 
-        /* Insertar como PRIMERA sección del home */
         if (homeView.firstChild) homeView.insertBefore(sec, homeView.firstChild);
         else homeView.appendChild(sec);
 
-        /* Botón "Escuchar" → arranca la radio, sin abrir ventanas */
         const btn = sec.querySelector('#sala-escuchar-btn');
         if (btn) {
             btn.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                if (navigator.vibrate) { try { navigator.vibrate(14); } catch (_) {} }
-                startRadio();
+                if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} }
+                openSalaMusica();           // ← ahora abre la ventana
             });
         }
 
@@ -12702,21 +13090,17 @@ document.addEventListener('DOMContentLoaded', () => {
         return true;
     }
 
-    /* ---------- Auto-actualización de la portada ---------- */
     function watchPlaylist() {
         const pl = $('playlist');
         if (!pl || pl.dataset.salaWatch === '1') return;
         pl.dataset.salaWatch = '1';
-
         const obs = new MutationObserver((muts) => {
             let changed = false;
-            muts.forEach(m => {
-                m.addedNodes.forEach(n => {
-                    if (n.nodeType !== 1) return;
-                    if (n.classList && n.classList.contains('playlist-item')) changed = true;
-                    else if (n.querySelectorAll && n.querySelectorAll('.playlist-item').length) changed = true;
-                });
-            });
+            muts.forEach(m => m.addedNodes.forEach(n => {
+                if (n.nodeType !== 1) return;
+                if (n.classList && n.classList.contains('playlist-item')) changed = true;
+                else if (n.querySelectorAll && n.querySelectorAll('.playlist-item').length) changed = true;
+            }));
             if (changed) {
                 clearTimeout(window.__salaCoverTimer);
                 window.__salaCoverTimer = setTimeout(renderCover, 500);
@@ -12725,9 +13109,116 @@ document.addEventListener('DOMContentLoaded', () => {
         obs.observe(pl, { childList: true, subtree: false });
     }
 
-    /* ---------- Init ---------- */
+    /* ============================================================
+       INIT
+       ============================================================ */
     function init() {
-        /* Reintentos hasta que el home y la lista estén listos */
+        if (typeof firebase === 'undefined' || !firebase.auth) {
+            setTimeout(init, 300);
+            return;
+        }
+
+        initCoverElements();
+
+        /* Botón volver de la vista Sala Música */
+        const back = $('sm-back');
+        if (back && back.dataset.smReady !== '1') {
+            back.dataset.smReady = '1';
+            back.addEventListener('click', closeSalaMusica);
+        }
+
+        /* Botón Comenzar */
+        const startBtn = $('sm-start-btn');
+        if (startBtn && startBtn.dataset.smReady !== '1') {
+            startBtn.dataset.smReady = '1';
+            startBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (navigator.vibrate) { try { navigator.vibrate(14); } catch (_) {} }
+                startRadio();
+            });
+        }
+
+        /* Comentarios: abrir / cerrar modal */
+        const cBtn = $('sm-comment-btn');
+        if (cBtn && cBtn.dataset.smReady !== '1') {
+            cBtn.dataset.smReady = '1';
+            cBtn.addEventListener('click', () => {
+                if (navigator.vibrate) { try { navigator.vibrate(10); } catch (_) {} }
+                openCommentModal();
+            });
+        }
+        const cClose  = $('sm-comment-close');
+        const cCancel = $('sm-comment-cancel');
+        const cBack   = $('sm-comment-backdrop');
+        const cPublish= $('sm-comment-publish');
+        if (cClose)   cClose.addEventListener('click', closeCommentModal);
+        if (cCancel)  cCancel.addEventListener('click', closeCommentModal);
+        if (cBack)    cBack.addEventListener('click', closeCommentModal);
+        if (cPublish) cPublish.addEventListener('click', publishComment);
+
+        /* Modal eliminar */
+        const dClose = $('sm-delete-close');
+        const dCancel= $('sm-delete-cancel');
+        const dBack  = $('sm-delete-backdrop');
+        const dConf  = $('sm-delete-confirm');
+        if (dClose)  dClose.addEventListener('click', closeDeleteModal);
+        if (dCancel) dCancel.addEventListener('click', closeDeleteModal);
+        if (dBack)   dBack.addEventListener('click', closeDeleteModal);
+        if (dConf)   dConf.addEventListener('click', confirmDeleteComment);
+
+        /* ESC cierra modales / vista */
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'Escape') return;
+            const cm = $('sm-comment-modal');
+            const dm = $('sm-delete-modal');
+            if (cm && cm.classList.contains('visible')) { e.stopPropagation(); closeCommentModal(); return; }
+            if (dm && dm.classList.contains('visible')) { e.stopPropagation(); closeDeleteModal();  return; }
+            const sv = $('sala-musica-view');
+            if (sv && sv.classList.contains('visible')) { e.stopPropagation(); closeSalaMusica(); }
+        }, true);
+
+        /* Cerrar Sala Música si el usuario abre otra vista principal */
+        ['playlist-view','artist-profile','album-view','mi-playlist-view',
+         'mensajes-view','chat-view','newmsg-view','stats-view'].forEach(id => {
+            const el = document.getElementById(id);
+            if (!el || el.dataset.smWatchView === '1') return;
+            el.dataset.smWatchView = '1';
+            const obs = new MutationObserver((muts) => {
+                for (const m of muts) {
+                    if (m.attributeName === 'class' && el.classList.contains('visible')) {
+                        closeSalaMusica();
+                        break;
+                    }
+                }
+            });
+            obs.observe(el, { attributes: true, attributeFilter: ['class'] });
+        });
+
+        /* Sincronización con Firebase Auth */
+        firebase.auth().onAuthStateChanged(user => {
+            currentUser = user;
+            if (user) {
+                if ($('sala-musica-view')?.classList.contains('visible')) listenComments();
+            } else {
+                if (unsubComments) { unsubComments(); unsubComments = null; }
+                renderComments([]);
+            }
+        });
+
+        /* Listener de comentarios (activar cuando abra la vista) */
+        const smView = $('sala-musica-view');
+        if (smView && smView.dataset.smListen !== '1') {
+            smView.dataset.smListen = '1';
+            const obs = new MutationObserver(() => {
+                if (smView.classList.contains('visible')) {
+                    listenComments();
+                }
+            });
+            obs.observe(smView, { attributes: true, attributeFilter: ['class'] });
+        }
+
+        /* Inyección en el home */
         let tries = 0;
         (function loop() {
             tries++;
@@ -12736,7 +13227,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (homeView && items.length > 0) {
                 injectSalaSection();
                 watchPlaylist();
-                console.log(LOG, '🚀 Sala Musical (radio) lista');
+                startPlayerObserver();
+                console.log(LOG, '🚀 Sala Música lista');
                 return;
             }
             if (tries < 60) setTimeout(loop, 250);
@@ -12746,6 +13238,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') {
                 setTimeout(renderCover, 200);
+                if ($('sala-musica-view')?.classList.contains('visible')) syncFromPlayer();
             }
         });
     }
@@ -12756,6 +13249,6 @@ document.addEventListener('DOMContentLoaded', () => {
         init();
     }
 
-    /* API pública opcional por si la necesitas */
-    window.__startSalaRadio = startRadio;
+    window.__openSalaMusica  = openSalaMusica;
+    window.__closeSalaMusica = closeSalaMusica;
 })();
