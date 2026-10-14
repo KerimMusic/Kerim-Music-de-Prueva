@@ -2325,6 +2325,7 @@ button:active { opacity: 0.72; }
         border-radius: 0 0 12px 12px;
     }
 }
+
 /* ============================================================
    FIX: SCROLL TÁCTIL FLUIDO EN MÓVILES
    ============================================================ */
@@ -3873,6 +3874,7 @@ body[data-theme="light"] .com-omega-menu-btn {
 }
 body[data-theme="light"] .com-omega-menu-btn:active { background: #f0f0f0; }
 body[data-theme="light"] .com-omega-menu-btn.danger { color: #d81e1e; }
+
 /* ============================================================
    46. CARRUSEL DE RECOMENDADOS POR GÉNERO EN PANTALLA COMPLETA
    ============================================================ */
@@ -4134,6 +4136,7 @@ body[data-theme="light"] .com-omega-menu-btn.danger { color: #d81e1e; }
     .fs-drawer-handle { min-width: 118px; padding: 6px 12px 6px 10px; }
     .fs-drawer-handle-text { font-size: 11px; }
 }
+
 /* ============================================================
    47. TOGGLE LISTA / CUADRÍCULA EN EL PERFIL DE ARTISTA
    ============================================================ */
@@ -4199,6 +4202,7 @@ body[data-theme="light"] .ap-view-toggle svg {
 body[data-theme="light"] .ap-view-toggle svg circle {
     fill: #111111;
 }
+
 /* ============================================================
    48. BOTÓN "COMPRAR" PARA BEATS + REORGANIZACIÓN DE ACCIONES
    ============================================================ */
@@ -4245,9 +4249,7 @@ body[data-theme="light"] .ap-view-toggle svg circle {
 
 /* ---------- Reorganización de las acciones del reproductor ----------
    Ahora son una barra horizontal en la parte inferior.
-   Orden visual (izq → der): Me Gusta · Mensaje · Aleatorio · Repetir
-   (gracias a flex-direction: row-reverse, porque en el DOM el orden
-   real es: Repetir, Aleatorio, Mensaje, Me Gusta). */
+   Orden visual (izq → der): Me Gusta · Mensaje · Aleatorio · Repetir */
 .fs-player .fs-actions {
     position: absolute;
     bottom: 20px;
@@ -4330,6 +4332,7 @@ body[data-theme="light"] .ap-view-toggle svg circle {
         font-size: 10.5px;
     }
 }
+
 /* ============================================================
    49. MODAL DE COMPRA DE BEATS
    ============================================================ */
@@ -4604,6 +4607,7 @@ body[data-theme="light"] .buy-modal-close { background: rgba(0, 0, 0, 0.06); col
 body[data-theme="light"] .buy-action-btn:disabled { background: #eeeeee; color: #999999; }
 body[data-theme="light"] .buy-switch { background: #cccccc; }
 body[data-theme="light"] .buy-switch::after { background: #ffffff; }
+
 /* ============================================================
    SALA DE MÚSICA
    ============================================================ */
