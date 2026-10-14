@@ -12495,19 +12495,23 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 })();
 /* ============================================================
-   XX. SALA MÚSICA — GÉNEROS Y CANCIONES POR GÉNERO
+   XX. SALA MÚSICA — ESTACIÓN DE RADIO ALEATORIA
    ------------------------------------------------------------
-   Función INDEPENDIENTE. No toca reproductor, playlists,
-   historial, estadísticas ni ninguna otra función existente.
-   - La información se obtiene del DOM (#playlist .playlist-item)
-     y de Firestore (canciones_usuarios y collectionGroup('canciones')).
-   - Se actualiza automáticamente cuando llegan canciones nuevas.
+   Función INDEPENDIENTE. No modifica reproductor, playlists,
+   historial, estadísticas, mensajes ni comunidad.
+   - El botón "Escuchar" inicia reproducción aleatoria directamente.
+   - No abre ninguna ventana ni muestra listas de géneros.
+   - Utiliza el reproductor existente (item.click()).
+   - Respeta las reglas actuales: oyentes, historial, "Volver a Oír".
+   - Si el usuario pausa, la música no se reanuda sola.
    ============================================================ */
 (function () {
     'use strict';
 
     const $ = (id) => document.getElementById(id);
-    const LOG = '[SALA-MUSICA]';
+    const LOG = '[SALA-RADIO]';
+    const SHUFFLE_KEY = 'omega_shuffle_v1';
+    const REPEAT_KEY  = 'omega_repeat_mode_v1';
 
     /* ---------- Utilidades ---------- */
     function norm(s) {
@@ -12532,82 +12536,87 @@ document.addEventListener('DOMContentLoaded', () => {
         const name = (idx === -1 ? sub : sub.slice(0, idx)).trim();
         return name.split(/\s+(?:ft\.?|feat\.?|featuring|con|&)\s+/i)[0].trim() || name;
     }
-    function pickGenre(d) {
-        return d.genero || d['género'] || d.genre || d.categoria ||
-               d.category || d.tipo || '';
-    }
-    function genreFromDom(item) {
-        const sub = getItemSubtitle(item);
-        const idx = sub.indexOf('·');
-        if (idx === -1) return '';
-        const g = sub.slice(idx + 1).trim();
-        if (!g) return '';
-        const lower = g.toLowerCase();
-        if (lower === 'subido' || lower === 'subidos') return '';
-        return g;
+    function getAllItems() {
+        return Array.from(document.querySelectorAll('#playlist .playlist-item'));
     }
 
-    /* ---------- Cache de géneros desde Firestore ---------- */
-    const firestoreGenres = new Map(); // titulo_norm → género
-    let loadedOnce = false;
-    let loadPromise = null;
+    /* ---------- Forzar configuración de radio ---------- */
+    function forceShuffleOn() {
+        /* 1) Persistir en localStorage (efecto al recargar) */
+        try { localStorage.setItem(SHUFFLE_KEY, '1'); } catch (_) {}
 
-    async function loadFromFirestore(force) {
-        if (!force && loadedOnce) return firestoreGenres;
-        if (loadPromise && !force) return loadPromise;
-        if (typeof firebase === 'undefined' || !firebase.firestore) return firestoreGenres;
+        /* 2) Flag que leen las secciones 3 y 40 */
+        window.__omegaShuffleOn = true;
 
-        loadPromise = (async () => {
-            /* 1) canciones_usuarios */
-            try {
-                const snap = await firebase.firestore()
-                    .collection('canciones_usuarios').limit(800).get();
-                snap.forEach(doc => {
-                    const d = doc.data() || {};
-                    const t = d.titulo || '';
-                    const g = pickGenre(d);
-                    if (t && g) firestoreGenres.set(norm(t), String(g).trim());
-                });
-            } catch (e) { console.warn(LOG, 'canciones_usuarios:', e); }
-
-            /* 2) collectionGroup('canciones') */
-            try {
-                const snap = await firebase.firestore()
-                    .collectionGroup('canciones').limit(800).get();
-                snap.forEach(doc => {
-                    const d = doc.data() || {};
-                    if (d.origen && d.origen !== 'dropbox') return;
-                    const t = d.titulo || '';
-                    const g = pickGenre(d);
-                    if (t && g) firestoreGenres.set(norm(t), String(g).trim());
-                });
-            } catch (e) { console.warn(LOG, 'collectionGroup:', e); }
-
-            loadedOnce = true;
-            loadPromise = null;
-            console.log(LOG, '✅ Géneros cargados:', firestoreGenres.size);
-            return firestoreGenres;
-        })();
-
-        return loadPromise;
+        /* 3) Sincronizar UI del botón shuffle del fullscreen */
+        const btn = document.getElementById('fs-shuffle');
+        if (btn && !btn.classList.contains('active')) {
+            btn.classList.add('active');
+            btn.setAttribute('aria-label', 'Aleatorio activado');
+            btn.setAttribute('title', 'Aleatorio activado');
+        }
     }
 
-    /* ---------- Mapa de géneros → canciones ---------- */
-    function buildGenreMap() {
-        const map = new Map();
-        const items = document.querySelectorAll('#playlist .playlist-item');
-        items.forEach(item => {
-            const title = getItemTitle(item);
-            if (!title) return;
-            let genre = genreFromDom(item);
-            if (!genre) genre = firestoreGenres.get(norm(title)) || '';
-            if (!genre) return;
-            const key = norm(genre);
-            if (!key) return;
-            if (!map.has(key)) map.set(key, { nombre: genre, items: [] });
-            map.get(key).items.push(item);
-        });
-        return map;
+    function forceRepeatOff() {
+        try { localStorage.setItem(REPEAT_KEY, 'off'); } catch (_) {}
+        const btn = document.getElementById('fs-repeat');
+        if (btn) {
+            btn.classList.remove('active', 'mode-one');
+            btn.setAttribute('aria-label', 'Repetir desactivado');
+            btn.setAttribute('title', 'Repetir desactivado');
+        }
+    }
+
+    /* ---------- Iniciar la radio ---------- */
+    function startRadio() {
+        const items = getAllItems();
+        if (!items.length) {
+            console.warn(LOG, 'No hay canciones disponibles en el reproductor');
+            return;
+        }
+
+        /* 1) Configuración tipo radio */
+        forceShuffleOn();
+        forceRepeatOff();
+
+        /* 2) Limpiar filtro de artista (por si venía de una playlist
+              o perfil de artista). Así el pool es "todas las canciones". */
+        if (typeof clearArtistFilter === 'function') {
+            try { clearArtistFilter(); } catch (_) {}
+        } else {
+            window.__artistFilter = null;
+            window.__artistFilterName = '';
+        }
+
+        /* 3) Limpiar la cola de contexto (si venía de una playlist) */
+        if (typeof window.__clearPlaybackQueue === 'function') {
+            try { window.__clearPlaybackQueue(); } catch (_) {}
+        }
+
+        /* 4) Elegir canción aleatoria evitando la que ya está sonando */
+        let candidates = items;
+        const active = document.querySelector('#playlist .playlist-item.active');
+        if (active && items.length > 1) {
+            candidates = items.filter(it => it !== active);
+        }
+        if (!candidates.length) candidates = items;
+
+        const first = candidates[Math.floor(Math.random() * candidates.length)];
+        if (!first) return;
+
+        /* 5) Reproducir con el reproductor existente.
+              Esto ejecuta toda la lógica original:
+              - registrar oyente
+              - guardar en historial
+              - guardar en "Volver a Oír"
+              - Android bridge
+        */
+        try {
+            first.click();
+            console.log(LOG, '▶ Radio iniciada con:', getItemTitle(first));
+        } catch (err) {
+            console.warn(LOG, 'Error al iniciar radio:', err);
+        }
     }
 
     /* ---------- Render: portada con artistas aleatorios ---------- */
@@ -12618,7 +12627,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const seen = new Set();
         const artists = [];
-        document.querySelectorAll('#playlist .playlist-item').forEach(item => {
+        getAllItems().forEach(item => {
             const name = getItemArtist(item);
             if (!name) return;
             const key = norm(name);
@@ -12631,7 +12640,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!artists.length) return;
 
-        /* Shuffle */
+        /* Mezclar y tomar hasta 8 */
         for (let i = artists.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [artists[i], artists[j]] = [artists[j], artists[i]];
@@ -12648,166 +12657,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    /* ---------- Render: grid de géneros ---------- */
-    function renderGenreGrid() {
-        const grid = $('gen-grid');
-        const empty = $('gen-empty');
-        if (!grid) return;
-
-        const map = buildGenreMap();
-        grid.innerHTML = '';
-
-        if (!map.size) {
-            if (empty) empty.style.display = '';
-            return;
-        }
-        if (empty) empty.style.display = 'none';
-
-        const sorted = Array.from(map.values())
-            .sort((a, b) => a.nombre.localeCompare(b.nombre));
-
-        sorted.forEach(g => {
-            const card = document.createElement('button');
-            card.type = 'button';
-            card.className = 'gen-card';
-            card.setAttribute('aria-label', g.nombre);
-
-            const cover = document.createElement('div');
-            cover.className = 'gen-card-cover';
-            const withCover = g.items.find(it => getItemCover(it));
-            if (withCover) {
-                const img = document.createElement('img');
-                img.src = getItemCover(withCover);
-                img.alt = g.nombre;
-                img.loading = 'lazy';
-                cover.appendChild(img);
-            }
-            card.appendChild(cover);
-
-            const name = document.createElement('span');
-            name.className = 'gen-card-name';
-            name.textContent = g.nombre;
-            card.appendChild(name);
-
-            const count = document.createElement('span');
-            count.className = 'gen-card-count';
-            const n = g.items.length;
-            count.textContent = n + ' ' + (n === 1 ? 'canción' : 'canciones');
-            card.appendChild(count);
-
-            card.addEventListener('click', () => {
-                if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} }
-                openGenreSongs(g);
-            });
-            grid.appendChild(card);
-        });
-    }
-
-    /* ---------- Abrir / cerrar vistas ---------- */
-    function closeAllMainViews() {
-        ['playlist-view','artist-profile','album-view','mi-playlist-view',
-         'mensajes-view','chat-view','newmsg-view','stats-view',
-         'generos-view','genre-songs-view'].forEach(id => {
-            const v = document.getElementById(id);
-            if (v && v.classList.contains('visible')) {
-                v.classList.remove('visible');
-                v.setAttribute('aria-hidden', 'true');
-            }
-        });
-    }
-
-    function openGeneros() {
-        const view = $('generos-view');
-        if (!view) return;
-        closeAllMainViews();
-        view.classList.add('visible');
-        view.setAttribute('aria-hidden', 'false');
-        const sc = $('gen-scroll');
-        if (sc) sc.scrollTop = 0;
-        loadFromFirestore().then(renderGenreGrid).catch(() => renderGenreGrid());
-    }
-    function closeGeneros() {
-        const view = $('generos-view');
-        if (!view) return;
-        view.classList.remove('visible');
-        view.setAttribute('aria-hidden', 'true');
-    }
-
-    function openGenreSongs(genre) {
-        const view = $('genre-songs-view');
-        const title = $('gs-title');
-        const list = $('gs-list');
-        if (!view || !list) return;
-
-        if (title) title.textContent = genre.nombre;
-        list.innerHTML = '';
-
-        genre.items.forEach(item => {
-            const row = document.createElement('button');
-            row.type = 'button';
-            row.className = 'gs-row';
-
-            const cover = getItemCover(item);
-            if (cover) {
-                const thumb = document.createElement('div');
-                thumb.className = 'gs-row-thumb';
-                const img = document.createElement('img');
-                img.src = cover;
-                img.alt = '';
-                img.loading = 'lazy';
-                thumb.appendChild(img);
-                row.appendChild(thumb);
-            }
-
-            const info = document.createElement('div');
-            info.className = 'gs-row-info';
-            const t = document.createElement('span');
-            t.className = 'gs-row-title';
-            t.textContent = getItemTitle(item);
-            info.appendChild(t);
-            const s = document.createElement('span');
-            s.className = 'gs-row-sub';
-            s.textContent = getItemArtist(item) || 'Artista';
-            info.appendChild(s);
-            row.appendChild(info);
-
-            const play = document.createElement('span');
-            play.className = 'gs-row-play';
-            play.textContent = '▶';
-            row.appendChild(play);
-
-            row.addEventListener('click', () => {
-                if (navigator.vibrate) { try { navigator.vibrate(10); } catch (_) {} }
-                closeAllMainViews();
-                /* Restringir la reproducción a este género */
-                if (typeof setArtistFilter === 'function') {
-                    setArtistFilter(genre.items, genre.nombre);
-                } else {
-                    window.__artistFilter = genre.items.slice();
-                    window.__artistFilterName = genre.nombre;
-                }
-                /* Click original: usa el reproductor existente */
-                item.click();
-            });
-
-            list.appendChild(row);
-        });
-
-        closeAllMainViews();
-        view.classList.add('visible');
-        view.setAttribute('aria-hidden', 'false');
-        const sc = $('gs-scroll');
-        if (sc) sc.scrollTop = 0;
-    }
-
-    function closeGenreSongs() {
-        const view = $('genre-songs-view');
-        if (!view) return;
-        view.classList.remove('visible');
-        view.setAttribute('aria-hidden', 'true');
-    }
-
-    /* ---------- Inyectar la sección "Sala Musical" en el home ---------- */
+    /* ---------- Inyectar la sección "Sala Musical" ---------- */
     function injectSalaSection() {
         const homeView = $('home-view');
         if (!homeView) return false;
@@ -12837,13 +12687,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (homeView.firstChild) homeView.insertBefore(sec, homeView.firstChild);
         else homeView.appendChild(sec);
 
+        /* Botón "Escuchar" → arranca la radio, sin abrir ventanas */
         const btn = sec.querySelector('#sala-escuchar-btn');
         if (btn) {
             btn.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} }
-                openGeneros();
+                if (navigator.vibrate) { try { navigator.vibrate(14); } catch (_) {} }
+                startRadio();
             });
         }
 
@@ -12851,7 +12702,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return true;
     }
 
-    /* ---------- Auto-actualización ---------- */
+    /* ---------- Auto-actualización de la portada ---------- */
     function watchPlaylist() {
         const pl = $('playlist');
         if (!pl || pl.dataset.salaWatch === '1') return;
@@ -12876,72 +12727,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /* ---------- Init ---------- */
     function init() {
-        /* Botones volver */
-        const genBack = $('gen-back');
-        if (genBack && genBack.dataset.salaReady !== '1') {
-            genBack.dataset.salaReady = '1';
-            genBack.addEventListener('click', closeGeneros);
-        }
-        const gsBack = $('gs-back');
-        if (gsBack && gsBack.dataset.salaReady !== '1') {
-            gsBack.dataset.salaReady = '1';
-            gsBack.addEventListener('click', closeGenreSongs);
-        }
-
-        /* Tecla ESC */
-        document.addEventListener('keydown', (e) => {
-            if (e.key !== 'Escape') return;
-            const gs = $('genre-songs-view');
-            const gen = $('generos-view');
-            if (gs && gs.classList.contains('visible')) {
-                e.stopPropagation();
-                closeGenreSongs();
-            } else if (gen && gen.classList.contains('visible')) {
-                e.stopPropagation();
-                closeGeneros();
-            }
-        }, true);
-
-        /* Cerrar vistas de Sala Música si el usuario abre otra vista */
-        ['playlist-view','artist-profile','album-view','mi-playlist-view',
-         'mensajes-view','chat-view','newmsg-view','stats-view'].forEach(id => {
-            const el = document.getElementById(id);
-            if (!el || el.dataset.salaWatchView === '1') return;
-            el.dataset.salaWatchView = '1';
-            const obs = new MutationObserver((muts) => {
-                for (const m of muts) {
-                    if (m.attributeName === 'class' && el.classList.contains('visible')) {
-                        closeGeneros();
-                        closeGenreSongs();
-                        break;
-                    }
-                }
-            });
-            obs.observe(el, { attributes: true, attributeFilter: ['class'] });
-        });
-
-        /* Inyección con reintentos */
+        /* Reintentos hasta que el home y la lista estén listos */
         let tries = 0;
         (function loop() {
             tries++;
             const homeView = $('home-view');
-            const items = document.querySelectorAll('#playlist .playlist-item');
+            const items = getAllItems();
             if (homeView && items.length > 0) {
                 injectSalaSection();
                 watchPlaylist();
-
-                /* Precarga de géneros */
-                if (typeof firebase !== 'undefined' && firebase.auth) {
-                    if (firebase.auth().currentUser) {
-                        loadFromFirestore().catch(() => {});
-                    }
-                    firebase.auth().onAuthStateChanged(u => {
-                        if (u) {
-                            loadedOnce = false;
-                            loadFromFirestore(true).catch(() => {});
-                        }
-                    });
-                }
+                console.log(LOG, '🚀 Sala Musical (radio) lista');
                 return;
             }
             if (tries < 60) setTimeout(loop, 250);
@@ -12961,6 +12756,6 @@ document.addEventListener('DOMContentLoaded', () => {
         init();
     }
 
-    /* API pública opcional */
-    window.__abrirSalaMusica = openGeneros;
+    /* API pública opcional por si la necesitas */
+    window.__startSalaRadio = startRadio;
 })();
