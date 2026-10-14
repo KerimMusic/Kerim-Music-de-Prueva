@@ -94,26 +94,60 @@
 
             <div class="home-view" id="home-view">
 
-                <!-- =========================================================
-                     SALA DE MÚSICA  (NUEVA — primera sección del home)
-                     ========================================================= -->
                 <section class="home-section" id="sec-sala-musica">
-                    <h2 class="home-section-title">Sala de Música</h2>
-                    <div class="sala-cover" id="sala-cover">
-                        <div class="sala-cover-collage" id="sala-cover-collage"></div>
-                        <div class="sala-cover-overlay"></div>
-                        <button class="sala-cover-btn" id="sala-cover-btn" type="button">
-                            <span>Escuchar</span>
-                            <svg viewBox="0 0 24 24" width="22" height="22" fill="none"
-                                 stroke="#000" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                <circle cx="12" cy="12" r="10"/>
-                                <polygon points="10 8 16 12 10 16 10 8" fill="#000" stroke="none"/>
-                            </svg>
-                        </button>
-                        <span class="sala-cover-brand">OmegaBeats</span>
-                    </div>
-                </section>
+    <h2 class="home-section-title">Sala Musical</h2>
+    <div class="sala-cover" id="sala-cover">
+        <!-- Paisaje: cielo, nubes y pasto (SVG puro, sin imágenes externas) -->
+        <svg class="sala-cover-bg" viewBox="0 0 400 160" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+            <defs>
+                <linearGradient id="salaSky" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%"   stop-color="#b6e0f2"/>
+                    <stop offset="55%"  stop-color="#d6eef8"/>
+                    <stop offset="100%" stop-color="#e8f4d8"/>
+                </linearGradient>
+                <linearGradient id="salaGrass" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%"   stop-color="#a4c96b"/>
+                    <stop offset="100%" stop-color="#5f8a24"/>
+                </linearGradient>
+            </defs>
 
+            <!-- Cielo -->
+            <rect width="400" height="160" fill="url(#salaSky)"/>
+
+            <!-- Nubes (dos grupos, estilo cartoon) -->
+            <g fill="#ffffff" opacity="0.95">
+                <ellipse cx="90"  cy="48" rx="34" ry="13"/>
+                <ellipse cx="120" cy="42" rx="26" ry="12"/>
+                <ellipse cx="150" cy="48" rx="24" ry="10"/>
+
+                <ellipse cx="270" cy="52" rx="30" ry="12"/>
+                <ellipse cx="298" cy="46" rx="24" ry="11"/>
+                <ellipse cx="322" cy="52" rx="22" ry="10"/>
+            </g>
+
+            <!-- Colina verde principal -->
+            <path d="M0 118 Q 90 88 180 108 T 400 100 L 400 160 L 0 160 Z"
+                  fill="url(#salaGrass)"/>
+
+            <!-- Onda más oscura (segundo plano del pasto) -->
+            <path d="M0 138 Q 120 122 240 138 T 400 132 L 400 160 L 0 160 Z"
+                  fill="#4f7718" opacity="0.45"/>
+        </svg>
+
+        <div class="sala-cover-overlay"></div>
+
+        <button class="sala-cover-btn" id="sala-cover-btn" type="button">
+            <span>Escuchar</span>
+            <svg viewBox="0 0 24 24" width="26" height="26" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none"/>
+            </svg>
+        </button>
+
+        <span class="sala-cover-brand">OmegaBeats</span>
+    </div>
+</section>
                 <section class="home-section" id="sec-artists">
                     <h2 class="home-section-title">¿Qué artista quieres escuchar?</h2>
                     <div class="home-carousel" id="carousel-artists"></div>
