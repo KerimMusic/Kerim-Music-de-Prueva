@@ -12495,35 +12495,19 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 })();
 /* ============================================================
-   50. SALA DE MÚSICA
+   XX. SALA MÚSICA — GÉNEROS Y CANCIONES POR GÉNERO
    ------------------------------------------------------------
-   - Portada con collage aleatorio de artistas (Firebase).
-   - Botón "Escuchar" → abre vista de géneros.
-   - Géneros agrupados desde canciones_usuarios + collectionGroup.
-   - Selección de género → lista de canciones.
-   - Reproducción con el reproductor EXISTENTE (no lo modifica).
-   - onSnapshot actualiza géneros en tiempo real.
+   Función INDEPENDIENTE. No toca reproductor, playlists,
+   historial, estadísticas ni ninguna otra función existente.
+   - La información se obtiene del DOM (#playlist .playlist-item)
+     y de Firestore (canciones_usuarios y collectionGroup('canciones')).
+   - Se actualiza automáticamente cuando llegan canciones nuevas.
    ============================================================ */
 (function () {
     'use strict';
 
     const $ = (id) => document.getElementById(id);
-
-    /* Vistas que deben cerrarse al abrir Sala, y viceversa. */
-    const OTHER_VIEWS = [
-        'playlist-view','artist-profile','album-view','mi-playlist-view',
-        'mensajes-view','chat-view','newmsg-view','stats-view',
-        'comunidad-view','comunidad-crear-view','comentarios-view'
-    ];
-    const SALA_VIEWS = ['sala-musica-view', 'sala-genero-view'];
-
-    let artistImagesCache = [];
-    let genreMap = new Map();     // key normalizada -> { key, name, songs[], seen }
-    let unsubUsers = null;
-    let currentGenreKey = '';
-    let coverRotateTimer = null;
-    let usersLoaded = false;
-    let groupLoaded = false;
+    const LOG = '[SALA-MUSICA]';
 
     /* ---------- Utilidades ---------- */
     function norm(s) {
@@ -12531,554 +12515,444 @@ document.addEventListener('DOMContentLoaded', () => {
             .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
             .replace(/[^a-z0-9]/g, '');
     }
-    function esc(s) {
-        return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
-            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-        }[c]));
+    function getItemTitle(item) {
+        return item ? (item.querySelector('.item-title')?.textContent.trim() || '') : '';
+    }
+    function getItemSubtitle(item) {
+        return item ? (item.querySelector('.item-subtitle')?.textContent.trim() || '') : '';
+    }
+    function getItemCover(item) {
+        if (!item) return '';
+        const img = item.querySelector('.thumbnail img');
+        return img ? (img.getAttribute('src') || '') : '';
+    }
+    function getItemArtist(item) {
+        const sub = getItemSubtitle(item);
+        const idx = sub.indexOf('·');
+        const name = (idx === -1 ? sub : sub.slice(0, idx)).trim();
+        return name.split(/\s+(?:ft\.?|feat\.?|featuring|con|&)\s+/i)[0].trim() || name;
     }
     function pickGenre(d) {
         return d.genero || d['género'] || d.genre || d.categoria ||
-               d.category || d.tipo || d['categoría'] || '';
+               d.category || d.tipo || '';
     }
-    function pickCover(d) {
-        return d.imagenUrl || d.portada || d.imagen || d.image ||
-               d.cover || d.coverUrl || d.thumbnail || '';
-    }
-    function pickArtist(d) {
-        return d.artista || d.artist || d.autor || d.creator ||
-               d.creador || d.nombreArtista || 'Artista';
-    }
-    function pickTitle(d) {
-        return d.titulo || d.title || d.nombre || '';
-    }
-    function pickAudio(d) {
-        return d.audioUrl || d.audio || d.url || d.music || d.musica || '';
-    }
-    function isDropbox(d) {
-        return !d.origen || d.origen === 'dropbox';
+    function genreFromDom(item) {
+        const sub = getItemSubtitle(item);
+        const idx = sub.indexOf('·');
+        if (idx === -1) return '';
+        const g = sub.slice(idx + 1).trim();
+        if (!g) return '';
+        const lower = g.toLowerCase();
+        if (lower === 'subido' || lower === 'subidos') return '';
+        return g;
     }
 
-    /* ========================================================
-       1) COLLAGE DE LA PORTADA
-       ======================================================== */
-    function shuffle(arr) {
-        const a = arr.slice();
-        for (let i = a.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [a[i], a[j]] = [a[j], a[i]];
-        }
-        return a;
+    /* ---------- Cache de géneros desde Firestore ---------- */
+    const firestoreGenres = new Map(); // titulo_norm → género
+    let loadedOnce = false;
+    let loadPromise = null;
+
+    async function loadFromFirestore(force) {
+        if (!force && loadedOnce) return firestoreGenres;
+        if (loadPromise && !force) return loadPromise;
+        if (typeof firebase === 'undefined' || !firebase.firestore) return firestoreGenres;
+
+        loadPromise = (async () => {
+            /* 1) canciones_usuarios */
+            try {
+                const snap = await firebase.firestore()
+                    .collection('canciones_usuarios').limit(800).get();
+                snap.forEach(doc => {
+                    const d = doc.data() || {};
+                    const t = d.titulo || '';
+                    const g = pickGenre(d);
+                    if (t && g) firestoreGenres.set(norm(t), String(g).trim());
+                });
+            } catch (e) { console.warn(LOG, 'canciones_usuarios:', e); }
+
+            /* 2) collectionGroup('canciones') */
+            try {
+                const snap = await firebase.firestore()
+                    .collectionGroup('canciones').limit(800).get();
+                snap.forEach(doc => {
+                    const d = doc.data() || {};
+                    if (d.origen && d.origen !== 'dropbox') return;
+                    const t = d.titulo || '';
+                    const g = pickGenre(d);
+                    if (t && g) firestoreGenres.set(norm(t), String(g).trim());
+                });
+            } catch (e) { console.warn(LOG, 'collectionGroup:', e); }
+
+            loadedOnce = true;
+            loadPromise = null;
+            console.log(LOG, '✅ Géneros cargados:', firestoreGenres.size);
+            return firestoreGenres;
+        })();
+
+        return loadPromise;
     }
 
-    function renderCoverCollage() {
-        const box = $('sala-cover-collage');
-        if (!box) return;
-        box.innerHTML = '';
-
-        if (!artistImagesCache.length) {
-            box.style.background =
-                'linear-gradient(180deg, #7ec8e3 0%, #a8d886 60%, #5e7a3a 100%)';
-            return;
-        }
-        box.style.background = '';
-
-        const picks = shuffle(artistImagesCache).slice(0, 12);
-        picks.forEach(url => {
-            const img = document.createElement('img');
-            img.src = url;
-            img.alt = '';
-            img.loading = 'lazy';
-            img.onerror = () => img.remove();
-            box.appendChild(img);
-        });
-    }
-
-    async function loadArtistImages() {
-        if (typeof firebase === 'undefined' || !firebase.firestore) return;
+    /* ---------- Mapa de géneros → canciones ---------- */
+    function buildGenreMap() {
         const map = new Map();
-
-        try {
-            const snap = await firebase.firestore()
-                .collection('canciones_usuarios').limit(500).get();
-            snap.forEach(doc => {
-                const d = doc.data() || {};
-                const img = pickCover(d);
-                if (!img) return;
-                const key = norm(pickArtist(d)) || norm(pickTitle(d));
-                if (key && !map.has(key)) map.set(key, img);
-            });
-        } catch (e) { console.warn('[SALA] canciones_usuarios:', e); }
-
-        try {
-            const snap = await firebase.firestore()
-                .collectionGroup('canciones').limit(500).get();
-            snap.forEach(doc => {
-                const d = doc.data() || {};
-                if (!isDropbox(d)) return;
-                const img = pickCover(d);
-                if (!img) return;
-                const key = norm(pickArtist(d)) || norm(pickTitle(d));
-                if (key && !map.has(key)) map.set(key, img);
-            });
-        } catch (e) { console.warn('[SALA] collectionGroup:', e); }
-
-        artistImagesCache = Array.from(map.values());
-        renderCoverCollage();
-
-        if (coverRotateTimer) clearInterval(coverRotateTimer);
-        if (artistImagesCache.length > 12) {
-            coverRotateTimer = setInterval(renderCoverCollage, 30000);
-        }
+        const items = document.querySelectorAll('#playlist .playlist-item');
+        items.forEach(item => {
+            const title = getItemTitle(item);
+            if (!title) return;
+            let genre = genreFromDom(item);
+            if (!genre) genre = firestoreGenres.get(norm(title)) || '';
+            if (!genre) return;
+            const key = norm(genre);
+            if (!key) return;
+            if (!map.has(key)) map.set(key, { nombre: genre, items: [] });
+            map.get(key).items.push(item);
+        });
+        return map;
     }
 
-    /* ========================================================
-       2) CARGA Y AGRUPACIÓN DE GÉNEROS
-       ======================================================== */
-    function pushSong(d, source) {
-        if (source === 'group' && !isDropbox(d)) return;
+    /* ---------- Render: portada con artistas aleatorios ---------- */
+    function renderCover() {
+        const wrap = $('sala-musica-artists');
+        if (!wrap) return;
+        wrap.innerHTML = '';
 
-        const genero = String(pickGenre(d)).trim();
-        const titulo = pickTitle(d).trim();
-        const audioUrl = pickAudio(d).trim();
-        if (!genero || !titulo || !audioUrl) return;
+        const seen = new Set();
+        const artists = [];
+        document.querySelectorAll('#playlist .playlist-item').forEach(item => {
+            const name = getItemArtist(item);
+            if (!name) return;
+            const key = norm(name);
+            if (!key || seen.has(key)) return;
+            const cover = getItemCover(item);
+            if (!cover) return;
+            seen.add(key);
+            artists.push({ name, cover });
+        });
 
-        const key = norm(genero);
-        if (!key) return;
+        if (!artists.length) return;
 
-        if (!genreMap.has(key)) {
-            genreMap.set(key, { key: key, name: genero, songs: [], seen: new Set() });
+        /* Shuffle */
+        for (let i = artists.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [artists[i], artists[j]] = [artists[j], artists[i]];
         }
-        const bucket = genreMap.get(key);
-        const titleKey = norm(titulo);
-        if (!titleKey || bucket.seen.has(titleKey)) return;
-
-        bucket.seen.add(titleKey);
-        bucket.songs.push({
-            titulo: titulo,
-            artista: pickArtist(d),
-            portada: pickCover(d),
-            audioUrl: audioUrl
+        artists.slice(0, 8).forEach(({ name, cover }) => {
+            const cell = document.createElement('div');
+            cell.className = 'sala-musica-cell';
+            const img = document.createElement('img');
+            img.src = cover;
+            img.alt = name;
+            img.loading = 'lazy';
+            cell.appendChild(img);
+            wrap.appendChild(cell);
         });
     }
 
-    function rebuildGenreMap(userDocs) {
-        genreMap = new Map();
-        (userDocs || []).forEach(doc => pushSong(doc.data() || {}, 'users'));
-        // Cuando también esté listo el collectionGroup, se re-inyecta
-        if (groupLoaded && groupDocsCache.length) {
-            groupDocsCache.forEach(doc => pushSong(doc.data() || {}, 'group'));
-        }
-    }
-
-    let groupDocsCache = [];
-
-    function listenGenres() {
-        if (typeof firebase === 'undefined' || !firebase.firestore) return;
-
-        /* Fuente 1: canciones_usuarios en tiempo real */
-        if (unsubUsers) { unsubUsers(); unsubUsers = null; }
-        unsubUsers = firebase.firestore()
-            .collection('canciones_usuarios')
-            .onSnapshot(snap => {
-                usersLoaded = true;
-                rebuildGenreMap(snap.docs);
-                renderGenres();
-                if (isAnySalaViewVisible()) refreshGenreViewIfOpen();
-            }, err => {
-                console.warn('[SALA] onSnapshot canciones_usuarios:', err);
-            });
-
-        /* Fuente 2: collectionGroup('canciones') — una vez */
-        firebase.firestore().collectionGroup('canciones').limit(800).get()
-            .then(gSnap => {
-                groupDocsCache = gSnap.docs.slice();
-                groupLoaded = true;
-                // reconstruir con ambos orígenes
-                const userSnap = { docs: [] };
-                // Necesitamos los docs de users ya cargados: los tenemos en el snapshot anterior,
-                // pero para no complicar, simplemente volvemos a procesar los docs cacheados:
-                if (userDocsCache.length) {
-                    rebuildGenreMap(userDocsCache);
-                } else {
-                    // Si aún no llegó el primer onSnapshot, se procesará al llegar
-                    return;
-                }
-                renderGenres();
-                if (isAnySalaViewVisible()) refreshGenreViewIfOpen();
-            })
-            .catch(e => console.warn('[SALA] collectionGroup:', e));
-    }
-
-    /* Cache de docs de usuarios para poder reconstruir cuando llegue el grupo */
-    let userDocsCache = [];
-    /* Sobrescribimos el handler para guardar el cache */
-    function listenGenresFixed() {
-        if (typeof firebase === 'undefined' || !firebase.firestore) return;
-
-        if (unsubUsers) { unsubUsers(); unsubUsers = null; }
-        unsubUsers = firebase.firestore()
-            .collection('canciones_usuarios')
-            .onSnapshot(snap => {
-                usersLoaded = true;
-                userDocsCache = snap.docs.slice();
-                rebuildGenreMap(userDocsCache);
-                renderGenres();
-                if (isAnySalaViewVisible()) refreshGenreViewIfOpen();
-            }, err => {
-                console.warn('[SALA] onSnapshot canciones_usuarios:', err);
-            });
-
-        if (!groupLoaded) {
-            firebase.firestore().collectionGroup('canciones').limit(800).get()
-                .then(gSnap => {
-                    groupDocsCache = gSnap.docs.slice();
-                    groupLoaded = true;
-                    rebuildGenreMap(userDocsCache);
-                    renderGenres();
-                    if (isAnySalaViewVisible()) refreshGenreViewIfOpen();
-                })
-                .catch(e => console.warn('[SALA] collectionGroup:', e));
-        }
-    }
-
-    /* ========================================================
-       3) RENDER DE GÉNEROS
-       ======================================================== */
-    function renderGenres() {
-        const grid = $('sm-genres-grid');
-        const empty = $('sm-empty');
+    /* ---------- Render: grid de géneros ---------- */
+    function renderGenreGrid() {
+        const grid = $('gen-grid');
+        const empty = $('gen-empty');
         if (!grid) return;
+
+        const map = buildGenreMap();
         grid.innerHTML = '';
 
-        const list = Array.from(genreMap.values())
-            .filter(g => g.songs.length > 0)
-            .sort((a, b) => a.name.localeCompare(b.name, 'es'));
-
-        if (!list.length) {
+        if (!map.size) {
             if (empty) empty.style.display = '';
             return;
         }
         if (empty) empty.style.display = 'none';
 
-        list.forEach(g => {
+        const sorted = Array.from(map.values())
+            .sort((a, b) => a.nombre.localeCompare(b.nombre));
+
+        sorted.forEach(g => {
             const card = document.createElement('button');
             card.type = 'button';
-            card.className = 'sm-genre-card';
-            card.setAttribute('aria-label', g.name);
+            card.className = 'gen-card';
+            card.setAttribute('aria-label', g.nombre);
 
-            const cover = g.songs.find(s => s.portada);
-            if (cover && cover.portada) {
-                card.style.backgroundImage =
-                    'linear-gradient(180deg, rgba(0,0,0,0.10) 0%, rgba(0,0,0,0.72) 100%), url("' +
-                    esc(cover.portada) + '")';
-                card.style.backgroundSize = 'cover';
-                card.style.backgroundPosition = 'center';
+            const cover = document.createElement('div');
+            cover.className = 'gen-card-cover';
+            const withCover = g.items.find(it => getItemCover(it));
+            if (withCover) {
+                const img = document.createElement('img');
+                img.src = getItemCover(withCover);
+                img.alt = g.nombre;
+                img.loading = 'lazy';
+                cover.appendChild(img);
             }
+            card.appendChild(cover);
 
-            const n = document.createElement('span');
-            n.className = 'sm-genre-name';
-            n.textContent = g.name;
-            card.appendChild(n);
+            const name = document.createElement('span');
+            name.className = 'gen-card-name';
+            name.textContent = g.nombre;
+            card.appendChild(name);
 
-            const c = document.createElement('span');
-            c.className = 'sm-genre-count';
-            c.textContent = g.songs.length + ' ' +
-                (g.songs.length === 1 ? 'canción' : 'canciones');
-            card.appendChild(c);
+            const count = document.createElement('span');
+            count.className = 'gen-card-count';
+            const n = g.items.length;
+            count.textContent = n + ' ' + (n === 1 ? 'canción' : 'canciones');
+            card.appendChild(count);
 
             card.addEventListener('click', () => {
-                if (navigator.vibrate) { try { navigator.vibrate(10); } catch (_) {} }
-                openGenre(g.key);
+                if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} }
+                openGenreSongs(g);
             });
             grid.appendChild(card);
         });
     }
 
-    /* ========================================================
-       4) VISTA DE CANCIONES POR GÉNERO
-       ======================================================== */
-    function openGenre(key) {
-        const bucket = genreMap.get(key);
-        if (!bucket) return;
-        currentGenreKey = key;
-
-        const titleEl = $('sg-title');
-        if (titleEl) titleEl.textContent = bucket.name;
-
-        renderGenreSongs(bucket);
-        showSalaView('sala-genero-view');
+    /* ---------- Abrir / cerrar vistas ---------- */
+    function closeAllMainViews() {
+        ['playlist-view','artist-profile','album-view','mi-playlist-view',
+         'mensajes-view','chat-view','newmsg-view','stats-view',
+         'generos-view','genre-songs-view'].forEach(id => {
+            const v = document.getElementById(id);
+            if (v && v.classList.contains('visible')) {
+                v.classList.remove('visible');
+                v.setAttribute('aria-hidden', 'true');
+            }
+        });
     }
 
-    function refreshGenreViewIfOpen() {
-        const view = $('sala-genero-view');
-        if (!view || !view.classList.contains('visible')) return;
-        const bucket = genreMap.get(currentGenreKey);
-        if (!bucket) return;
-        renderGenreSongs(bucket);
+    function openGeneros() {
+        const view = $('generos-view');
+        if (!view) return;
+        closeAllMainViews();
+        view.classList.add('visible');
+        view.setAttribute('aria-hidden', 'false');
+        const sc = $('gen-scroll');
+        if (sc) sc.scrollTop = 0;
+        loadFromFirestore().then(renderGenreGrid).catch(() => renderGenreGrid());
+    }
+    function closeGeneros() {
+        const view = $('generos-view');
+        if (!view) return;
+        view.classList.remove('visible');
+        view.setAttribute('aria-hidden', 'true');
     }
 
-    function renderGenreSongs(bucket) {
-        const list = $('sg-list');
-        const empty = $('sg-empty');
-        if (!list) return;
+    function openGenreSongs(genre) {
+        const view = $('genre-songs-view');
+        const title = $('gs-title');
+        const list = $('gs-list');
+        if (!view || !list) return;
+
+        if (title) title.textContent = genre.nombre;
         list.innerHTML = '';
 
-        if (!bucket.songs.length) {
-            if (empty) empty.style.display = '';
-            return;
-        }
-        if (empty) empty.style.display = 'none';
+        genre.items.forEach(item => {
+            const row = document.createElement('button');
+            row.type = 'button';
+            row.className = 'gs-row';
 
-        bucket.songs.forEach(song => list.appendChild(buildSongRow(song, bucket.name)));
-    }
-
-    function buildSongRow(song, genreName) {
-        const row = document.createElement('button');
-        row.type = 'button';
-        row.className = 'sg-row';
-        row.dataset.title = song.titulo;
-
-        const thumb = document.createElement('div');
-        thumb.className = 'sg-row-thumb';
-        if (song.portada) {
-            const img = document.createElement('img');
-            img.src = song.portada;
-            img.alt = song.titulo;
-            img.loading = 'lazy';
-            img.onerror = () => img.remove();
-            thumb.appendChild(img);
-        }
-        row.appendChild(thumb);
-
-        const info = document.createElement('div');
-        info.className = 'sg-row-info';
-
-        const t = document.createElement('span');
-        t.className = 'sg-row-title';
-        t.textContent = song.titulo;
-        info.appendChild(t);
-
-        const s = document.createElement('span');
-        s.className = 'sg-row-sub';
-        s.textContent = (song.artista || 'Artista') + ' · ' + genreName;
-        info.appendChild(s);
-
-        row.appendChild(info);
-
-        const play = document.createElement('span');
-        play.className = 'sg-row-play';
-        play.innerHTML = '<svg viewBox="0 0 24 24" fill="#ffffff"><polygon points="6,4 20,12 6,20"/></svg>';
-        row.appendChild(play);
-
-        row.addEventListener('click', () => playSong(song));
-        return row;
-    }
-
-    /* ========================================================
-       5) REPRODUCCIÓN USANDO EL REPRODUCTOR EXISTENTE
-       ======================================================== */
-    function playSong(song) {
-        if (!song || !song.audioUrl) return;
-        const playlist = $('playlist');
-        if (!playlist) return;
-
-        const target = norm(song.titulo);
-
-        /* Buscar item existente con el mismo título */
-        for (const it of playlist.querySelectorAll('.playlist-item')) {
-            const t = it.querySelector('.item-title')?.textContent.trim() || '';
-            if (norm(t) === target) {
-                it.click();
-                markPlaying(target);
-                return;
+            const cover = getItemCover(item);
+            if (cover) {
+                const thumb = document.createElement('div');
+                thumb.className = 'gs-row-thumb';
+                const img = document.createElement('img');
+                img.src = cover;
+                img.alt = '';
+                img.loading = 'lazy';
+                thumb.appendChild(img);
+                row.appendChild(thumb);
             }
-        }
 
-        /* Crear un item temporal, igual que hace la sección 45 */
-        const div = document.createElement('div');
-        div.className = 'playlist-item';
-        div.dataset.src = song.audioUrl;
-        div.dataset.salaSong = '1';
-        div.dataset.title = song.titulo;
-        const cover = song.portada ||
-            'https://via.placeholder.com/60/1a1a1a/666?text=%E2%99%AA';
-        div.innerHTML =
-            '<div class="thumbnail"><img src="' + esc(cover) + '" alt="" loading="lazy"></div>' +
-            '<div class="item-info">' +
-                '<span class="item-title">' + esc(song.titulo) + '</span>' +
-                '<span class="item-subtitle">' + esc(song.artista || 'Artista') +
-                    ' · Sala de Música</span>' +
+            const info = document.createElement('div');
+            info.className = 'gs-row-info';
+            const t = document.createElement('span');
+            t.className = 'gs-row-title';
+            t.textContent = getItemTitle(item);
+            info.appendChild(t);
+            const s = document.createElement('span');
+            s.className = 'gs-row-sub';
+            s.textContent = getItemArtist(item) || 'Artista';
+            info.appendChild(s);
+            row.appendChild(info);
+
+            const play = document.createElement('span');
+            play.className = 'gs-row-play';
+            play.textContent = '▶';
+            row.appendChild(play);
+
+            row.addEventListener('click', () => {
+                if (navigator.vibrate) { try { navigator.vibrate(10); } catch (_) {} }
+                closeAllMainViews();
+                /* Restringir la reproducción a este género */
+                if (typeof setArtistFilter === 'function') {
+                    setArtistFilter(genre.items, genre.nombre);
+                } else {
+                    window.__artistFilter = genre.items.slice();
+                    window.__artistFilterName = genre.nombre;
+                }
+                /* Click original: usa el reproductor existente */
+                item.click();
+            });
+
+            list.appendChild(row);
+        });
+
+        closeAllMainViews();
+        view.classList.add('visible');
+        view.setAttribute('aria-hidden', 'false');
+        const sc = $('gs-scroll');
+        if (sc) sc.scrollTop = 0;
+    }
+
+    function closeGenreSongs() {
+        const view = $('genre-songs-view');
+        if (!view) return;
+        view.classList.remove('visible');
+        view.setAttribute('aria-hidden', 'true');
+    }
+
+    /* ---------- Inyectar la sección "Sala Musical" en el home ---------- */
+    function injectSalaSection() {
+        const homeView = $('home-view');
+        if (!homeView) return false;
+        if ($('sec-sala-musica')) return true;
+
+        const sec = document.createElement('section');
+        sec.className = 'home-section';
+        sec.id = 'sec-sala-musica';
+        sec.innerHTML =
+            '<h2 class="home-section-title">Sala Musical</h2>' +
+            '<div class="sala-musica-cover" id="sala-musica-cover">' +
+                '<div class="sala-musica-artists" id="sala-musica-artists"></div>' +
+                '<div class="sala-musica-shade"></div>' +
+                '<div class="sala-musica-content">' +
+                    '<button class="sala-escuchar-btn" id="sala-escuchar-btn" type="button">' +
+                        '<span>Escuchar</span>' +
+                        '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">' +
+                            '<circle cx="12" cy="12" r="10.5" fill="none" stroke="#111" stroke-width="1.6"/>' +
+                            '<polygon points="10,8 17,12 10,16" fill="#111"/>' +
+                        '</svg>' +
+                    '</button>' +
+                    '<span class="sala-brand">OmegaBeats</span>' +
+                '</div>' +
             '</div>';
 
-        const homeView = playlist.querySelector('#home-view');
-        if (homeView) playlist.insertBefore(div, homeView.nextSibling);
-        else playlist.insertBefore(div, playlist.firstChild);
+        /* Insertar como PRIMERA sección del home */
+        if (homeView.firstChild) homeView.insertBefore(sec, homeView.firstChild);
+        else homeView.appendChild(sec);
 
-        setTimeout(() => { div.click(); markPlaying(target); }, 30);
-    }
-
-    function markPlaying(normalizedTitle) {
-        const list = $('sg-list');
-        if (!list) return;
-        list.querySelectorAll('.sg-row').forEach(r => {
-            const t = norm(r.dataset.title || '');
-            r.classList.toggle('playing', t === normalizedTitle);
-        });
-    }
-
-    /* ========================================================
-       6) GESTIÓN DE VISTAS
-       ======================================================== */
-    function isAnySalaViewVisible() {
-        return SALA_VIEWS.some(id => {
-            const el = $(id);
-            return el && el.classList.contains('visible');
-        });
-    }
-
-    function showSalaView(id) {
-        OTHER_VIEWS.forEach(vid => {
-            const el = $(vid);
-            if (el && el.classList.contains('visible')) {
-                el.classList.remove('visible');
-                el.setAttribute('aria-hidden', 'true');
-            }
-        });
-        SALA_VIEWS.forEach(vid => {
-            if (vid === id) return;
-            const el = $(vid);
-            if (el && el.classList.contains('visible')) {
-                el.classList.remove('visible');
-                el.setAttribute('aria-hidden', 'true');
-            }
-        });
-        const el = $(id);
-        if (el) {
-            el.classList.add('visible');
-            el.setAttribute('aria-hidden', 'false');
+        const btn = sec.querySelector('#sala-escuchar-btn');
+        if (btn) {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} }
+                openGeneros();
+            });
         }
-        const scroll = id === 'sala-musica-view' ? $('sm-scroll') : $('sg-scroll');
-        if (scroll) scroll.scrollTop = 0;
+
+        renderCover();
+        return true;
     }
 
-    function closeSala() {
-        SALA_VIEWS.forEach(vid => {
-            const el = $(vid);
-            if (el && el.classList.contains('visible')) {
-                el.classList.remove('visible');
-                el.setAttribute('aria-hidden', 'true');
+    /* ---------- Auto-actualización ---------- */
+    function watchPlaylist() {
+        const pl = $('playlist');
+        if (!pl || pl.dataset.salaWatch === '1') return;
+        pl.dataset.salaWatch = '1';
+
+        const obs = new MutationObserver((muts) => {
+            let changed = false;
+            muts.forEach(m => {
+                m.addedNodes.forEach(n => {
+                    if (n.nodeType !== 1) return;
+                    if (n.classList && n.classList.contains('playlist-item')) changed = true;
+                    else if (n.querySelectorAll && n.querySelectorAll('.playlist-item').length) changed = true;
+                });
+            });
+            if (changed) {
+                clearTimeout(window.__salaCoverTimer);
+                window.__salaCoverTimer = setTimeout(renderCover, 500);
             }
         });
+        obs.observe(pl, { childList: true, subtree: false });
     }
 
-    function openSala() {
-        renderGenres();
-        showSalaView('sala-musica-view');
-    }
+    /* ---------- Init ---------- */
+    function init() {
+        /* Botones volver */
+        const genBack = $('gen-back');
+        if (genBack && genBack.dataset.salaReady !== '1') {
+            genBack.dataset.salaReady = '1';
+            genBack.addEventListener('click', closeGeneros);
+        }
+        const gsBack = $('gs-back');
+        if (gsBack && gsBack.dataset.salaReady !== '1') {
+            gsBack.dataset.salaReady = '1';
+            gsBack.addEventListener('click', closeGenreSongs);
+        }
 
-    function watchOtherViews() {
-        OTHER_VIEWS.forEach(id => {
-            const el = $(id);
-            if (!el || el.dataset.salaWatch === '1') return;
-            el.dataset.salaWatch = '1';
+        /* Tecla ESC */
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'Escape') return;
+            const gs = $('genre-songs-view');
+            const gen = $('generos-view');
+            if (gs && gs.classList.contains('visible')) {
+                e.stopPropagation();
+                closeGenreSongs();
+            } else if (gen && gen.classList.contains('visible')) {
+                e.stopPropagation();
+                closeGeneros();
+            }
+        }, true);
+
+        /* Cerrar vistas de Sala Música si el usuario abre otra vista */
+        ['playlist-view','artist-profile','album-view','mi-playlist-view',
+         'mensajes-view','chat-view','newmsg-view','stats-view'].forEach(id => {
+            const el = document.getElementById(id);
+            if (!el || el.dataset.salaWatchView === '1') return;
+            el.dataset.salaWatchView = '1';
             const obs = new MutationObserver((muts) => {
                 for (const m of muts) {
                     if (m.attributeName === 'class' && el.classList.contains('visible')) {
-                        closeSala();
+                        closeGeneros();
+                        closeGenreSongs();
                         break;
                     }
                 }
             });
             obs.observe(el, { attributes: true, attributeFilter: ['class'] });
         });
-    }
 
-    /* ========================================================
-       7) INIT
-       ======================================================== */
-    function init() {
-        if (typeof firebase === 'undefined' || !firebase.auth) {
-            setTimeout(init, 300);
-            return;
-        }
+        /* Inyección con reintentos */
+        let tries = 0;
+        (function loop() {
+            tries++;
+            const homeView = $('home-view');
+            const items = document.querySelectorAll('#playlist .playlist-item');
+            if (homeView && items.length > 0) {
+                injectSalaSection();
+                watchPlaylist();
 
-        /* Botón "Escuchar" y toda la portada */
-        const btn = $('sala-cover-btn');
-        if (btn && btn.dataset.salaReady !== '1') {
-            btn.dataset.salaReady = '1';
-            btn.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} }
-                openSala();
-            });
-        }
-        const cover = $('sala-cover');
-        if (cover && cover.dataset.salaReady !== '1') {
-            cover.dataset.salaReady = '1';
-            cover.addEventListener('click', (e) => {
-                if (e.target.closest('#sala-cover-btn')) return;
-                if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} }
-                openSala();
-            });
-        }
-
-        /* Botones de volver */
-        const backGenres = $('sm-back');
-        if (backGenres && backGenres.dataset.salaReady !== '1') {
-            backGenres.dataset.salaReady = '1';
-            backGenres.addEventListener('click', closeSala);
-        }
-        const backSongs = $('sg-back');
-        if (backSongs && backSongs.dataset.salaReady !== '1') {
-            backSongs.dataset.salaReady = '1';
-            backSongs.addEventListener('click', () => {
-                closeSala();
-                setTimeout(openSala, 60);
-            });
-        }
-
-        /* Escape */
-        document.addEventListener('keydown', (e) => {
-            if (e.key !== 'Escape') return;
-            const g = $('sala-genero-view');
-            const s = $('sala-musica-view');
-            if (g && g.classList.contains('visible')) {
-                e.stopPropagation();
-                closeSala();
-                setTimeout(openSala, 60);
+                /* Precarga de géneros */
+                if (typeof firebase !== 'undefined' && firebase.auth) {
+                    if (firebase.auth().currentUser) {
+                        loadFromFirestore().catch(() => {});
+                    }
+                    firebase.auth().onAuthStateChanged(u => {
+                        if (u) {
+                            loadedOnce = false;
+                            loadFromFirestore(true).catch(() => {});
+                        }
+                    });
+                }
                 return;
             }
-            if (s && s.classList.contains('visible')) {
-                e.stopPropagation();
-                closeSala();
-            }
-        }, true);
+            if (tries < 60) setTimeout(loop, 250);
+        })();
 
-        /* Autenticación */
-        firebase.auth().onAuthStateChanged(user => {
-            if (user) {
-                loadArtistImages().catch(() => {});
-                listenGenresFixed();
-                watchOtherViews();
-            } else {
-                if (unsubUsers) { unsubUsers(); unsubUsers = null; }
-                artistImagesCache = [];
-                genreMap = new Map();
-                userDocsCache = [];
-                groupDocsCache = [];
-                usersLoaded = false;
-                groupLoaded = false;
-                renderCoverCollage();
-                renderGenres();
+        /* Refrescar portada al volver a la pestaña */
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                setTimeout(renderCover, 200);
             }
         });
-
-        if (firebase.auth().currentUser) {
-            loadArtistImages().catch(() => {});
-            listenGenresFixed();
-            watchOtherViews();
-        }
     }
 
     if (document.readyState === 'loading') {
@@ -13088,6 +12962,5 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /* API pública opcional */
-    window.__openSalaMusica = openSala;
-    window.__closeSalaMusica = closeSala;
+    window.__abrirSalaMusica = openGeneros;
 })();
