@@ -12353,6 +12353,8 @@ document.addEventListener('DOMContentLoaded', () => {
    - Sus anuncios se cuentan por separado (cada 2 canciones)
    - Al arrancar pausa el reproductor normal
    - Al elegir una canción del reproductor normal, la radio se detiene
+   COMENTARIOS:
+   - Carga con 3 niveles de fallback para funcionar sin índice
    ============================================================ */
 (function () {
     'use strict';
@@ -12360,7 +12362,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const $ = (id) => document.getElementById(id);
     const LOG = '[SALA-MUSICA]';
     const COMMENTS_SUB = 'sala_musica_comentarios';
-    const SM_SONGS_PER_AD = 2;   // anuncio tras cada 2 canciones en Sala Música
+    const SM_SONGS_PER_AD = 2;
 
     /* ---------- Utilidades ---------- */
     function norm(s) {
@@ -12414,10 +12416,10 @@ document.addEventListener('DOMContentLoaded', () => {
     /* ============================================================
        ESTADO DE LA RADIO
        ============================================================ */
-    let radioStarted    = false;    // ¿La radio está activa?
-    let smInternalClick = false;    // ¿El click viene de Sala Música?
-    let smSongsPlayed   = 0;        // contador local de canciones completadas
-    let currentSalaItem = null;     // item actualmente sonando en Sala Música
+    let radioStarted    = false;
+    let smInternalClick = false;
+    let smSongsPlayed   = 0;
+    let currentSalaItem = null;
 
     /* ------------------------------------------------------------
        Cargar y reproducir un item en el audio de Sala Música
@@ -12433,18 +12435,15 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        /* Pausar reproductor normal para no tener dos audios a la vez */
         const normalAudio = document.getElementById('audio-player');
         if (normalAudio && !normalAudio.paused) {
             try { normalAudio.pause(); } catch (_) {}
         }
 
-        /* Marcar activo */
         getAllItems().forEach(i => i.classList.remove('active'));
         item.classList.add('active');
         currentSalaItem = item;
 
-        /* Reflejo visual en el mini-player (informativo) */
         const cover = getItemCover(item);
         const title = getItemTitle(item);
         const playerCover = document.getElementById('player-cover');
@@ -12455,7 +12454,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (playerTitle) playerTitle.textContent = title;
 
-        /* Cargar en el audio dedicado */
         salaAudio.src = src;
         salaAudio.currentTime = 0;
 
@@ -12467,9 +12465,6 @@ document.addEventListener('DOMContentLoaded', () => {
         syncFromPlayer();
     }
 
-    /* ------------------------------------------------------------
-       Siguiente item aleatorio (dentro de Sala Música)
-       ------------------------------------------------------------ */
     function playNextSalaItem() {
         const items = getAllItems();
         if (!items.length) return;
@@ -12484,14 +12479,10 @@ document.addEventListener('DOMContentLoaded', () => {
         loadSalaItem(next, true);
     }
 
-    /* ------------------------------------------------------------
-       BOTÓN COMENZAR
-       ------------------------------------------------------------ */
     function startRadio() {
         const salaAudio = getSalaAudio();
         if (!salaAudio) return;
 
-        /* Ya activa → play/pausa */
         if (radioStarted) {
             if (salaAudio.paused) {
                 const p = salaAudio.play();
@@ -12502,14 +12493,12 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        /* Iniciar nueva radio */
         const items = getAllItems();
         if (!items.length) {
             console.warn(LOG, 'No hay canciones disponibles');
             return;
         }
 
-        /* Limpiar filtros del reproductor normal */
         if (typeof clearArtistFilter === 'function') {
             try { clearArtistFilter(); } catch (_) {}
         }
@@ -12517,13 +12506,11 @@ document.addEventListener('DOMContentLoaded', () => {
             try { window.__clearPlaybackQueue(); } catch (_) {}
         }
 
-        /* Pausar reproductor normal */
         const normalAudio = document.getElementById('audio-player');
         if (normalAudio && !normalAudio.paused) {
             try { normalAudio.pause(); } catch (_) {}
         }
 
-        /* Elegir la primera canción aleatoria */
         let candidates = items;
         const active = document.querySelector('#playlist .playlist-item.active');
         if (active && items.length > 1) candidates = items.filter(it => it !== active);
@@ -12544,9 +12531,6 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log(LOG, '▶ Radio iniciada:', getItemTitle(first));
     }
 
-    /* ------------------------------------------------------------
-       DETENER RADIO
-       ------------------------------------------------------------ */
     function stopRadio() {
         if (!radioStarted) return;
         radioStarted = false;
@@ -12565,9 +12549,6 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log(LOG, '⏹ Radio detenida');
     }
 
-    /* ------------------------------------------------------------
-       ACTUALIZAR TEXTO DEL BOTÓN
-       ------------------------------------------------------------ */
     function updateStartButton() {
         const btn = $('sm-start-btn');
         if (!btn) return;
@@ -12594,37 +12575,28 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ------------------------------------------------------------
-       DETECTAR SELECCIÓN EXTERNA (reproductor normal)
-       ------------------------------------------------------------ */
     function attachExternalStopWatcher() {
         const pl = document.getElementById('playlist');
         if (!pl || pl.dataset.smExternalStop === '1') return;
         pl.dataset.smExternalStop = '1';
 
         pl.addEventListener('click', (e) => {
-            if (smInternalClick) return;               // click interno de Sala
-            if (window.__queueAdvancing) return;       // avance de cola
-            if (!radioStarted) return;                 // nada que detener
+            if (smInternalClick) return;
+            if (window.__queueAdvancing) return;
+            if (!radioStarted) return;
 
             const item = e.target.closest('.playlist-item');
             if (!item) return;
 
-            /* El usuario elige una canción del reproductor normal */
             stopRadio();
-            /* El reproductor normal hará su trabajo independientemente */
         }, true);
     }
 
-    /* ------------------------------------------------------------
-       CONTADOR DE ANUNCIOS — CADA 2 CANCIONES (solo en Sala Música)
-       ------------------------------------------------------------ */
     function attachSalaAdsCounter() {
         const salaAudio = getSalaAudio();
         if (!salaAudio || salaAudio.dataset.smAdsCounter === '1') return;
         salaAudio.dataset.smAdsCounter = '1';
 
-        /* Cuando la canción de Sala Música termina */
         salaAudio.addEventListener('ended', () => {
             if (!radioStarted) return;
             if (!window.__adsApi) return;
@@ -12633,24 +12605,20 @@ document.addEventListener('DOMContentLoaded', () => {
             smSongsPlayed++;
             console.log(LOG, '🎵 Sala Música: canción completada', smSongsPlayed, '/', SM_SONGS_PER_AD);
 
-            /* Si llegamos al umbral, mostrar anuncio */
             if (smSongsPlayed >= SM_SONGS_PER_AD) {
                 smSongsPlayed = 0;
                 console.log(LOG, '📢 Mostrando anuncio tras ' + SM_SONGS_PER_AD + ' canciones');
 
                 window.__adsApi.mostrarCiclo(function () {
                     if (!radioStarted) return;
-                    /* Al terminar el anuncio, cargar la siguiente canción */
                     playNextSalaItem();
                 });
                 return;
             }
 
-            /* Aún no toca anuncio → siguiente canción */
             playNextSalaItem();
         });
 
-        /* Mantener el botón actualizado */
         salaAudio.addEventListener('play',   () => updateStartButton());
         salaAudio.addEventListener('pause',  () => updateStartButton());
         salaAudio.addEventListener('loadedmetadata', () => updateStartButton());
@@ -12779,45 +12747,128 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /* ============================================================
-       COMENTARIOS
+       COMENTARIOS — CON 3 NIVELES DE FALLBACK
        ============================================================ */
     let currentUser = null;
     let unsubComments = null;
 
-    function getCommentsCollectionGroup() {
-        return firebase.firestore().collectionGroup(COMMENTS_SUB);
-    }
-
     function listenComments() {
         if (unsubComments) { unsubComments(); unsubComments = null; }
         if (!currentUser) { renderComments([]); return; }
-        try {
-            unsubComments = getCommentsCollectionGroup()
-                .orderBy('fecha', 'desc')
-                .limit(150)
-                .onSnapshot(snap => {
-                    const list = [];
-                    snap.forEach(doc => {
-                        const d = doc.data() || {};
-                        list.push({
-                            id: doc.id,
-                            uid: d.uid || '',
-                            nombre: d.nombre || 'Usuario',
-                            foto: d.foto || '',
-                            texto: d.texto || '',
-                            fecha: d.fecha && typeof d.fecha.toDate === 'function'
-                                ? d.fecha.toDate() : null
+
+        const db = firebase.firestore();
+
+        /* === Nivel 1: collectionGroup + orderBy (requiere índice) === */
+        const tryLevel1 = () => {
+            try {
+                unsubComments = db.collectionGroup(COMMENTS_SUB)
+                    .orderBy('fecha', 'desc')
+                    .limit(150)
+                    .onSnapshot(snap => {
+                        const list = [];
+                        snap.forEach(doc => {
+                            const d = doc.data() || {};
+                            list.push({
+                                id: doc.id,
+                                uid: d.uid || '',
+                                nombre: d.nombre || 'Usuario',
+                                foto: d.foto || '',
+                                texto: d.texto || '',
+                                fecha: d.fecha && typeof d.fecha.toDate === 'function'
+                                    ? d.fecha.toDate() : null
+                            });
                         });
+                        console.log(LOG, '✅ Nivel 1: comentarios vía collectionGroup+orderBy:', list.length);
+                        renderComments(list);
+                    }, err => {
+                        console.warn(LOG, '⚠️ Nivel 1 falló (probable falta de índice):',
+                                     err && err.code, err && err.message);
+                        if (unsubComments) { unsubComments(); unsubComments = null; }
+                        tryLevel2();
                     });
-                    renderComments(list);
-                }, err => {
-                    console.warn(LOG, 'Error escuchando comentarios:', err);
-                    renderComments([]);
+            } catch (e) {
+                console.warn(LOG, 'Nivel 1 excepción:', e);
+                tryLevel2();
+            }
+        };
+
+        /* === Nivel 2: collectionGroup sin orderBy (ordena en cliente) === */
+        const tryLevel2 = () => {
+            try {
+                unsubComments = db.collectionGroup(COMMENTS_SUB)
+                    .limit(150)
+                    .onSnapshot(snap => {
+                        const list = [];
+                        snap.forEach(doc => {
+                            const d = doc.data() || {};
+                            list.push({
+                                id: doc.id,
+                                uid: d.uid || '',
+                                nombre: d.nombre || 'Usuario',
+                                foto: d.foto || '',
+                                texto: d.texto || '',
+                                fecha: d.fecha && typeof d.fecha.toDate === 'function'
+                                    ? d.fecha.toDate() : null
+                            });
+                        });
+                        list.sort((a, b) => {
+                            const fa = a.fecha ? a.fecha.getTime() : 0;
+                            const fb = b.fecha ? b.fecha.getTime() : 0;
+                            return fb - fa;
+                        });
+                        console.log(LOG, '✅ Nivel 2: comentarios vía collectionGroup (ordenados en cliente):', list.length);
+                        renderComments(list);
+                    }, err => {
+                        console.warn(LOG, '⚠️ Nivel 2 falló:', err && err.code, err && err.message);
+                        if (unsubComments) { unsubComments(); unsubComments = null; }
+                        tryLevel3();
+                    });
+            } catch (e) {
+                console.warn(LOG, 'Nivel 2 excepción:', e);
+                tryLevel3();
+            }
+        };
+
+        /* === Nivel 3: lectura manual por cada usuario === */
+        const tryLevel3 = async () => {
+            try {
+                console.log(LOG, '🔄 Nivel 3: leyendo comentarios por usuario…');
+                const usersSnap = await db.collection('historial_usuarios').get();
+                const promises = usersSnap.docs.map(async userDoc => {
+                    try {
+                        const cSnap = await userDoc.ref.collection(COMMENTS_SUB).get();
+                        const arr = [];
+                        cSnap.forEach(doc => {
+                            const d = doc.data() || {};
+                            arr.push({
+                                id: doc.id,
+                                uid: d.uid || userDoc.id,
+                                nombre: d.nombre || 'Usuario',
+                                foto: d.foto || '',
+                                texto: d.texto || '',
+                                fecha: d.fecha && typeof d.fecha.toDate === 'function'
+                                    ? d.fecha.toDate() : null
+                            });
+                        });
+                        return arr;
+                    } catch (_) { return []; }
                 });
-        } catch (e) {
-            console.warn(LOG, 'No se pudo suscribir a comentarios:', e);
-            renderComments([]);
-        }
+                const arrays = await Promise.all(promises);
+                const list = arrays.flat();
+                list.sort((a, b) => {
+                    const fa = a.fecha ? a.fecha.getTime() : 0;
+                    const fb = b.fecha ? b.fecha.getTime() : 0;
+                    return fb - fa;
+                });
+                console.log(LOG, '✅ Nivel 3: comentarios cargados manualmente:', list.length);
+                renderComments(list);
+            } catch (e) {
+                console.error(LOG, '❌ Nivel 3 falló:', e);
+                renderComments([]);
+            }
+        };
+
+        tryLevel1();
     }
 
     function avatarHTML(c) {
@@ -12962,6 +13013,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             if (status) { status.textContent = '✓ Publicado'; status.classList.add('ok'); }
             setTimeout(closeCommentModal, 500);
+            /* Refrescar comentarios para verlo al instante */
+            setTimeout(listenComments, 600);
         } catch (e) {
             console.warn(LOG, 'Error publicando:', e);
             if (status) {
@@ -13001,6 +13054,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 .doc(pendingDelete.id)
                 .delete();
             closeDeleteModal();
+            setTimeout(listenComments, 600);
         } catch (e) {
             console.warn(LOG, 'Error eliminando:', e);
             if (btn) { btn.disabled = false; btn.textContent = 'Eliminar'; }
@@ -13134,10 +13188,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        /* Detectar selección externa */
         attachExternalStopWatcher();
-
-        /* Contador de anuncios cada 2 canciones en Sala Música */
         attachSalaAdsCounter();
 
         /* Comentarios */
