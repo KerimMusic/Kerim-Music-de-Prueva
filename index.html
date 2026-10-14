@@ -94,15 +94,35 @@
 
             <div class="home-view" id="home-view">
 
+                <!-- =========================================================
+                     SALA DE MÚSICA  (NUEVA — primera sección del home)
+                     ========================================================= -->
+                <section class="home-section" id="sec-sala-musica">
+                    <h2 class="home-section-title">Sala de Música</h2>
+                    <div class="sala-cover" id="sala-cover">
+                        <div class="sala-cover-collage" id="sala-cover-collage"></div>
+                        <div class="sala-cover-overlay"></div>
+                        <button class="sala-cover-btn" id="sala-cover-btn" type="button">
+                            <span>Escuchar</span>
+                            <svg viewBox="0 0 24 24" width="22" height="22" fill="none"
+                                 stroke="#000" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="10"/>
+                                <polygon points="10 8 16 12 10 16 10 8" fill="#000" stroke="none"/>
+                            </svg>
+                        </button>
+                        <span class="sala-cover-brand">OmegaBeats</span>
+                    </div>
+                </section>
+
                 <section class="home-section" id="sec-artists">
                     <h2 class="home-section-title">¿Qué artista quieres escuchar?</h2>
                     <div class="home-carousel" id="carousel-artists"></div>
                 </section>
 
                 <section class="home-section" id="sec-listen-again">
-    <h2 class="home-section-title">🔁 Volver a Oír</h2>
-    <div class="home-carousel" id="carousel-listen-again"></div>
-               </section>
+                    <h2 class="home-section-title">🔁 Volver a Oír</h2>
+                    <div class="home-carousel" id="carousel-listen-again"></div>
+                </section>
 
                 <section class="home-section" id="sec-maybe">
                     <h2 class="home-section-title">A lo mejor te guste</h2>
@@ -514,6 +534,54 @@
             </div>
         </div>
 
+        <!-- =========================================================
+             VISTA: SALA DE MÚSICA — LISTA DE GÉNEROS (NUEVA)
+             ========================================================= -->
+        <div class="sala-musica-view" id="sala-musica-view" aria-hidden="true">
+            <div class="sm-header">
+                <button class="sm-back" id="sm-back" type="button" aria-label="Volver">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none"
+                         stroke="#ffffff" stroke-width="2.4" stroke-linecap="round"
+                         stroke-linejoin="round">
+                        <polyline points="15 18 9 12 15 6"/>
+                    </svg>
+                </button>
+                <h1 class="sm-title">Sala de Música</h1>
+                <span style="width:36px;"></span>
+            </div>
+            <div class="sm-scroll" id="sm-scroll">
+                <div class="sm-genres-grid" id="sm-genres-grid"></div>
+                <div class="sm-empty" id="sm-empty" style="display:none;">
+                    <div class="sm-empty-title">Aún no hay géneros</div>
+                    <div class="sm-empty-sub">Sube canciones con género para verlos aquí</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- =========================================================
+             VISTA: SALA DE MÚSICA — CANCIONES DE UN GÉNERO (NUEVA)
+             ========================================================= -->
+        <div class="sala-genero-view" id="sala-genero-view" aria-hidden="true">
+            <div class="sm-header">
+                <button class="sm-back" id="sg-back" type="button" aria-label="Volver">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none"
+                         stroke="#ffffff" stroke-width="2.4" stroke-linecap="round"
+                         stroke-linejoin="round">
+                        <polyline points="15 18 9 12 15 6"/>
+                    </svg>
+                </button>
+                <h1 class="sm-title" id="sg-title">Género</h1>
+                <span style="width:36px;"></span>
+            </div>
+            <div class="sm-scroll" id="sg-scroll">
+                <div class="sg-list" id="sg-list"></div>
+                <div class="sm-empty" id="sg-empty" style="display:none;">
+                    <div class="sm-empty-title">Sin canciones</div>
+                    <div class="sm-empty-sub">No hay canciones de este género</div>
+                </div>
+            </div>
+        </div>
+
         <!-- ==================== BOTTOM NAVIGATION BAR ==================== -->
         <nav class="bottom-nav" id="bottom-nav">
             <button class="bn-item" id="bn-mensajes" type="button">
@@ -611,25 +679,25 @@
     <audio id="audio-player" preload="metadata"></audio>
 
     <!-- ==================== MODAL CAMBIAR COLOR ==================== -->
-<div class="mp-modal" id="color-modal" aria-hidden="true">
-    <div class="mp-modal-backdrop" id="color-modal-backdrop"></div>
-    <div class="mp-modal-box" role="dialog" aria-modal="true" aria-labelledby="color-modal-title">
-        <div class="mp-modal-header">
-            <h2 class="mp-modal-title" id="color-modal-title">Cambiar color</h2>
-            <button class="mp-modal-close" id="color-modal-close" type="button" aria-label="Cerrar">&times;</button>
-        </div>
-        <div class="color-options">
-            <button type="button" class="color-option" data-theme="light">
-                <span class="color-swatch color-swatch--light"></span>
-                <span>⚪ Blanco</span>
-            </button>
-            <button type="button" class="color-option" data-theme="dark">
-                <span class="color-swatch color-swatch--dark"></span>
-                <span>⚫ Negro</span>
-            </button>
+    <div class="mp-modal" id="color-modal" aria-hidden="true">
+        <div class="mp-modal-backdrop" id="color-modal-backdrop"></div>
+        <div class="mp-modal-box" role="dialog" aria-modal="true" aria-labelledby="color-modal-title">
+            <div class="mp-modal-header">
+                <h2 class="mp-modal-title" id="color-modal-title">Cambiar color</h2>
+                <button class="mp-modal-close" id="color-modal-close" type="button" aria-label="Cerrar">&times;</button>
+            </div>
+            <div class="color-options">
+                <button type="button" class="color-option" data-theme="light">
+                    <span class="color-swatch color-swatch--light"></span>
+                    <span>⚪ Blanco</span>
+                </button>
+                <button type="button" class="color-option" data-theme="dark">
+                    <span class="color-swatch color-swatch--dark"></span>
+                    <span>⚫ Negro</span>
+                </button>
+            </div>
         </div>
     </div>
-</div>
 
     <div class="share-modal" id="share-modal" aria-hidden="true">
         <div class="share-modal-backdrop" id="share-modal-backdrop"></div>
@@ -648,69 +716,53 @@
             <p class="share-modal-status" id="share-modal-status"></p>
         </div>
     </div>
+
     <!-- ==================== MODAL DE COMPRA DE BEATS ==================== -->
-<div class="buy-modal" id="buy-modal" aria-hidden="true">
-    <div class="buy-modal-backdrop" id="buy-modal-backdrop"></div>
-    <div class="buy-modal-box" role="dialog" aria-modal="true" aria-labelledby="buy-modal-title">
-        <button class="buy-modal-close" id="buy-modal-close" type="button" aria-label="Cerrar">&times;</button>
-        <h2 class="buy-modal-title" id="buy-modal-title">COMPRAR BEATS</h2>
+    <div class="buy-modal" id="buy-modal" aria-hidden="true">
+        <div class="buy-modal-backdrop" id="buy-modal-backdrop"></div>
+        <div class="buy-modal-box" role="dialog" aria-modal="true" aria-labelledby="buy-modal-title">
+            <button class="buy-modal-close" id="buy-modal-close" type="button" aria-label="Cerrar">&times;</button>
+            <h2 class="buy-modal-title" id="buy-modal-title">COMPRAR BEATS</h2>
 
-        <div class="buy-modal-cover">
-            <img id="buy-modal-cover-img" alt="Portada del beat" loading="lazy">
+            <div class="buy-modal-cover">
+                <img id="buy-modal-cover-img" alt="Portada del beat" loading="lazy">
+            </div>
+
+            <div class="buy-modal-song">
+                <span class="buy-modal-song-title" id="buy-modal-song-title">Beat</span>
+                <span class="buy-modal-song-creator" id="buy-modal-song-creator">Creador</span>
+            </div>
+
+            <div class="buy-options">
+                <button type="button" class="buy-option" data-format="mp3">
+                    <span class="buy-option-name">Mp3</span>
+                    <span class="buy-option-price" id="buy-price-mp3">$ ---</span>
+                    <span class="buy-switch" aria-hidden="true"></span>
+                </button>
+                <button type="button" class="buy-option" data-format="wav">
+                    <span class="buy-option-name">Wav</span>
+                    <span class="buy-option-price" id="buy-price-wav">$ ---</span>
+                    <span class="buy-switch" aria-hidden="true"></span>
+                </button>
+                <button type="button" class="buy-option" data-format="custom">
+                    <span class="buy-option-name">Exclusivo</span>
+                    <span class="buy-option-price"></span>
+                    <span class="buy-switch" aria-hidden="true"></span>
+                </button>
+            </div>
+
+            <div class="buy-description">
+                <strong>🎵 Beats originales y de alta calidad</strong>
+                Todos nuestros beats son originales, creados con dedicación y pasión por la música, ofreciendo un sonido de alta calidad para llevar tus proyectos musicales al siguiente nivel. Encuentra el ritmo perfecto para tu próximo éxito con OmegaBeats.
+            </div>
+
+            <div class="buy-contact-choices" id="buy-contact-choices" style="display:none;"></div>
+
+            <button type="button" class="buy-action-btn" id="buy-action-btn" disabled>HACER COMPRA</button>
+
+            <p class="buy-status" id="buy-status"></p>
         </div>
-
-        <div class="buy-modal-song">
-            <span class="buy-modal-song-title" id="buy-modal-song-title">Beat</span>
-            <span class="buy-modal-song-creator" id="buy-modal-song-creator">Creador</span>
-        </div>
-
-        <div class="buy-options">
-            <button type="button" class="buy-option" data-format="mp3">
-                <span class="buy-option-name">Mp3</span>
-                <span class="buy-option-price" id="buy-price-mp3">$ ---</span>
-                <span class="buy-switch" aria-hidden="true"></span>
-            </button>
-            <button type="button" class="buy-option" data-format="wav">
-                <span class="buy-option-name">Wav</span>
-                <span class="buy-option-price" id="buy-price-wav">$ ---</span>
-                <span class="buy-switch" aria-hidden="true"></span>
-            </button>
-            <button type="button" class="buy-option" data-format="custom">
-                <span class="buy-option-name">Exclusivo</span>
-                <span class="buy-option-price"></span>
-                <span class="buy-switch" aria-hidden="true"></span>
-            </button>
-        </div>
-
-        <div class="buy-description">
-            <strong>🎵 Beats originales y de alta calidad</strong>
-            Todos nuestros beats son originales, creados con dedicación y pasión por la música, ofreciendo un sonido de alta calidad para llevar tus proyectos musicales al siguiente nivel. Encuentra el ritmo perfecto para tu próximo éxito con OmegaBeats.
-        </div>
-
-        <div class="buy-contact-choices" id="buy-contact-choices" style="display:none;"></div>
-
-        <button type="button" class="buy-action-btn" id="buy-action-btn" disabled>HACER COMPRA</button>
-
-        <p class="buy-status" id="buy-status"></p>
     </div>
-</div>
-    <section class="home-section" id="sec-sala-musica">
-    <h2 class="home-section-title">Sala de Música</h2>
-    <div class="sala-cover" id="sala-cover">
-        <div class="sala-cover-collage" id="sala-cover-collage"></div>
-        <div class="sala-cover-overlay"></div>
-        <button class="sala-cover-btn" id="sala-cover-btn" type="button">
-            <span>Escuchar</span>
-            <svg viewBox="0 0 24 24" width="22" height="22" fill="none"
-                 stroke="#000" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="10"/>
-                <polygon points="10 8 16 12 10 16 10 8" fill="#000" stroke="none"/>
-            </svg>
-        </button>
-        <span class="sala-cover-brand">OmegaBeats</span>
-    </div>
-</section>
-    
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
