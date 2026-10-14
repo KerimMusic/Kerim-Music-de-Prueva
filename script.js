@@ -12507,7 +12507,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const LOG = '[SALA-MUSICA]';
     const SHUFFLE_KEY = 'omega_shuffle_v1';
     const REPEAT_KEY  = 'omega_repeat_mode_v1';
-    const COMMENTS_SUB = 'sala_musica_comentarios'; // subcolección por usuario
+    const COMMENTS_SUB = 'sala_musica_comentarios';
 
     /* ---------- Utilidades ---------- */
     function norm(s) {
@@ -12576,7 +12576,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let radioStarted = false;
 
+    /* ============================================================
+       BOTÓN COMENZAR → PLAY / PAUSA / INICIAR RADIO (1ª vez)
+       ============================================================ */
     function startRadio() {
+        const audio = document.getElementById('audio-player');
+        if (!audio) return;
+
+        /* --- 1) Si YA hay una canción cargada, solo play/pausa --- */
+        if (audio.src && audio.currentSrc) {
+            if (audio.paused) {
+                const p = audio.play();
+                if (p && p.catch) p.catch(() => {});
+            } else {
+                audio.pause();
+            }
+            return;
+        }
+
+        /* --- 2) Primera vez: iniciar radio aleatoria --- */
         const items = getAllItems();
         if (!items.length) {
             console.warn(LOG, 'No hay canciones disponibles');
@@ -12615,13 +12633,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function updateStartButton() {
         const btn = $('sm-start-btn');
+        const audio = document.getElementById('audio-player');
         if (!btn) return;
-        if (radioStarted) {
-            btn.textContent = 'Sonando…';
-            btn.classList.add('playing');
-        } else {
+
+        if (!audio || !audio.src || !audio.currentSrc) {
             btn.textContent = 'Comenzar';
             btn.classList.remove('playing');
+            return;
+        }
+
+        if (audio.paused) {
+            btn.textContent = 'Continuar';
+            btn.classList.remove('playing');
+        } else {
+            btn.textContent = 'Pausar';
+            btn.classList.add('playing');
         }
     }
 
@@ -12653,7 +12679,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const incoming = showingA ? coverB : coverA;
         const outgoing = showingA ? coverA : coverB;
 
-        /* Esperar a que la imagen cargue antes de animarla */
         const doSwap = () => {
             incoming.classList.add('active');
             outgoing.classList.remove('active');
@@ -12663,7 +12688,6 @@ document.addEventListener('DOMContentLoaded', () => {
         incoming.onload  = doSwap;
         incoming.onerror = () => { incoming.src = ''; };
 
-        /* Si la imagen ya está en caché, onload podría no dispararse */
         incoming.src = src;
         if (incoming.complete && incoming.naturalWidth) {
             setTimeout(doSwap, 30);
@@ -12677,14 +12701,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (a) a.textContent = artist || 'OmegaBeats';
     }
 
-    function updateBadgeVisibility(playing) {
-        const badge = $('sm-live-badge');
-        if (!badge) return;
-        /* Cuando hay canción sonando, mostramos el badge Live siempre */
-        badge.classList.remove('hidden');
-    }
-
-    /* Observar cambios en el reproductor existente */
     function syncFromPlayer() {
         const coverEl = $('player-cover');
         const titleEl = $('player-title');
@@ -12697,11 +12713,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         setCover(src);
 
-        /* Artista desde el item activo */
         let artist = 'OmegaBeats';
         const active = document.querySelector('#playlist .playlist-item.active');
         if (active) artist = getItemArtist(active) || 'OmegaBeats';
         setSongInfo(title || 'Radio en vivo', artist);
+
+        /* Actualiza el texto del botón según el estado real */
+        updateStartButton();
     }
 
     function startPlayerObserver() {
@@ -12753,7 +12771,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const sc = $('sm-scroll');
         if (sc) sc.scrollTop = 0;
 
-        /* Sincronizar portada actual */
         syncFromPlayer();
     }
 
@@ -12867,7 +12884,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             row.appendChild(body);
 
-            /* Solo los propios permiten long-press para eliminar */
             if (c.uid === uid) {
                 attachLongPress(row, c);
             }
@@ -12876,7 +12892,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    /* Long-press 1 segundo para eliminar */
     let pressTimer = null;
     let pressRow = null;
 
@@ -12903,7 +12918,6 @@ document.addEventListener('DOMContentLoaded', () => {
         row.addEventListener('pointerleave', cancel);
         row.addEventListener('pointermove', (e) => {
             if (pressTimer) {
-                /* mover mucho cancela */
                 if (Math.abs(e.movementX) + Math.abs(e.movementY) > 15) cancel();
             }
         });
@@ -13082,7 +13096,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 e.preventDefault();
                 e.stopPropagation();
                 if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} }
-                openSalaMusica();           // ← ahora abre la ventana
+                openSalaMusica();
             });
         }
 
@@ -13120,14 +13134,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         initCoverElements();
 
-        /* Botón volver de la vista Sala Música */
         const back = $('sm-back');
         if (back && back.dataset.smReady !== '1') {
             back.dataset.smReady = '1';
             back.addEventListener('click', closeSalaMusica);
         }
 
-        /* Botón Comenzar */
         const startBtn = $('sm-start-btn');
         if (startBtn && startBtn.dataset.smReady !== '1') {
             startBtn.dataset.smReady = '1';
@@ -13139,7 +13151,16 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        /* Comentarios: abrir / cerrar modal */
+        /* 🆕 Observar cambios de play/pausa del audio para el botón */
+        const audioEl = document.getElementById('audio-player');
+        if (audioEl && audioEl.dataset.smPlayWatch !== '1') {
+            audioEl.dataset.smPlayWatch = '1';
+            audioEl.addEventListener('play',   () => updateStartButton());
+            audioEl.addEventListener('pause',  () => updateStartButton());
+            audioEl.addEventListener('ended',  () => updateStartButton());
+            audioEl.addEventListener('loadedmetadata', () => updateStartButton());
+        }
+
         const cBtn = $('sm-comment-btn');
         if (cBtn && cBtn.dataset.smReady !== '1') {
             cBtn.dataset.smReady = '1';
@@ -13157,7 +13178,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (cBack)    cBack.addEventListener('click', closeCommentModal);
         if (cPublish) cPublish.addEventListener('click', publishComment);
 
-        /* Modal eliminar */
         const dClose = $('sm-delete-close');
         const dCancel= $('sm-delete-cancel');
         const dBack  = $('sm-delete-backdrop');
@@ -13167,7 +13187,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (dBack)   dBack.addEventListener('click', closeDeleteModal);
         if (dConf)   dConf.addEventListener('click', confirmDeleteComment);
 
-        /* ESC cierra modales / vista */
         document.addEventListener('keydown', (e) => {
             if (e.key !== 'Escape') return;
             const cm = $('sm-comment-modal');
@@ -13178,7 +13197,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (sv && sv.classList.contains('visible')) { e.stopPropagation(); closeSalaMusica(); }
         }, true);
 
-        /* Cerrar Sala Música si el usuario abre otra vista principal */
         ['playlist-view','artist-profile','album-view','mi-playlist-view',
          'mensajes-view','chat-view','newmsg-view','stats-view'].forEach(id => {
             const el = document.getElementById(id);
@@ -13195,7 +13213,6 @@ document.addEventListener('DOMContentLoaded', () => {
             obs.observe(el, { attributes: true, attributeFilter: ['class'] });
         });
 
-        /* Sincronización con Firebase Auth */
         firebase.auth().onAuthStateChanged(user => {
             currentUser = user;
             if (user) {
@@ -13206,19 +13223,18 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
-        /* Listener de comentarios (activar cuando abra la vista) */
         const smView = $('sala-musica-view');
         if (smView && smView.dataset.smListen !== '1') {
             smView.dataset.smListen = '1';
             const obs = new MutationObserver(() => {
                 if (smView.classList.contains('visible')) {
                     listenComments();
+                    updateStartButton();
                 }
             });
             obs.observe(smView, { attributes: true, attributeFilter: ['class'] });
         }
 
-        /* Inyección en el home */
         let tries = 0;
         (function loop() {
             tries++;
@@ -13228,13 +13244,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 injectSalaSection();
                 watchPlaylist();
                 startPlayerObserver();
+                updateStartButton();
                 console.log(LOG, '🚀 Sala Música lista');
                 return;
             }
             if (tries < 60) setTimeout(loop, 250);
         })();
 
-        /* Refrescar portada al volver a la pestaña */
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') {
                 setTimeout(renderCover, 200);
