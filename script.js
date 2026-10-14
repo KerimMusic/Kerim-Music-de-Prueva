@@ -12497,8 +12497,10 @@ document.addEventListener('DOMContentLoaded', () => {
 /* ============================================================
    XX. SALA MÚSICA — RADIO EN VIVO + COMENTARIOS
    ------------------------------------------------------------
-   Función INDEPENDIENTE. No modifica reproductor, playlists,
-   historial, estadísticas, mensajes ni comunidad.
+   - El botón Comenzar inicia la radio aleatoria.
+   - Si hay canción cargada y la radio está activa → play/pausa.
+   - Si el usuario elige una canción del reproductor normal,
+     la radio se detiene y vuelve a estado inicial.
    ============================================================ */
 (function () {
     'use strict';
@@ -12552,20 +12554,33 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /* ============================================================
-       CONFIGURACIÓN RADIO
+       RADIO — SHUFFLE / REPEAT
        ============================================================ */
+    let savedShuffleState = null;
+    let savedRepeatState  = null;
+
     function forceShuffleOn() {
+        if (savedShuffleState === null) {
+            try { savedShuffleState = localStorage.getItem(SHUFFLE_KEY) || '1'; }
+            catch (_) { savedShuffleState = '1'; }
+        }
         try { localStorage.setItem(SHUFFLE_KEY, '1'); } catch (_) {}
         window.__omegaShuffleOn = true;
+
         const btn = document.getElementById('fs-shuffle');
-        if (btn && !btn.classList.contains('active')) {
+        if (btn) {
             btn.classList.add('active');
             btn.setAttribute('aria-label', 'Aleatorio activado');
             btn.setAttribute('title', 'Aleatorio activado');
         }
     }
     function forceRepeatOff() {
+        if (savedRepeatState === null) {
+            try { savedRepeatState = localStorage.getItem(REPEAT_KEY) || 'off'; }
+            catch (_) { savedRepeatState = 'off'; }
+        }
         try { localStorage.setItem(REPEAT_KEY, 'off'); } catch (_) {}
+
         const btn = document.getElementById('fs-repeat');
         if (btn) {
             btn.classList.remove('active', 'mode-one');
@@ -12573,18 +12588,52 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.setAttribute('title', 'Repetir desactivado');
         }
     }
-
-    let radioStarted = false;
+    function restorePlaybackModes() {
+        if (savedShuffleState !== null) {
+            try { localStorage.setItem(SHUFFLE_KEY, savedShuffleState); } catch (_) {}
+            const s = savedShuffleState;
+            window.__omegaShuffleOn = (s === '1');
+            const btn = document.getElementById('fs-shuffle');
+            if (btn) {
+                btn.classList.toggle('active', s === '1');
+                btn.setAttribute('aria-label', s === '1' ? 'Aleatorio activado' : 'Aleatorio desactivado');
+                btn.setAttribute('title', s === '1' ? 'Aleatorio activado' : 'Aleatorio desactivado');
+            }
+            savedShuffleState = null;
+        }
+        if (savedRepeatState !== null) {
+            try { localStorage.setItem(REPEAT_KEY, savedRepeatState); } catch (_) {}
+            const r = savedRepeatState;
+            const btn = document.getElementById('fs-repeat');
+            if (btn) {
+                btn.classList.toggle('active', r !== 'off');
+                btn.classList.toggle('mode-one', r === 'one');
+                const label = r === 'one' ? 'Repetir 1 canción'
+                            : r === 'all' ? 'Repetir todo'
+                            : 'Repetir desactivado';
+                btn.setAttribute('aria-label', label);
+                btn.setAttribute('title', label);
+            }
+            savedRepeatState = null;
+        }
+    }
 
     /* ============================================================
-       BOTÓN COMENZAR → PLAY / PAUSA / INICIAR RADIO (1ª vez)
+       ESTADO DE LA RADIO
        ============================================================ */
+    let radioStarted    = false;   // ¿La radio está activa?
+    let smInternalClick = false;   // ¿El click viene de Sala Música?
+
+    /* ------------------------------------------------------------
+       BOTÓN COMENZAR
+       - Radio inactiva → nueva reproducción aleatoria.
+       - Radio activa   → play/pausa.
+       ------------------------------------------------------------ */
     function startRadio() {
         const audio = document.getElementById('audio-player');
-        if (!audio) return;
 
-        /* --- 1) Si YA hay una canción cargada, solo play/pausa --- */
-        if (audio.src && audio.currentSrc) {
+        /* Radio activa → play/pausa */
+        if (radioStarted && audio) {
             if (audio.paused) {
                 const p = audio.play();
                 if (p && p.catch) p.catch(() => {});
@@ -12594,7 +12643,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        /* --- 2) Primera vez: iniciar radio aleatoria --- */
+        /* Radio inactiva → iniciar nueva reproducción aleatoria */
         const items = getAllItems();
         if (!items.length) {
             console.warn(LOG, 'No hay canciones disponibles');
@@ -12621,21 +12670,49 @@ document.addEventListener('DOMContentLoaded', () => {
         const first = candidates[Math.floor(Math.random() * candidates.length)];
         if (!first) return;
 
+        /* Marcar el click como interno para no confundirlo con
+           una selección del usuario desde el reproductor normal */
+        smInternalClick = true;
         try {
             first.click();
-            radioStarted = true;
-            updateStartButton();
-            console.log(LOG, '▶ Radio iniciada:', getItemTitle(first));
         } catch (err) {
             console.warn(LOG, 'Error al iniciar radio:', err);
+            smInternalClick = false;
+            return;
         }
+        smInternalClick = false;
+
+        radioStarted = true;
+        updateStartButton();
+        console.log(LOG, '▶ Radio iniciada:', getItemTitle(first));
     }
 
+    /* ------------------------------------------------------------
+       DETENER RADIO (sin tocar el audio)
+       ------------------------------------------------------------ */
+    function stopRadio() {
+        if (!radioStarted) return;
+        radioStarted = false;
+        restorePlaybackModes();
+        updateStartButton();
+        console.log(LOG, '⏹ Radio detenida (selección externa)');
+    }
+
+    /* ------------------------------------------------------------
+       ACTUALIZAR TEXTO DEL BOTÓN
+       ------------------------------------------------------------ */
     function updateStartButton() {
         const btn = $('sm-start-btn');
-        const audio = document.getElementById('audio-player');
         if (!btn) return;
 
+        /* Si la radio NO está activa → siempre "Comenzar" */
+        if (!radioStarted) {
+            btn.textContent = 'Comenzar';
+            btn.classList.remove('playing');
+            return;
+        }
+
+        const audio = document.getElementById('audio-player');
         if (!audio || !audio.src || !audio.currentSrc) {
             btn.textContent = 'Comenzar';
             btn.classList.remove('playing');
@@ -12649,6 +12726,34 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.textContent = 'Pausar';
             btn.classList.add('playing');
         }
+    }
+
+    /* ------------------------------------------------------------
+       DETECTAR SELECCIÓN EXTERNA
+       ------------------------------------------------------------ */
+    function attachExternalStopWatcher() {
+        const pl = document.getElementById('playlist');
+        if (!pl || pl.dataset.smExternalStop === '1') return;
+        pl.dataset.smExternalStop = '1';
+
+        pl.addEventListener('click', (e) => {
+            /* Ignorar click interno de la radio */
+            if (smInternalClick) return;
+
+            /* Ignorar avances internos de la cola (sección 40) */
+            if (window.__queueAdvancing) return;
+
+            /* Nada que detener si la radio no está activa */
+            if (!radioStarted) return;
+
+            const item = e.target.closest('.playlist-item');
+            if (!item) return;
+
+            /* El usuario eligió una canción desde el reproductor normal.
+               Detenemos la radio SIN tocar el audio: el reproductor
+               normal se encargará de reproducirla. */
+            stopRadio();
+        }, true); // capture para adelantarse al handler normal
     }
 
     /* ============================================================
@@ -12718,7 +12823,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (active) artist = getItemArtist(active) || 'OmegaBeats';
         setSongInfo(title || 'Radio en vivo', artist);
 
-        /* Actualiza el texto del botón según el estado real */
+        /* Actualizar el botón según el estado real */
         updateStartButton();
     }
 
@@ -12748,7 +12853,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
-
     function hideFullscreenPlayer() {
         const fsPlayer = $('fs-player');
         if (fsPlayer && fsPlayer.classList.contains('visible')) {
@@ -12756,24 +12860,18 @@ document.addEventListener('DOMContentLoaded', () => {
             fsPlayer.setAttribute('aria-hidden', 'true');
         }
     }
-
     function openSalaMusica() {
         const view = $('sala-musica-view');
         if (!view) return;
-
         hideFullscreenPlayer();
         closeAllOtherViews();
-
         document.body.classList.add('sm-open');
         view.classList.add('visible');
         view.setAttribute('aria-hidden', 'false');
-
         const sc = $('sm-scroll');
         if (sc) sc.scrollTop = 0;
-
         syncFromPlayer();
     }
-
     function closeSalaMusica() {
         const view = $('sala-musica-view');
         if (!view) return;
@@ -12783,7 +12881,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /* ============================================================
-       COMENTARIOS — Firebase
+       COMENTARIOS
        ============================================================ */
     let currentUser = null;
     let unsubComments = null;
@@ -12795,7 +12893,6 @@ document.addEventListener('DOMContentLoaded', () => {
     function listenComments() {
         if (unsubComments) { unsubComments(); unsubComments = null; }
         if (!currentUser) { renderComments([]); return; }
-
         try {
             unsubComments = getCommentsCollectionGroup()
                 .orderBy('fecha', 'desc')
@@ -12884,9 +12981,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             row.appendChild(body);
 
-            if (c.uid === uid) {
-                attachLongPress(row, c);
-            }
+            if (c.uid === uid) attachLongPress(row, c);
 
             container.appendChild(row);
         });
@@ -12917,18 +13012,14 @@ document.addEventListener('DOMContentLoaded', () => {
         row.addEventListener('pointercancel', cancel);
         row.addEventListener('pointerleave', cancel);
         row.addEventListener('pointermove', (e) => {
-            if (pressTimer) {
-                if (Math.abs(e.movementX) + Math.abs(e.movementY) > 15) cancel();
-            }
+            if (pressTimer && (Math.abs(e.movementX) + Math.abs(e.movementY) > 15)) cancel();
         });
     }
     function cancelPress() {
         if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
     }
 
-    /* ============================================================
-       MODAL COMENTARIO
-       ============================================================ */
+    /* Modal comentario */
     function openCommentModal() {
         const modal = $('sm-comment-modal');
         const input = $('sm-comment-input');
@@ -12946,7 +13037,6 @@ document.addEventListener('DOMContentLoaded', () => {
         modal.classList.remove('visible');
         modal.setAttribute('aria-hidden', 'true');
     }
-
     async function publishComment() {
         if (!currentUser) return;
         const input = $('sm-comment-input');
@@ -12986,9 +13076,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ============================================================
-       MODAL ELIMINAR COMENTARIO
-       ============================================================ */
+    /* Modal eliminar */
     let pendingDelete = null;
 
     function askDeleteComment(comment) {
@@ -13006,7 +13094,6 @@ document.addEventListener('DOMContentLoaded', () => {
         modal.setAttribute('aria-hidden', 'true');
         pendingDelete = null;
     }
-
     async function confirmDeleteComment() {
         if (!pendingDelete || !currentUser) return;
         const btn = $('sm-delete-confirm');
@@ -13025,7 +13112,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /* ============================================================
-       INYECCIÓN DE LA SECCIÓN HOME
+       SECCIÓN EN EL HOME
        ============================================================ */
     function renderCover() {
         const wrap = $('sala-musica-artists');
@@ -13151,7 +13238,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        /* 🆕 Observar cambios de play/pausa del audio para el botón */
+        /* Observar el audio para actualizar el botón */
         const audioEl = document.getElementById('audio-player');
         if (audioEl && audioEl.dataset.smPlayWatch !== '1') {
             audioEl.dataset.smPlayWatch = '1';
@@ -13161,6 +13248,10 @@ document.addEventListener('DOMContentLoaded', () => {
             audioEl.addEventListener('loadedmetadata', () => updateStartButton());
         }
 
+        /* 🆕 Detectar selección externa */
+        attachExternalStopWatcher();
+
+        /* Comentarios */
         const cBtn = $('sm-comment-btn');
         if (cBtn && cBtn.dataset.smReady !== '1') {
             cBtn.dataset.smReady = '1';
@@ -13244,6 +13335,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 injectSalaSection();
                 watchPlaylist();
                 startPlayerObserver();
+                attachExternalStopWatcher();
                 updateStartButton();
                 console.log(LOG, '🚀 Sala Música lista');
                 return;
