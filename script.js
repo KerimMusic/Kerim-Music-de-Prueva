@@ -12352,6 +12352,7 @@ document.addEventListener('DOMContentLoaded', () => {
    - Al arrancar pausa el reproductor normal
    - Al elegir una canción del reproductor normal, la radio se detiene
    - 🆕 Respeta podcasts programados (Sección 50)
+   - 🆕 Muestra "Próximos programas" bajo el botón Comenzar
    COMENTARIOS:
    - Carga con 3 niveles de fallback para funcionar sin índice
    ============================================================ */
@@ -12424,6 +12425,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let isPlayingPodcast      = false;
     let podcastTimer          = null;
     let podcastCheckInterval  = null;
+    let podcastMode           = null;   /* 'live' | 'normal' | null */
 
     /* ------------------------------------------------------------
        Cargar y reproducir un item en el audio de Sala Música
@@ -12677,6 +12679,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         isPlayingPodcast = true;
         window.__podcastPlaying = true;
+        podcastMode = 'live';
 
         const cover = getItemCover(bc.item);
         const title = getItemTitle(bc.item) || bc.podcast.titulo;
@@ -12713,6 +12716,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (podcastTimer) clearInterval(podcastTimer);
         podcastTimer = setInterval(() => {
             if (!isPlayingPodcast) return;
+            if (podcastMode !== 'live') return;   /* Sólo detener si es transmisión en vivo */
             const now = Date.now();
             if (now >= bc.endMs) { stopPodcastBroadcast(false); return; }
             const still = window.__podcastApi.getActiveBroadcast();
@@ -12729,6 +12733,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!isPlayingPodcast) return;
         isPlayingPodcast = false;
         window.__podcastPlaying = false;
+        podcastMode = null;
 
         if (podcastTimer) { clearInterval(podcastTimer); podcastTimer = null; }
 
@@ -12763,6 +12768,96 @@ document.addEventListener('DOMContentLoaded', () => {
             clearInterval(podcastCheckInterval);
             podcastCheckInterval = null;
         }
+    }
+
+    /* ============================================================
+       🆕 PRÓXIMOS PROGRAMAS
+       ============================================================ */
+    let upcomingRefreshTimer = null;
+
+    function formatHora(ms) {
+        const d = new Date(ms);
+        return String(d.getHours()).padStart(2, '0') + ':' +
+               String(d.getMinutes()).padStart(2, '0');
+    }
+    function formatFecha(ms) {
+        const d = new Date(ms);
+        const meses = ['ene','feb','mar','abr','may','jun',
+                       'jul','ago','sep','oct','nov','dic'];
+        return d.getDate() + ' ' + meses[d.getMonth()] + ' ' + d.getFullYear();
+    }
+    function getTipoEtiqueta(podcast) {
+        if (!podcast) return 'Programa';
+        const raw = podcast.raw || {};
+        if (raw.genero) return String(raw.genero);
+        if (raw.esPodcast === true) return 'Podcast';
+        const t = String(podcast.titulo || '').toLowerCase();
+        if (t.includes('programa'))   return 'Programa';
+        if (t.includes('entrevista')) return 'Entrevista';
+        return 'Podcast';
+    }
+
+    function renderUpcomingPrograms() {
+        const sec   = $('sm-upcoming-section');
+        const list  = $('sm-upcoming-list');
+        const empty = $('sm-upcoming-empty');
+        if (!sec || !list) return;
+
+        const api = window.__podcastApi;
+        if (!api || typeof api.getUpcomingBroadcasts !== 'function') {
+            sec.style.display = 'none';
+            return;
+        }
+
+        const upcoming = api.getUpcomingBroadcasts(Date.now(), 20) || [];
+        list.innerHTML = '';
+
+        if (!upcoming.length) {
+            sec.style.display = '';
+            if (empty) empty.style.display = '';
+            return;
+        }
+        if (empty) empty.style.display = 'none';
+        sec.style.display = '';
+
+        upcoming.forEach(u => {
+            const p = u.podcast;
+            const card = document.createElement('div');
+            card.className = 'sm-upcoming-card';
+
+            const tipo = esc(getTipoEtiqueta(p));
+            const titulo = esc(p.titulo || 'Programa');
+            const fechaStr = formatFecha(u.startMs);
+            const horaIni = formatHora(u.startMs);
+            const horaFin = formatHora(u.endMs);
+
+            card.innerHTML =
+                '<div class="sm-upcoming-cover">' +
+                    (p.imagen
+                        ? '<img src="' + esc(p.imagen) + '" alt="" loading="lazy">'
+                        : '') +
+                    '<span class="sm-upcoming-tag">' + tipo + '</span>' +
+                '</div>' +
+                '<div class="sm-upcoming-info">' +
+                    '<span class="sm-upcoming-title">' + titulo + '</span>' +
+                    '<span class="sm-upcoming-date">' + fechaStr + '</span>' +
+                    '<span class="sm-upcoming-time">' +
+                        horaIni + ' → ' + horaFin +
+                    '</span>' +
+                '</div>';
+
+            list.appendChild(card);
+        });
+    }
+
+    function startUpcomingRefresh() {
+        if (upcomingRefreshTimer) return;
+        upcomingRefreshTimer = setInterval(() => {
+            const v = $('sala-musica-view');
+            if (v && v.classList.contains('visible')) {
+                renderUpcomingPrograms();
+            }
+        }, 30000); // refresca cada 30 s
     }
 
     /* ============================================================
@@ -12878,6 +12973,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const sc = $('sm-scroll');
         if (sc) sc.scrollTop = 0;
         syncFromPlayer();
+        renderUpcomingPrograms();      // 🆕 dibujar próximos programas
+        startUpcomingRefresh();        // 🆕 refrescar periódicamente
     }
     function closeSalaMusica() {
         const view = $('sala-musica-view');
@@ -13402,6 +13499,14 @@ document.addEventListener('DOMContentLoaded', () => {
             obs.observe(smView, { attributes: true, attributeFilter: ['class'] });
         }
 
+        // 🆕 Refrescar próximos programas cuando el módulo 50 termine de cargar
+        window.addEventListener('podcastsLoaded', () => {
+            const v = $('sala-musica-view');
+            if (v && v.classList.contains('visible')) {
+                renderUpcomingPrograms();
+            }
+        });
+
         let tries = 0;
         (function loop() {
             tries++;
@@ -13425,7 +13530,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 setTimeout(renderCover, 200);
                 if ($('sala-musica-view')?.classList.contains('visible')) {
                     syncFromPlayer();
-                    // Si había podcast programado y no estamos reproduciendo, verificar
+                    renderUpcomingPrograms();
                     if (radioStarted && !isPlayingPodcast && window.__podcastApi) {
                         const bc = window.__podcastApi.getActiveBroadcast();
                         if (bc && bc.item) playPodcastBroadcast(bc);
@@ -13452,6 +13557,7 @@ document.addEventListener('DOMContentLoaded', () => {
    · Detecta esPodcast:true o genero:"Podcast"
    · Usa audioUrl, podcastHorasInicio[], podcastDuracionSeg
    · Calcula emisiones según fecha + horarios + repeticiones
+   · Expone getUpcomingBroadcasts para la sección de próximos
    ============================================================ */
 (function () {
     'use strict';
@@ -13560,7 +13666,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const fecha = toDate(d.fecha || d.fechaInicio);
 
-        // podcastHorasInicio puede ser array (["12:15","17:00"]) o string
         const rawHoras = d.podcastHorasInicio || d.horasInicio || d.podcastHora || d.horaInicio;
         const horasInicio = [];
         if (Array.isArray(rawHoras)) {
@@ -13656,6 +13761,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     '| reps:', p.repeticiones);
             });
             ensureAllPodcastItems();
+            // Notificar a Sala Música para refrescar próximos programas
+            try {
+                window.dispatchEvent(new CustomEvent('podcastsLoaded', {
+                    detail: { count: podcastsCache.length }
+                }));
+            } catch (_) {}
             return podcastsCache;
         })();
 
@@ -13767,12 +13878,29 @@ document.addEventListener('DOMContentLoaded', () => {
         return best;
     }
 
+    /* 🆕 Lista completa de próximas emisiones */
+    function getUpcomingBroadcasts(nowMs, limit) {
+        const now = nowMs || Date.now();
+        const all = [];
+        for (const p of podcastsCache) {
+            const occs = computeOccurrences(p, now);
+            for (const o of occs) {
+                if (o.startMs > now) {
+                    all.push({ podcast: p, startMs: o.startMs, endMs: o.endMs });
+                }
+            }
+        }
+        all.sort((a, b) => a.startMs - b.startMs);
+        return all.slice(0, limit || 20);
+    }
+
     /* ============ API ============ */
     window.__podcastApi = {
         isPodcastItem: itemIsPodcast,
         isPodcastText,
         getActiveBroadcast,
         getUpcomingBroadcast,
+        getUpcomingBroadcasts,
         getPodcasts: () => podcastsCache.slice(),
         loadPodcasts,
         quarantine: quarantineItems,
@@ -13798,7 +13926,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
         console.log('%cEmisión activa:', 'color:#fbbf24', getActiveBroadcast());
-        console.log('%cPróxima emisión:', 'color:#fbbf24', getUpcomingBroadcast());
+        console.log('%cPróximas emisiones:', 'color:#fbbf24', getUpcomingBroadcasts(Date.now(), 8));
         console.log('Hora actual:', new Date().toLocaleString());
     };
 
