@@ -13302,666 +13302,363 @@ document.addEventListener('DOMContentLoaded', () => {
     window.__closeSalaMusica = closeSalaMusica;
 })();
 /* ============================================================
-   50. PODCASTS / PROGRAMAS / ENTREVISTAS — TRANSMISIÓN EN VIVO
+   50. PODCASTS Y PROGRAMAS — TRANSMISIÓN EN VIVO EN SALA MÚSICA
    ------------------------------------------------------------
-   • Detecta contenidos con "Podcast", "Programa" o "Entrevista"
-     (en título, subtítulo, álbum o tipo) y los excluye por completo
-     del reproductor normal (playlist, búsqueda, carruseles,
-     recomendaciones, playlists públicas, etc.).
-   • Lee la programación desde `historial_usuarios` (sub-colecciones
-     `podcasts` / `programas` / `entrevistas` / `contenido_programado`
-     y arrays con el mismo nombre en el documento del usuario).
-   • Respeta día/fecha, hora de inicio, hora de fin, duración
-     (`podcastDuracionSeg` / `podcastDuracionText`) y repeticiones.
-   • Se comporta como transmisión en vivo: al entrar antes de la hora
-     espera; al entrar después, se incorpora al punto exacto.
-   • Reutiliza el <audio> existente de Sala Música. No altera
-     Firestore ni las estadísticas.
+   · Detecta contenido "Podcast", "Programa" o "Entrevista".
+   · Lo oculta del reproductor normal y de las búsquedas.
+   · Calcula la emisión activa según Firebase (historial_usuarios).
+   · Expone window.__podcastApi para que Sala Música lo use.
    ============================================================ */
 (function () {
     'use strict';
 
     const $ = (id) => document.getElementById(id);
-    const LOG = '[PODCAST-LIVE]';
+    const LOG = '[PODCAST]';
+    const KEYWORDS = ['podcast', 'programa', 'entrevista'];
+    const STORE_ID = 'podcast-store';
+    const DIAS = ['domingo','lunes','martes','miercoles','jueves','viernes','sabado'];
 
-    /* Palabras clave para detectar contenido programado */
-    const PODCAST_REGEX = /\b(podcast|programa|entrevista)s?\b/i;
+    let podcastsCache = [];   // lista normalizada
+    let loaded   = false;
+    let loading  = null;
+    let movingItems = false;
 
-    /* Días en español → índice JS (0 = domingo) */
-    const DIA_NAMES = {
-        domingo:0, lunes:1, martes:2, miercoles:3, 'miércoles':3,
-        jueves:4, viernes:5, sabado:6, 'sábado':6,
-        dom:0, lun:1, mar:2, mie:3, 'mié':3, jue:4, vie:5, sab:6, 'sáb':6
-    };
-
-    /* ------------------------------------------------------------
-       ESTADO
-       ------------------------------------------------------------ */
-    let programacionCache = [];
-    let liveActive        = false;
-    let liveProgActual    = null;
-    let liveFinTs         = 0;
-    let liveInterval      = null;
-    let podcastContainer  = null;
-    let reloadingProg     = false;
-
-    /* ------------------------------------------------------------
-       PARSERS FLEXIBLES (no asumen un único nombre de campo)
-       ------------------------------------------------------------ */
-    function parseDias(raw) {
-        if (raw == null) return null;
-        if (Array.isArray(raw)) {
-            const a = raw.map(d => {
-                if (typeof d === 'number') return d % 7;
-                const s = String(d).toLowerCase().trim();
-                return DIA_NAMES.hasOwnProperty(s) ? DIA_NAMES[s] : NaN;
-            }).filter(n => !isNaN(n));
-            return a.length ? a : null;
-        }
-        if (typeof raw === 'number') return [raw % 7];
-        if (typeof raw === 'string') {
-            const a = raw.split(/[,;\s]+/).filter(Boolean).map(p => {
-                const s = p.toLowerCase().trim();
-                if (/^\d+$/.test(s)) return parseInt(s, 10) % 7;
-                return DIA_NAMES.hasOwnProperty(s) ? DIA_NAMES[s] : NaN;
-            }).filter(n => !isNaN(n));
-            return a.length ? a : null;
-        }
-        return null;
+    /* ---------- Utilidades ---------- */
+    function norm(s) {
+        return String(s || '').toLowerCase()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+    }
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;',
+            '"': '&quot;', "'": '&#39;'
+        }[c]));
+    }
+    function isPodcastText(t) {
+        if (!t) return false;
+        const n = norm(t);
+        return KEYWORDS.some(k => n.includes(k));
+    }
+    function itemIsPodcast(item) {
+        if (!item) return false;
+        if (item.dataset.podcast === '1') return true;
+        const title = item.querySelector('.item-title')?.textContent || '';
+        const sub   = item.querySelector('.item-subtitle')?.textContent || '';
+        const album = item.querySelector('.Album')?.textContent || '';
+        const gen   = item.dataset.genre || '';
+        return isPodcastText(title) || isPodcastText(sub)
+            || isPodcastText(album) || isPodcastText(gen);
     }
 
-    function parseHora(raw) {
-        if (raw == null) return null;
-        if (typeof raw === 'object' && typeof raw.seconds === 'number') {
-            const d = new Date(raw.seconds * 1000);
-            return { h:d.getHours(), m:d.getMinutes(), s:d.getSeconds() };
+    /* ---------- Almacén oculto ---------- */
+    function getStore() {
+        let store = document.getElementById(STORE_ID);
+        if (!store) {
+            store = document.createElement('div');
+            store.id = STORE_ID;
+            store.style.display = 'none';
+            store.setAttribute('aria-hidden', 'true');
+            document.body.appendChild(store);
         }
-        if (raw instanceof Date) {
-            return { h:raw.getHours(), m:raw.getMinutes(), s:raw.getSeconds() };
+        return store;
+    }
+    function quarantineItems() {
+        if (movingItems) return;
+        movingItems = true;
+        try {
+            const playlist = $('playlist');
+            if (!playlist) return;
+            const store = getStore();
+            const items = playlist.querySelectorAll('.playlist-item');
+            let moved = 0;
+            items.forEach(item => {
+                if (itemIsPodcast(item)) {
+                    item.dataset.podcast = '1';
+                    store.appendChild(item);      // mover fuera de #playlist
+                    moved++;
+                }
+            });
+            if (moved) console.log(LOG, 'Aislados del reproductor normal:', moved);
+        } finally {
+            setTimeout(() => { movingItems = false; }, 80);
         }
-        if (typeof raw === 'number') {
-            if (raw < 0) return null;
-            if (raw < 24)    return { h:raw, m:0, s:0 };
-            if (raw < 1440)  return { h:Math.floor(raw/60), m:raw%60, s:0 };
-            if (raw < 86400) return { h:Math.floor(raw/3600), m:Math.floor((raw%3600)/60), s:raw%60 };
-            return null;
-        }
-        const s = String(raw).trim();
-        const ampm = s.match(/^(\d{1,2})(?::(\d{2}))?(?::(\d{2}))?\s*(am|pm)$/i);
-        if (ampm) {
-            let h = parseInt(ampm[1], 10);
-            const m = parseInt(ampm[2] || '0', 10);
-            const sec = parseInt(ampm[3] || '0', 10);
-            const ap = ampm[4].toLowerCase();
-            if (ap === 'pm' && h < 12) h += 12;
-            if (ap === 'am' && h === 12) h = 0;
-            return { h, m, s:sec };
-        }
-        const m = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
-        if (m) return { h:+m[1], m:+m[2], s:+(m[3] || 0) };
-        return null;
     }
 
-    function parseFecha(raw) {
-        if (!raw) return null;
-        if (typeof raw === 'object' && typeof raw.seconds === 'number') return new Date(raw.seconds*1000);
-        if (raw instanceof Date) return raw;
-        if (typeof raw === 'string') {
-            const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
-            if (m) return new Date(+m[1], +m[2]-1, +m[3]);
-            const d = new Date(raw);
-            if (!isNaN(d.getTime())) return d;
+    /* ---------- Normalización flexible desde Firestore ---------- */
+    function pick(d, names) {
+        if (!d) return undefined;
+        for (const n of names) {
+            if (d[n] !== undefined && d[n] !== null && d[n] !== '') return d[n];
+            const key = Object.keys(d).find(k => k.toLowerCase() === n.toLowerCase());
+            if (key && d[key] !== undefined && d[key] !== null && d[key] !== '') return d[key];
         }
+        return undefined;
+    }
+    function toDate(v) {
+        if (!v) return null;
+        if (typeof v.toDate === 'function') return v.toDate();
+        if (v instanceof Date) return v;
+        if (typeof v === 'number') return new Date(v < 1e12 ? v * 1000 : v);
+        if (typeof v === 'string') { const d = new Date(v); return isNaN(d) ? null : d; }
+        if (typeof v === 'object' && typeof v.seconds === 'number') return new Date(v.seconds * 1000);
         return null;
     }
+    function parseTimeOfDay(v) {
+        if (!v) return null;
+        if (typeof v === 'string') {
+            const m = v.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)?$/i);
+            if (m) {
+                let h = parseInt(m[1], 10);
+                const mi = parseInt(m[2], 10);
+                const s  = m[3] ? parseInt(m[3], 10) : 0;
+                const ap = (m[4] || '').toLowerCase();
+                if (ap === 'pm' && h < 12) h += 12;
+                if (ap === 'am' && h === 12) h = 0;
+                return { h, m: mi, s };
+            }
+        }
+        const d = toDate(v);
+        return d ? { h: d.getHours(), m: d.getMinutes(), s: d.getSeconds() } : null;
+    }
+    function normalizePodcast(d, srcId) {
+        const titulo = String(pick(d, ['titulo','nombre','title','name','podcastNombre']) || '').trim();
+        const audio  = String(pick(d, ['audio','audioUrl','podcastAudio','url','mp3']) || '').trim();
+        const imagen = String(pick(d, ['imagen','imagenUrl','portada','cover','image']) || '').trim();
 
-    function normalizarProgramacion(data) {
-        const d = data || {};
-        const audioUrl = d.audioUrl || d.audio || d.url || d.dropboxUrl ||
-                         d.archivo || d.file || d.enlace || '';
-        const duracionSeg = Number(
-            d.podcastDuracionSeg ?? d.duracionSeg ?? d.duracion_segundos ??
-            d.duracionSegundos ?? d.duracionSegs ?? d.durationSeg ?? 0
-        ) || 0;
+        const duracionTexto = String(pick(d, [
+            'podcastDuraciontex','podcastDuracionText','duracionTexto','duracionText','durationText'
+        ]) || '').trim();
+
+        let duracionSeg = Number(pick(d, [
+            'podcastDuracionSeg','duracionSeg','duracionSegundos','durationSec'
+        ]) || 0) || 0;
+
+        // Si sólo hay texto, intentar interpretarlo como MM:SS o HH:MM:SS
+        if (!duracionSeg && duracionTexto) {
+            const m = duracionTexto.match(/^(?:(\d+):)?(\d{1,2}):(\d{2})$/);
+            if (m) duracionSeg = (parseInt(m[1] || '0', 10) * 3600) +
+                                 (parseInt(m[2], 10) * 60) + parseInt(m[3], 10);
+        }
+
+        const fecha   = toDate(pick(d, ['fecha','fechaInicio','podcastFecha','fechaProgramada','startDate']));
+        const horaIni = parseTimeOfDay(pick(d, ['hora','horaInicio','podcastHora','horaInicioStr','startTime']));
+
+        const repRaw  = pick(d, ['repeticiones','podcastRepeticiones','repeticionesProgramadas','repeatCount','repeats']);
+        const repeticiones = Math.max(0, Number(repRaw) || 0);
+
+        const diasRaw = pick(d, ['dias','podcastDias','diasSemana','days','weekdays']);
+        const dias = Array.isArray(diasRaw)
+            ? diasRaw.map(norm)
+            : (typeof diasRaw === 'string' ? diasRaw.split(',').map(s => norm(s.trim())) : []);
+
+        const fechaFin = toDate(pick(d, ['fechaFin','hasta','endDate','fechaTermino']));
+
         return {
-            id: d.id || '',
-            tipo: d.tipo || '',
-            titulo: d.titulo || d.title || d.nombre || d.name || 'Programa',
-            audioUrl,
-            portada: d.imagenUrl || d.portada || d.imagen || d.image || d.cover || '',
-            duracionSeg,
-            duracionText: d.podcastDuracionText || d.duracionText || d.duracion || '',
-            dias:  parseDias(d.podcastDias || d.dias || d.diaSemana || d.diasSemana || d.dia),
-            fecha: parseFecha(d.podcastFecha || d.fecha || d.fechaTransmision),
-            horaInicio: parseHora(
-                d.podcastHoraInicio || d.horaInicio || d.hora_inicio ||
-                d.inicio || d.podcastInicio || d.startTime
-            ),
-            horaFin: parseHora(
-                d.podcastHoraFin || d.horaFin || d.hora_fin ||
-                d.fin || d.podcastFin || d.endTime
-            ),
-            repeticiones: Number(
-                d.podcastRepeticiones ?? d.repeticiones ?? d.numRepeticiones ?? 0
-            ) || 0,
-            activo: d.activo !== false && d.activa !== false && d.enabled !== false,
+            id: srcId,
+            titulo, audio, imagen,
+            duracionTexto, duracionSeg,
+            fecha, horaIni,
+            repeticiones, dias, fechaFin,
             raw: d
         };
     }
 
-    /* ------------------------------------------------------------
-       CARGA DESDE FIRESTORE (SOLO LECTURA, NO MODIFICA NADA)
-       ------------------------------------------------------------ */
-    async function cargarProgramacion() {
-        const user = firebase.auth().currentUser;
-        if (!user) { programacionCache = []; return []; }
-        if (reloadingProg) return programacionCache;
-        reloadingProg = true;
+    /* ---------- Carga desde Firebase ---------- */
+    async function loadPodcasts(force) {
+        if (!force && loaded) return podcastsCache;
+        if (loading && !force) return loading;
 
-        const todas = [];
-        const db = firebase.firestore();
-        const userRef = db.collection('historial_usuarios').doc(user.uid);
-        const campos  = ['podcasts', 'programas', 'entrevistas', 'contenido_programado'];
+        loading = (async () => {
+            if (typeof firebase === 'undefined' || !firebase.firestore) {
+                podcastsCache = [];
+                return podcastsCache;
+            }
+            const db = firebase.firestore();
+            const out = [];
 
-        // Sub-colecciones
-        for (const col of campos) {
+            // 1) historial_usuarios: buscar cualquier campo "podcast*"
             try {
-                const snap = await userRef.collection(col).get();
+                const snap = await db.collection('historial_usuarios').limit(2000).get();
                 snap.forEach(doc => {
-                    todas.push(normalizarProgramacion({
-                        id: doc.id, tipo: col, ...doc.data()
-                    }));
-                });
-            } catch (_) { /* silencioso */ }
-        }
+                    const d = doc.data() || {};
+                    const campos = {};
+                    Object.keys(d).forEach(k => { if (/^podcast/i.test(k)) campos[k] = d[k]; });
 
-        // Arrays dentro del documento del usuario
-        try {
-            const userDoc = await userRef.get();
-            if (userDoc.exists) {
-                const d = userDoc.data() || {};
-                campos.forEach(field => {
-                    const arr = d[field];
+                    const arr = d.podcasts || d.programas || d.entrevistas;
                     if (Array.isArray(arr)) {
-                        arr.forEach((item, i) => {
-                            if (item && typeof item === 'object') {
-                                todas.push(normalizarProgramacion({
-                                    id: `${field}_${i}`, tipo: field, ...item
-                                }));
-                            }
-                        });
+                        arr.forEach((p, i) => out.push(normalizePodcast(p, doc.id + '#' + i)));
+                    } else if (Object.keys(campos).length) {
+                        out.push(normalizePodcast(campos, doc.id));
                     }
                 });
+            } catch (e) { console.warn(LOG, 'historial_usuarios:', e); }
+
+            // 2) Colecciones alternativas (por si el backend las usa)
+            for (const col of ['podcasts','programas','Radio_Podcast']) {
+                try {
+                    const snap = await db.collection(col).limit(500).get();
+                    snap.forEach(doc => out.push(normalizePodcast(doc.data() || {}, doc.id)));
+                } catch (_) {}
             }
-        } catch (_) { /* silencioso */ }
 
-        programacionCache = todas.filter(p =>
-            p.activo && p.audioUrl && p.duracionSeg > 0 &&
-            (p.horaInicio || p.fecha)
-        );
+            podcastsCache = out.filter(p => p.titulo && p.audio);
+            loaded = true;
+            console.log(LOG, '✅ Podcasts cargados:', podcastsCache.length);
+            ensureAllPodcastItems();
+            return podcastsCache;
+        })();
 
-        console.log(LOG, '📋 Programación válida:', programacionCache.length,
-                    'de', todas.length, 'entradas');
-        reloadingProg = false;
-        return programacionCache;
+        return loading;
     }
 
-    /* ------------------------------------------------------------
-       CÁLCULO DE VENTANAS DE EMISIÓN
-       ------------------------------------------------------------ */
-    function diaAplica(prog, ref) {
-        if (prog.fecha) {
-            const f = new Date(prog.fecha);
-            return f.getFullYear() === ref.getFullYear() &&
-                   f.getMonth()    === ref.getMonth()    &&
-                   f.getDate()     === ref.getDate();
+    /* ---------- Crear item DOM para podcasts sin entrada en el reproductor ---------- */
+    function ensureAllPodcastItems() {
+        const store = getStore();
+        podcastsCache.forEach(p => {
+            if (!p.audio || !p.titulo) return;
+            if (findPodcastItemByTitle(p.titulo)) return;
+            const el = document.createElement('div');
+            el.className = 'playlist-item';
+            el.dataset.podcast = '1';
+            el.dataset.src = p.audio;
+            el.dataset.title = p.titulo;
+            el.innerHTML =
+                '<div class="thumbnail">' +
+                    (p.imagen ? '<img src="' + esc(p.imagen) + '" alt="" loading="lazy">' : '') +
+                '</div>' +
+                '<div class="item-info">' +
+                    '<span class="item-title">' + esc(p.titulo) + '</span>' +
+                    '<span class="item-subtitle">Podcast · OmegaBeats</span>' +
+                '</div>';
+            store.appendChild(el);
+        });
+    }
+    function findPodcastItemByTitle(titulo) {
+        const target = norm(titulo);
+        if (!target) return null;
+        const store = getStore();
+        let best = null;
+        for (const it of store.querySelectorAll('.playlist-item')) {
+            const t = norm(it.querySelector('.item-title')?.textContent || '');
+            if (t === target) return it;
+            if (!best && t && (t.includes(target) || target.includes(t))) best = it;
         }
-        if (prog.dias && prog.dias.length) return prog.dias.includes(ref.getDay());
-        return true; // sin restricción → todos los días
+        return best;
     }
 
-    function ventanaParaDia(prog, ref) {
-        if (!prog.horaInicio) return null;
-        const inicio = new Date(
-            ref.getFullYear(), ref.getMonth(), ref.getDate(),
-            prog.horaInicio.h, prog.horaInicio.m, prog.horaInicio.s || 0, 0
-        );
-        const fin = new Date(inicio.getTime() + prog.duracionSeg * 1000);
-        return { inicio, fin };
+    /* ---------- Cálculo de ocurrencias ---------- */
+    function dayMatches(date, lista) {
+        if (!lista || !lista.length) return true;
+        const name = DIAS[date.getDay()];
+        return lista.some(d => d === name || d.startsWith(name.substring(0,3)));
+    }
+    function computeOccurrences(p, nowMs) {
+        const out = [];
+        if (!p.fecha || !p.horaIni || !p.duracionSeg) return out;
+
+        const durMs   = p.duracionSeg * 1000;
+        const base    = new Date(p.fecha);
+        base.setHours(p.horaIni.h, p.horaIni.m, p.horaIni.s || 0, 0);
+        const baseMs  = base.getTime();
+
+        const fromMs  = nowMs - 2 * 86400000;      // 2 días atrás
+        const toMs    = nowMs + 30 * 86400000;      // 30 días adelante
+        const endLim  = p.fechaFin ? p.fechaFin.getTime() + 86400000 : toMs;
+        const maxCount = p.repeticiones > 0 ? (p.repeticiones + 1) : 500;
+
+        let count = 0;
+        for (let day = 0; day < 400 && count < maxCount; day++) {
+            const cand = new Date(baseMs + day * 86400000);
+            const startMs = cand.getTime();
+            if (startMs > endLim) break;
+            if (startMs < fromMs - 7 * 86400000) continue;
+            if (!dayMatches(cand, p.dias)) continue;
+            const endMs = startMs + durMs;
+            if (endMs >= fromMs) out.push({ startMs, endMs });
+            count++;
+            if (startMs > toMs && out.length) break;
+        }
+        return out;
     }
 
-    function buscarEnVivo(now) {
-        now = now || new Date();
-        for (const prog of programacionCache) {
-            // Revisa hoy y ayer (por si cruza medianoche)
-            for (let off = 0; off <= 1; off++) {
-                const ref = new Date(now);
-                ref.setDate(ref.getDate() - off);
-                if (!diaAplica(prog, ref)) continue;
-                const v = ventanaParaDia(prog, ref);
-                if (!v) continue;
-                if (now >= v.inicio && now < v.fin) {
+    /* ---------- Búsqueda de emisión activa / próxima ---------- */
+    function getActiveBroadcast(nowMs) {
+        const now = nowMs || Date.now();
+        for (const p of podcastsCache) {
+            const occs = computeOccurrences(p, now);
+            for (const o of occs) {
+                if (now >= o.startMs && now < o.endMs) {
+                    const item = findPodcastItemByTitle(p.titulo);
                     return {
-                        prog, inicio: v.inicio, fin: v.fin,
-                        offsetSeg: Math.floor((now - v.inicio) / 1000)
+                        podcast: p,
+                        item,
+                        startMs: o.startMs,
+                        endMs: o.endMs,
+                        offsetSec:  (now - o.startMs) / 1000,
+                        remainingSec: (o.endMs - now) / 1000
                     };
                 }
             }
         }
         return null;
     }
-
-    function buscarProximo(now, maxMin) {
-        now = now || new Date();
-        maxMin = maxMin || 60;
-        const limite = new Date(now.getTime() + maxMin * 60 * 1000);
-        let mejor = null;
-        for (const prog of programacionCache) {
-            for (let d = 0; d < 8; d++) {
-                const ref = new Date(now);
-                ref.setDate(ref.getDate() + d);
-                if (!diaAplica(prog, ref)) continue;
-                const v = ventanaParaDia(prog, ref);
-                if (!v) continue;
-                if (v.inicio > now && v.inicio <= limite) {
-                    if (!mejor || v.inicio < mejor.inicio) {
-                        mejor = { prog, inicio: v.inicio, fin: v.fin };
-                    }
+    function getUpcomingBroadcast(nowMs) {
+        const now = nowMs || Date.now();
+        let best = null;
+        for (const p of podcastsCache) {
+            const occs = computeOccurrences(p, now);
+            for (const o of occs) {
+                if (o.startMs > now && (!best || o.startMs < best.startMs)) {
+                    best = { podcast: p, startMs: o.startMs, endMs: o.endMs };
                 }
             }
         }
-        return mejor;
+        return best;
     }
 
-    /* ------------------------------------------------------------
-       FILTRO: EXCLUIR DEL REPRODUCTOR NORMAL
-       (los movemos a un contenedor oculto para que ningún carrusel,
-       búsqueda ni recomendación los tome)
-       ------------------------------------------------------------ */
-    function getPodcastContainer() {
-        if (podcastContainer && podcastContainer.isConnected) return podcastContainer;
-        podcastContainer = document.getElementById('omega-podcast-storage');
-        if (!podcastContainer) {
-            podcastContainer = document.createElement('div');
-            podcastContainer.id = 'omega-podcast-storage';
-            podcastContainer.style.display = 'none';
-            podcastContainer.setAttribute('aria-hidden', 'true');
-            document.body.appendChild(podcastContainer);
+    /* ---------- API pública ---------- */
+    window.__podcastApi = {
+        isPodcastItem:      itemIsPodcast,
+        isPodcastText,
+        getActiveBroadcast,
+        getUpcomingBroadcast,
+        getPodcasts:        () => podcastsCache.slice(),
+        loadPodcasts,
+        quarantine:         quarantineItems,
+        findItemByTitle:    findPodcastItemByTitle
+    };
+
+    /* ---------- Init ---------- */
+    async function init() {
+        if (typeof firebase === 'undefined' || !firebase.auth) { setTimeout(init, 300); return; }
+
+        // Esperar a que aparezcan items del reproductor
+        let tries = 0;
+        while (document.querySelectorAll('#playlist .playlist-item').length === 0 && tries < 60) {
+            await new Promise(r => setTimeout(r, 250));
+            tries++;
         }
-        return podcastContainer;
-    }
+        quarantineItems();
 
-    function esContenidoProgramado(txt) {
-        return txt ? PODCAST_REGEX.test(String(txt)) : false;
-    }
+        // Cargar podcasts
+        await loadPodcasts(false).catch(() => {});
 
-    function itemEsPodcast(item) {
-        if (!item || !item.querySelector) return false;
-        const title    = item.querySelector('.item-title')?.textContent    || '';
-        const subtitle = item.querySelector('.item-subtitle')?.textContent || '';
-        const album    = item.querySelector('.Album')?.textContent         || '';
-        const tipo     = item.dataset.tipo || '';
-        return esContenidoProgramado(title)    ||
-               esContenidoProgramado(subtitle) ||
-               esContenidoProgramado(album)    ||
-               esContenidoProgramado(tipo);
-    }
-
-    function moverAPodcastContainer(item) {
-        if (!item || item.dataset.podcastMoved === '1') return;
-        item.dataset.podcastMoved = '1';
-        item.classList.add('podcast-hidden');
-        try { getPodcastContainer().appendChild(item); }
-        catch (_) { item.style.display = 'none'; }
-    }
-
-    function procesarItemsPodcast() {
-        const pl = document.getElementById('playlist');
-        if (!pl) return;
-        pl.querySelectorAll('.playlist-item').forEach(it => {
-            if (itemEsPodcast(it)) moverAPodcastContainer(it);
-        });
-    }
-
-    function setupPodcastFilter() {
-        const pl = document.getElementById('playlist');
-        if (!pl || pl.dataset.podcastFilter === '1') return;
-        pl.dataset.podcastFilter = '1';
-
-        const obs = new MutationObserver(muts => {
-            muts.forEach(m => m.addedNodes.forEach(node => {
-                if (node.nodeType !== 1) return;
-                if (node.classList?.contains('playlist-item')) {
-                    if (itemEsPodcast(node)) moverAPodcastContainer(node);
-                } else if (node.querySelectorAll) {
-                    node.querySelectorAll('.playlist-item').forEach(it => {
-                        if (itemEsPodcast(it)) moverAPodcastContainer(it);
-                    });
-                }
-            }));
-        });
-        obs.observe(pl, { childList: true, subtree: true });
-        procesarItemsPodcast();
-    }
-
-    function patchSearchVisibility() {
-        const orig = window.__applySearchVisibility;
-        if (typeof orig !== 'function' || orig.__podcastPatched) return;
-        const patched = function () {
-            orig.apply(this, arguments);
-            document.querySelectorAll('#playlist .playlist-item[data-podcast-moved="1"]')
-                .forEach(it => { it.style.display = 'none'; });
-        };
-        patched.__podcastPatched = true;
-        window.__applySearchVisibility = patched;
-    }
-
-    /* ------------------------------------------------------------
-       AUDIO Y UI (reutiliza #sala-audio-player)
-       ------------------------------------------------------------ */
-    function getSalaAudio() { return document.getElementById('sala-audio-player'); }
-
-    function mostrarLiveEnUI(info) {
-        const titleEl  = $('sm-song-title');
-        const artistEl = $('sm-song-artist');
-        const coverA   = $('sm-cover-a');
-        const badge    = $('sm-live-badge');
-
-        if (titleEl) titleEl.textContent = 'EN VIVO · ' + (info.prog.titulo || 'Programa');
-        if (artistEl) {
-            const restante = Math.max(0, Math.floor((info.fin - new Date()) / 1000));
-            const m = Math.floor(restante / 60);
-            const s = restante % 60;
-            artistEl.textContent = `Transmitiendo · ${m}:${String(s).padStart(2,'0')} restantes`;
-        }
-        if (coverA && info.prog.portada && coverA.src !== info.prog.portada) {
-            coverA.src = info.prog.portada;
-            coverA.classList.add('active');
-        }
-        if (badge) { badge.classList.remove('hidden'); badge.textContent = 'EN VIVO'; }
-    }
-
-    function mostrarEsperaEnUI(proximo) {
-        const titleEl  = $('sm-song-title');
-        const artistEl = $('sm-song-artist');
-        const badge    = $('sm-live-badge');
-        if (!titleEl) return;
-
-        if (!proximo) {
-            titleEl.textContent  = 'Radio en vivo';
-            artistEl.textContent = 'Presiona Comenzar para iniciar la estación';
-            if (badge) badge.classList.add('hidden');
-            return;
-        }
-        const hh = String(proximo.inicio.getHours()).padStart(2, '0');
-        const mm = String(proximo.inicio.getMinutes()).padStart(2, '0');
-        titleEl.textContent  = 'Próximo: ' + proximo.prog.titulo;
-        artistEl.textContent = `Programado para hoy a las ${hh}:${mm}`;
-        if (badge) { badge.classList.remove('hidden'); badge.textContent = 'PRÓXIMO'; }
-    }
-
-    function actualizarBotonLive() {
-        const btn = $('sm-start-btn');
-        if (!btn) return;
-        const audio = getSalaAudio();
-
-        if (!liveActive) {
-            const enVivo = buscarEnVivo(new Date());
-            if (enVivo) {
-                btn.textContent = 'Escuchar EN VIVO';
-                btn.classList.remove('playing');
-            }
-            return;
-        }
-        if (!audio || audio.paused) {
-            btn.textContent = 'Escuchar EN VIVO';
-            btn.classList.remove('playing');
-        } else {
-            btn.textContent = 'Pausar transmisión';
-            btn.classList.add('playing');
-        }
-    }
-
-    function iniciarLive(info) {
-        const audio = getSalaAudio();
-        if (!audio) return;
-        console.log(LOG, '▶ EN VIVO:', info.prog.titulo, '@', info.offsetSeg, 's');
-
-        liveActive       = true;
-        liveProgActual   = info.prog;
-        liveFinTs        = info.fin.getTime();
-        window.__podcastLiveActive = true;
-
-        try { audio.pause(); } catch (_) {}
-        audio.src = info.prog.audioUrl;
-
-        const seekAndPlay = () => {
-            try { audio.currentTime = info.offsetSeg; } catch (_) {}
-            const p = audio.play();
-            if (p && p.catch) p.catch(() => actualizarBotonLive());
-            audio.removeEventListener('loadedmetadata', seekAndPlay);
-        };
-        audio.addEventListener('loadedmetadata', seekAndPlay);
-
-        // Fallback si loadedmetadata no dispara a tiempo
-        setTimeout(() => {
-            if (!liveActive) return;
-            try {
-                if (Math.abs(audio.currentTime - info.offsetSeg) > 3) {
-                    audio.currentTime = info.offsetSeg;
-                }
-                if (audio.paused) audio.play().catch(() => {});
-            } catch (_) {}
-        }, 1200);
-
-        mostrarLiveEnUI(info);
-        actualizarBotonLive();
-    }
-
-    function finalizarLive() {
-        if (!liveActive) return;
-        console.log(LOG, '⏹ Fin de transmisión en vivo');
-        const audio = getSalaAudio();
-        if (audio) { try { audio.pause(); } catch (_) {} }
-
-        liveActive     = false;
-        liveProgActual = null;
-        liveFinTs      = 0;
-        window.__podcastLiveActive = false;
-
-        const badge = $('sm-live-badge');
-        if (badge) badge.classList.add('hidden');
-
-        const titleEl  = $('sm-song-title');
-        const artistEl = $('sm-song-artist');
-        if (titleEl)  titleEl.textContent  = 'Radio en vivo';
-        if (artistEl) artistEl.textContent = 'Presiona Comenzar para continuar con la estación';
-
-        actualizarBotonLive();
-    }
-
-    /* ------------------------------------------------------------
-       TICKER: revisa el estado cada 5 s
-       ------------------------------------------------------------ */
-    function tick() {
-        const now  = new Date();
-        const view = $('sala-musica-view');
-        const visible = view && view.classList.contains('visible');
-        const enVivo  = buscarEnVivo(now);
-
-        if (enVivo) {
-            if (!liveActive) {
-                // Aún no arrancado → intentar iniciar (el navegador decidirá
-                // si permite autoplay o requerirá gesto)
-                iniciarLive(enVivo);
-            } else {
-                mostrarLiveEnUI(enVivo);
-                const audio = getSalaAudio();
-                if (audio && liveProgActual &&
-                    audio.currentTime >= liveProgActual.duracionSeg - 0.5) {
-                    finalizarLive();
-                }
-                if (now.getTime() >= liveFinTs) finalizarLive();
-            }
-        } else {
-            if (liveActive) finalizarLive();
-            if (visible) mostrarEsperaEnUI(buscarProximo(now, 60));
-        }
-    }
-
-    function iniciarTicker() {
-        if (liveInterval) return;
-        liveInterval = setInterval(tick, 5000);
-        tick();
-    }
-    function detenerTicker() {
-        if (liveInterval) { clearInterval(liveInterval); liveInterval = null; }
-    }
-
-    /* ------------------------------------------------------------
-       GUARDS: que el handler "ended" de la radio normal no avance
-       cuando estamos en vivo
-       ------------------------------------------------------------ */
-    function attachLiveGuard() {
-        const audio = getSalaAudio();
-        if (!audio || audio.dataset.podcastGuard === '1') return;
-        audio.dataset.podcastGuard = '1';
-
-        audio.addEventListener('ended', (e) => {
-            if (window.__podcastLiveActive) {
-                e.stopImmediatePropagation();
-                e.stopPropagation();
-                finalizarLive();
-            }
-        }, true);
-
-        audio.addEventListener('timeupdate', () => {
-            if (!window.__podcastLiveActive || !liveProgActual) return;
-            const rest = Math.max(0, liveProgActual.duracionSeg - audio.currentTime);
-            const m = Math.floor(rest / 60);
-            const s = Math.floor(rest % 60);
-            const artistEl = $('sm-song-artist');
-            if (artistEl) artistEl.textContent = `EN VIVO · ${m}:${String(s).padStart(2,'0')} restantes`;
-        });
-
-        audio.addEventListener('pause', () => { if (window.__podcastLiveActive) actualizarBotonLive(); });
-        audio.addEventListener('play',  () => { if (window.__podcastLiveActive) actualizarBotonLive(); });
-    }
-
-    /* ------------------------------------------------------------
-       INTERCEPTAR BOTÓN "COMENZAR" DE SALA MÚSICA
-       ------------------------------------------------------------ */
-    function interceptarBotonComenzar() {
-        const btn = $('sm-start-btn');
-        if (!btn || btn.dataset.podcastIntercept === '1') return;
-        btn.dataset.podcastIntercept = '1';
-
-        btn.addEventListener('click', (e) => {
-            const audio = getSalaAudio();
-
-            // 1) Live activo → toggle play/pause con resincronización
-            if (liveActive) {
-                e.stopImmediatePropagation();
-                e.preventDefault();
-                if (!audio) return;
-                if (audio.paused) {
-                    const info = buscarEnVivo(new Date());
-                    if (info) { try { audio.currentTime = info.offsetSeg; } catch (_) {} }
-                    audio.play().catch(() => {});
-                } else {
-                    audio.pause();
-                }
-                actualizarBotonLive();
-                return;
-            }
-
-            // 2) Hay live disponible pero no iniciado → iniciar live
-            const enVivo = buscarEnVivo(new Date());
-            if (enVivo) {
-                e.stopImmediatePropagation();
-                e.preventDefault();
-                iniciarLive(enVivo);
-                return;
-            }
-            // 3) Sin live → el handler normal (radio aleatoria) sigue
-        }, true);
-    }
-
-    /* ------------------------------------------------------------
-       OBSERVAR VISTA DE SALA MÚSICA
-       ------------------------------------------------------------ */
-    function watchSalaView() {
-        const view = $('sala-musica-view');
-        if (!view || view.dataset.podcastWatch === '1') return;
-        view.dataset.podcastWatch = '1';
-
-        let lastVis = false;
-        const obs = new MutationObserver(() => {
-            const visible = view.classList.contains('visible');
-            if (visible === lastVis) return;
-            lastVis = visible;
-
-            if (visible) {
-                cargarProgramacion()
-                    .then(() => { tick(); iniciarTicker(); })
-                    .catch(() => iniciarTicker());
-                interceptarBotonComenzar();
-                attachLiveGuard();
-            } else {
-                detenerTicker();
-                const audio = getSalaAudio();
-                if (liveActive && audio && !audio.paused) {
-                    try { audio.pause(); } catch (_) {}
-                }
-            }
-        });
-        obs.observe(view, { attributes: true, attributeFilter: ['class'] });
-    }
-
-    /* ------------------------------------------------------------
-       INIT
-       ------------------------------------------------------------ */
-    function init() {
-        if (typeof firebase === 'undefined' || !firebase.auth) {
-            setTimeout(init, 400);
-            return;
+        // Reaccionar a items nuevos (subidas, colecciones, etc.)
+        const playlist = $('playlist');
+        if (playlist && playlist.dataset.podcastWatch !== '1') {
+            playlist.dataset.podcastWatch = '1';
+            const obs = new MutationObserver(() => {
+                if (movingItems) return;
+                setTimeout(quarantineItems, 60);
+            });
+            obs.observe(playlist, { childList: true, subtree: false });
         }
 
-        setupPodcastFilter();
-        patchSearchVisibility();
-        watchSalaView();
-        attachLiveGuard();
-        interceptarBotonComenzar();
-
+        // Refrescar tras login
         firebase.auth().onAuthStateChanged(user => {
-            if (user) {
-                cargarProgramacion().catch(() => {});
-                [400, 1500, 3500].forEach(ms => setTimeout(setupPodcastFilter, ms));
-            } else {
-                programacionCache = [];
-                finalizarLive();
-            }
+            if (user) { loadPodcasts(true).catch(() => {}); }
+            else { podcastsCache = []; loaded = false; }
         });
-
-        if (firebase.auth().currentUser) cargarProgramacion().catch(() => {});
-
-        // Reintentos por si el DOM aún no está listo
-        [800, 2000, 4500, 8000].forEach(ms => setTimeout(() => {
-            setupPodcastFilter();
-            patchSearchVisibility();
-            watchSalaView();
-            attachLiveGuard();
-            interceptarBotonComenzar();
-        }, ms));
-
-        document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible') {
-                const v = $('sala-musica-view');
-                if (v && v.classList.contains('visible')) tick();
-            }
-        });
-
-        console.log(LOG, '🚀 Módulo Podcasts/Programas/Entrevistas inicializado');
     }
 
     if (document.readyState === 'loading') {
@@ -13969,15 +13666,4 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
         init();
     }
-
-    // API pública (opcional, por si necesitas forzar acciones)
-    window.__podcastLive = {
-        recargar:        cargarProgramacion,
-        buscarEnVivo,
-        buscarProximo,
-        finalizar:       finalizarLive,
-        getActivo:       () => liveProgActual,
-        isActive:        () => liveActive,
-        getProgramacion: () => programacionCache.slice()
-    };
 })();
