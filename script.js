@@ -1362,7 +1362,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         audioPlayer.play = function () {
             if (isAdPlaying) return Promise.resolve();
-            // 🆕 Sala Música controla sus propios anuncios → no interferir
             if (window.__adsSkipAuto) return originalPlay();
             const src = audioPlayer.src;
             const isNewBeat = src && src !== lastSrc;
@@ -1384,7 +1383,6 @@ document.addEventListener('DOMContentLoaded', () => {
         bindSkip();
         cargarAnuncios().catch(function () {});
 
-        // 🆕 API pública para Sala Música
         window.__adsApi = {
             mostrarCiclo: function (onComplete) {
                 return mostrarCicloAnuncios(onComplete);
@@ -12353,6 +12351,7 @@ document.addEventListener('DOMContentLoaded', () => {
    - Sus anuncios se cuentan por separado (cada 2 canciones)
    - Al arrancar pausa el reproductor normal
    - Al elegir una canción del reproductor normal, la radio se detiene
+   - 🆕 Respeta podcasts programados (Sección 50)
    COMENTARIOS:
    - Carga con 3 niveles de fallback para funcionar sin índice
    ============================================================ */
@@ -12421,6 +12420,11 @@ document.addEventListener('DOMContentLoaded', () => {
     let smSongsPlayed   = 0;
     let currentSalaItem = null;
 
+    /* --- Podcasts --- */
+    let isPlayingPodcast      = false;
+    let podcastTimer          = null;
+    let podcastCheckInterval  = null;
+
     /* ------------------------------------------------------------
        Cargar y reproducir un item en el audio de Sala Música
        ------------------------------------------------------------ */
@@ -12466,6 +12470,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function playNextSalaItem() {
+        // --- PRIORIDAD: podcast en vivo ---
+        if (!isPlayingPodcast && window.__podcastApi) {
+            const bc = window.__podcastApi.getActiveBroadcast();
+            if (bc && bc.item) { playPodcastBroadcast(bc); return; }
+        }
+
         const items = getAllItems();
         if (!items.length) return;
 
@@ -12526,8 +12536,20 @@ document.addEventListener('DOMContentLoaded', () => {
             window.__adsApi.setSkipAutoTrigger(true);
         }
 
+        // --- PRIORIDAD: podcast en vivo al arrancar ---
+        if (window.__podcastApi) {
+            const bc = window.__podcastApi.getActiveBroadcast();
+            if (bc && bc.item) {
+                playPodcastBroadcast(bc);
+                updateStartButton();
+                startPodcastCheckLoop();
+                return;
+            }
+        }
+
         loadSalaItem(first, true);
         updateStartButton();
+        startPodcastCheckLoop();
         console.log(LOG, '▶ Radio iniciada:', getItemTitle(first));
     }
 
@@ -12539,6 +12561,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (window.__adsApi && window.__adsApi.setSkipAutoTrigger) {
             window.__adsApi.setSkipAutoTrigger(false);
         }
+        stopPodcastCheckLoop();
+        stopPodcastBroadcast(true);
 
         const salaAudio = getSalaAudio();
         if (salaAudio && !salaAudio.paused) {
@@ -12552,6 +12576,18 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateStartButton() {
         const btn = $('sm-start-btn');
         if (!btn) return;
+
+        if (isPlayingPodcast) {
+            const salaAudio = getSalaAudio();
+            if (salaAudio && !salaAudio.paused) {
+                btn.textContent = 'Pausar';
+                btn.classList.add('playing');
+            } else {
+                btn.textContent = 'Continuar';
+                btn.classList.remove('playing');
+            }
+            return;
+        }
 
         if (!radioStarted) {
             btn.textContent = 'Comenzar';
@@ -12599,6 +12635,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         salaAudio.addEventListener('ended', () => {
             if (!radioStarted) return;
+            if (isPlayingPodcast) return;            // 🆕 No contar anuncios durante podcast
             if (!window.__adsApi) return;
             if (window.__adsApi.isAdPlaying && window.__adsApi.isAdPlaying()) return;
 
@@ -12622,6 +12659,110 @@ document.addEventListener('DOMContentLoaded', () => {
         salaAudio.addEventListener('play',   () => updateStartButton());
         salaAudio.addEventListener('pause',  () => updateStartButton());
         salaAudio.addEventListener('loadedmetadata', () => updateStartButton());
+    }
+
+    /* ============================================================
+       TRANSMISIÓN DE PODCAST COMO "EN VIVO"
+       ============================================================ */
+    function playPodcastBroadcast(bc) {
+        if (!bc || !bc.item) return;
+        const salaAudio = getSalaAudio();
+        if (!salaAudio) return;
+
+        const src = bc.item.dataset.src;
+        if (!src) return;
+
+        const normalAudio = document.getElementById('audio-player');
+        if (normalAudio && !normalAudio.paused) { try { normalAudio.pause(); } catch (_) {} }
+
+        isPlayingPodcast = true;
+        window.__podcastPlaying = true;
+
+        const cover = getItemCover(bc.item);
+        const title = getItemTitle(bc.item) || bc.podcast.titulo;
+
+        const playerCover = document.getElementById('player-cover');
+        const playerTitle = document.getElementById('player-title');
+        if (playerCover) {
+            if (cover) playerCover.src = cover;
+            else playerCover.removeAttribute('src');
+        }
+        if (playerTitle) playerTitle.textContent = title;
+
+        getAllItems().forEach(i => i.classList.remove('active'));
+        bc.item.classList.add('active');
+        currentSalaItem = bc.item;
+
+        salaAudio.src = src;
+        const seekSec = Math.max(0,
+            Math.min(bc.offsetSec, (bc.podcast.duracionSeg || 0) - 0.5));
+
+        const applySeek = () => { try { salaAudio.currentTime = seekSec; } catch (_) {} };
+        if (salaAudio.readyState >= 1) applySeek();
+        else salaAudio.addEventListener('loadedmetadata', applySeek, { once: true });
+
+        const p = salaAudio.play();
+        if (p && p.catch) p.catch(() => {});
+
+        const btn = $('sm-start-btn');
+        if (btn) {
+            btn.textContent = 'Pausar';
+            btn.classList.add('playing');
+        }
+
+        if (podcastTimer) clearInterval(podcastTimer);
+        podcastTimer = setInterval(() => {
+            if (!isPlayingPodcast) return;
+            const now = Date.now();
+            if (now >= bc.endMs) { stopPodcastBroadcast(false); return; }
+            const still = window.__podcastApi.getActiveBroadcast();
+            if (!still || still.startMs !== bc.startMs) stopPodcastBroadcast(false);
+        }, 2500);
+
+        console.log(LOG, '📻 Podcast en vivo:', title,
+                    '| offset:', seekSec.toFixed(1) + 's');
+
+        syncFromPlayer();
+    }
+
+    function stopPodcastBroadcast(silent) {
+        if (!isPlayingPodcast) return;
+        isPlayingPodcast = false;
+        window.__podcastPlaying = false;
+
+        if (podcastTimer) { clearInterval(podcastTimer); podcastTimer = null; }
+
+        const salaAudio = getSalaAudio();
+        if (salaAudio) { try { salaAudio.pause(); } catch (_) {} }
+
+        console.log(LOG, '⏹ Fin del podcast → volviendo a la música');
+
+        if (silent) { updateStartButton(); return; }
+
+        if (radioStarted) {
+            setTimeout(() => { playNextSalaItem(); }, 200);
+        } else {
+            updateStartButton();
+        }
+    }
+
+    function startPodcastCheckLoop() {
+        if (podcastCheckInterval) return;
+        podcastCheckInterval = setInterval(() => {
+            if (!radioStarted || isPlayingPodcast) return;
+            const bc = window.__podcastApi && window.__podcastApi.getActiveBroadcast();
+            if (bc && bc.item) {
+                console.log(LOG, '⏰ Comienza un podcast programado');
+                playPodcastBroadcast(bc);
+            }
+        }, 10000);
+    }
+
+    function stopPodcastCheckLoop() {
+        if (podcastCheckInterval) {
+            clearInterval(podcastCheckInterval);
+            podcastCheckInterval = null;
+        }
     }
 
     /* ============================================================
@@ -12758,7 +12899,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const db = firebase.firestore();
 
-        /* === Nivel 1: collectionGroup + orderBy (requiere índice) === */
         const tryLevel1 = () => {
             try {
                 unsubComments = db.collectionGroup(COMMENTS_SUB)
@@ -12781,8 +12921,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         console.log(LOG, '✅ Nivel 1: comentarios vía collectionGroup+orderBy:', list.length);
                         renderComments(list);
                     }, err => {
-                        console.warn(LOG, '⚠️ Nivel 1 falló (probable falta de índice):',
-                                     err && err.code, err && err.message);
+                        console.warn(LOG, '⚠️ Nivel 1 falló:', err && err.code, err && err.message);
                         if (unsubComments) { unsubComments(); unsubComments = null; }
                         tryLevel2();
                     });
@@ -12792,7 +12931,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         };
 
-        /* === Nivel 2: collectionGroup sin orderBy (ordena en cliente) === */
         const tryLevel2 = () => {
             try {
                 unsubComments = db.collectionGroup(COMMENTS_SUB)
@@ -12816,7 +12954,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             const fb = b.fecha ? b.fecha.getTime() : 0;
                             return fb - fa;
                         });
-                        console.log(LOG, '✅ Nivel 2: comentarios vía collectionGroup (ordenados en cliente):', list.length);
+                        console.log(LOG, '✅ Nivel 2: comentarios vía collectionGroup:', list.length);
                         renderComments(list);
                     }, err => {
                         console.warn(LOG, '⚠️ Nivel 2 falló:', err && err.code, err && err.message);
@@ -12829,7 +12967,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         };
 
-        /* === Nivel 3: lectura manual por cada usuario === */
         const tryLevel3 = async () => {
             try {
                 console.log(LOG, '🔄 Nivel 3: leyendo comentarios por usuario…');
@@ -13013,7 +13150,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             if (status) { status.textContent = '✓ Publicado'; status.classList.add('ok'); }
             setTimeout(closeCommentModal, 500);
-            /* Refrescar comentarios para verlo al instante */
             setTimeout(listenComments, 600);
         } catch (e) {
             console.warn(LOG, 'Error publicando:', e);
@@ -13191,7 +13327,6 @@ document.addEventListener('DOMContentLoaded', () => {
         attachExternalStopWatcher();
         attachSalaAdsCounter();
 
-        /* Comentarios */
         const cBtn = $('sm-comment-btn');
         if (cBtn && cBtn.dataset.smReady !== '1') {
             cBtn.dataset.smReady = '1';
@@ -13261,6 +13396,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (smView.classList.contains('visible')) {
                     listenComments();
                     updateStartButton();
+                    if (radioStarted) startPodcastCheckLoop();
                 }
             });
             obs.observe(smView, { attributes: true, attributeFilter: ['class'] });
@@ -13287,7 +13423,14 @@ document.addEventListener('DOMContentLoaded', () => {
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') {
                 setTimeout(renderCover, 200);
-                if ($('sala-musica-view')?.classList.contains('visible')) syncFromPlayer();
+                if ($('sala-musica-view')?.classList.contains('visible')) {
+                    syncFromPlayer();
+                    // Si había podcast programado y no estamos reproduciendo, verificar
+                    if (radioStarted && !isPlayingPodcast && window.__podcastApi) {
+                        const bc = window.__podcastApi.getActiveBroadcast();
+                        if (bc && bc.item) playPodcastBroadcast(bc);
+                    }
+                }
             }
         });
     }
@@ -13301,6 +13444,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.__openSalaMusica  = openSalaMusica;
     window.__closeSalaMusica = closeSalaMusica;
 })();
+
 /* ============================================================
    50. PODCASTS Y PROGRAMAS — TRANSMISIÓN EN VIVO EN SALA MÚSICA
    ------------------------------------------------------------
@@ -13318,12 +13462,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const STORE_ID = 'podcast-store';
     const DIAS = ['domingo','lunes','martes','miercoles','jueves','viernes','sabado'];
 
-    let podcastsCache = [];   // lista normalizada
+    let podcastsCache = [];
     let loaded   = false;
     let loading  = null;
     let movingItems = false;
 
-    /* ---------- Utilidades ---------- */
     function norm(s) {
         return String(s || '').toLowerCase()
             .normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
@@ -13350,7 +13493,6 @@ document.addEventListener('DOMContentLoaded', () => {
             || isPodcastText(album) || isPodcastText(gen);
     }
 
-    /* ---------- Almacén oculto ---------- */
     function getStore() {
         let store = document.getElementById(STORE_ID);
         if (!store) {
@@ -13374,7 +13516,7 @@ document.addEventListener('DOMContentLoaded', () => {
             items.forEach(item => {
                 if (itemIsPodcast(item)) {
                     item.dataset.podcast = '1';
-                    store.appendChild(item);      // mover fuera de #playlist
+                    store.appendChild(item);
                     moved++;
                 }
             });
@@ -13384,7 +13526,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ---------- Normalización flexible desde Firestore ---------- */
     function pick(d, names) {
         if (!d) return undefined;
         for (const n of names) {
@@ -13433,7 +13574,6 @@ document.addEventListener('DOMContentLoaded', () => {
             'podcastDuracionSeg','duracionSeg','duracionSegundos','durationSec'
         ]) || 0) || 0;
 
-        // Si sólo hay texto, intentar interpretarlo como MM:SS o HH:MM:SS
         if (!duracionSeg && duracionTexto) {
             const m = duracionTexto.match(/^(?:(\d+):)?(\d{1,2}):(\d{2})$/);
             if (m) duracionSeg = (parseInt(m[1] || '0', 10) * 3600) +
@@ -13463,7 +13603,6 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     }
 
-    /* ---------- Carga desde Firebase ---------- */
     async function loadPodcasts(force) {
         if (!force && loaded) return podcastsCache;
         if (loading && !force) return loading;
@@ -13476,7 +13615,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const db = firebase.firestore();
             const out = [];
 
-            // 1) historial_usuarios: buscar cualquier campo "podcast*"
             try {
                 const snap = await db.collection('historial_usuarios').limit(2000).get();
                 snap.forEach(doc => {
@@ -13493,7 +13631,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             } catch (e) { console.warn(LOG, 'historial_usuarios:', e); }
 
-            // 2) Colecciones alternativas (por si el backend las usa)
             for (const col of ['podcasts','programas','Radio_Podcast']) {
                 try {
                     const snap = await db.collection(col).limit(500).get();
@@ -13511,7 +13648,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return loading;
     }
 
-    /* ---------- Crear item DOM para podcasts sin entrada en el reproductor ---------- */
     function ensureAllPodcastItems() {
         const store = getStore();
         podcastsCache.forEach(p => {
@@ -13546,7 +13682,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return best;
     }
 
-    /* ---------- Cálculo de ocurrencias ---------- */
     function dayMatches(date, lista) {
         if (!lista || !lista.length) return true;
         const name = DIAS[date.getDay()];
@@ -13561,8 +13696,8 @@ document.addEventListener('DOMContentLoaded', () => {
         base.setHours(p.horaIni.h, p.horaIni.m, p.horaIni.s || 0, 0);
         const baseMs  = base.getTime();
 
-        const fromMs  = nowMs - 2 * 86400000;      // 2 días atrás
-        const toMs    = nowMs + 30 * 86400000;      // 30 días adelante
+        const fromMs  = nowMs - 2 * 86400000;
+        const toMs    = nowMs + 30 * 86400000;
         const endLim  = p.fechaFin ? p.fechaFin.getTime() + 86400000 : toMs;
         const maxCount = p.repeticiones > 0 ? (p.repeticiones + 1) : 500;
 
@@ -13581,7 +13716,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return out;
     }
 
-    /* ---------- Búsqueda de emisión activa / próxima ---------- */
     function getActiveBroadcast(nowMs) {
         const now = nowMs || Date.now();
         for (const p of podcastsCache) {
@@ -13616,7 +13750,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return best;
     }
 
-    /* ---------- API pública ---------- */
     window.__podcastApi = {
         isPodcastItem:      itemIsPodcast,
         isPodcastText,
@@ -13628,11 +13761,9 @@ document.addEventListener('DOMContentLoaded', () => {
         findItemByTitle:    findPodcastItemByTitle
     };
 
-    /* ---------- Init ---------- */
     async function init() {
         if (typeof firebase === 'undefined' || !firebase.auth) { setTimeout(init, 300); return; }
 
-        // Esperar a que aparezcan items del reproductor
         let tries = 0;
         while (document.querySelectorAll('#playlist .playlist-item').length === 0 && tries < 60) {
             await new Promise(r => setTimeout(r, 250));
@@ -13640,10 +13771,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         quarantineItems();
 
-        // Cargar podcasts
         await loadPodcasts(false).catch(() => {});
 
-        // Reaccionar a items nuevos (subidas, colecciones, etc.)
         const playlist = $('playlist');
         if (playlist && playlist.dataset.podcastWatch !== '1') {
             playlist.dataset.podcastWatch = '1';
@@ -13654,7 +13783,6 @@ document.addEventListener('DOMContentLoaded', () => {
             obs.observe(playlist, { childList: true, subtree: false });
         }
 
-        // Refrescar tras login
         firebase.auth().onAuthStateChanged(user => {
             if (user) { loadPodcasts(true).catch(() => {}); }
             else { podcastsCache = []; loaded = false; }
