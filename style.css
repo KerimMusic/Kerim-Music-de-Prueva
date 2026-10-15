@@ -5420,3 +5420,83 @@ body[data-theme="light"] .sm-modal-btn-cancel { background: #eeeeee; color: #111
     .sm-start-btn { font-size: 22px; padding: 18px 22px; }
     .sm-description { font-size: 12.5px; }
 }
+/* ============================================================
+   50. PODCASTS / PROGRAMAS / ENTREVISTAS — SALA MÚSICA
+   ============================================================ */
+
+/* Elementos del reproductor normal que fueron movidos por ser
+   contenido programado (nunca deben verse en la interfaz normal) */
+#omega-podcast-storage,
+.playlist-item.podcast-hidden {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    width: 0 !important;
+    overflow: hidden !important;
+    pointer-events: none !important;
+}
+
+/* Rediseño del badge LIVE dentro de Sala Música */
+.sm-live-badge {
+    top: 14px;
+    left: 16px;
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: 2px;
+    color: #ff2a2a;
+    background: rgba(0, 0, 0, 0.78);
+    padding: 6px 14px 6px 12px;
+    border-radius: 50px;
+    border: 1px solid rgba(255, 42, 42, 0.55);
+    text-shadow: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    z-index: 4;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55);
+    animation: sm-live-pulse 1.6s ease-in-out infinite;
+}
+
+.sm-live-badge::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #ff2a2a;
+    box-shadow: 0 0 10px rgba(255, 42, 42, 0.95);
+    animation: sm-live-dot 0.9s ease-in-out infinite alternate;
+}
+
+.sm-live-badge.hidden {
+    opacity: 0;
+    pointer-events: none;
+    animation: none;
+}
+
+@keyframes sm-live-pulse {
+    0%, 100% {
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55),
+                    0 0 0 0 rgba(255, 42, 42, 0.45);
+    }
+    50% {
+        box-shadow: 0 6px 22px rgba(0, 0, 0, 0.65),
+                    0 0 22px 3px rgba(255, 42, 42, 0.5);
+    }
+}
+
+@keyframes sm-live-dot {
+    from { opacity: 0.5; transform: scale(0.9); }
+    to   { opacity: 1;   transform: scale(1.1); }
+}
+
+/* Ajuste del título mientras está en vivo */
+body .sala-musica-view .sm-song-title {
+    font-weight: 900;
+}
+
+/* Cuando el botón está en modo "EN VIVO" mantiene coherencia visual */
+.sm-start-btn.playing {
+    background: #1a0000;
+    box-shadow: 0 10px 26px rgba(255, 42, 42, 0.45),
+                inset 0 0 0 1px rgba(255, 42, 42, 0.35);
+}
