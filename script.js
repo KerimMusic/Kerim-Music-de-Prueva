@@ -13447,11 +13447,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /* ============================================================
    50. PODCASTS Y PROGRAMAS — TRANSMISIÓN EN VIVO EN SALA MÚSICA
+   v2 — Lee desde historial_usuarios/{uid}/canciones
    ------------------------------------------------------------
-   · Detecta contenido "Podcast", "Programa" o "Entrevista".
-   · Lo oculta del reproductor normal y de las búsquedas.
-   · Calcula la emisión activa según Firebase (historial_usuarios).
-   · Expone window.__podcastApi para que Sala Música lo use.
+   · Detecta esPodcast:true o genero:"Podcast"
+   · Usa audioUrl, podcastHorasInicio[], podcastDuracionSeg
+   · Calcula emisiones según fecha + horarios + repeticiones
    ============================================================ */
 (function () {
     'use strict';
@@ -13460,22 +13460,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const LOG = '[PODCAST]';
     const KEYWORDS = ['podcast', 'programa', 'entrevista'];
     const STORE_ID = 'podcast-store';
-    const DIAS = ['domingo','lunes','martes','miercoles','jueves','viernes','sabado'];
 
     let podcastsCache = [];
-    let loaded   = false;
-    let loading  = null;
+    let loaded = false;
+    let loading = null;
     let movingItems = false;
 
     function norm(s) {
         return String(s || '').toLowerCase()
             .normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
-    }
-    function esc(s) {
-        return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
-            '&': '&amp;', '<': '&lt;', '>': '&gt;',
-            '"': '&quot;', "'": '&#39;'
-        }[c]));
     }
     function isPodcastText(t) {
         if (!t) return false;
@@ -13488,9 +13481,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const title = item.querySelector('.item-title')?.textContent || '';
         const sub   = item.querySelector('.item-subtitle')?.textContent || '';
         const album = item.querySelector('.Album')?.textContent || '';
-        const gen   = item.dataset.genre || '';
-        return isPodcastText(title) || isPodcastText(sub)
-            || isPodcastText(album) || isPodcastText(gen);
+        return isPodcastText(title) || isPodcastText(sub) || isPodcastText(album);
     }
 
     function getStore() {
@@ -13504,6 +13495,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         return store;
     }
+
     function quarantineItems() {
         if (movingItems) return;
         movingItems = true;
@@ -13511,9 +13503,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const playlist = $('playlist');
             if (!playlist) return;
             const store = getStore();
-            const items = playlist.querySelectorAll('.playlist-item');
             let moved = 0;
-            items.forEach(item => {
+            playlist.querySelectorAll('.playlist-item').forEach(item => {
                 if (itemIsPodcast(item)) {
                     item.dataset.podcast = '1';
                     store.appendChild(item);
@@ -13526,15 +13517,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function pick(d, names) {
-        if (!d) return undefined;
-        for (const n of names) {
-            if (d[n] !== undefined && d[n] !== null && d[n] !== '') return d[n];
-            const key = Object.keys(d).find(k => k.toLowerCase() === n.toLowerCase());
-            if (key && d[key] !== undefined && d[key] !== null && d[key] !== '') return d[key];
-        }
-        return undefined;
-    }
+    /* ============ FECHAS Y HORAS ============ */
     function toDate(v) {
         if (!v) return null;
         if (typeof v.toDate === 'function') return v.toDate();
@@ -13545,102 +13528,133 @@ document.addEventListener('DOMContentLoaded', () => {
         return null;
     }
     function parseTimeOfDay(v) {
-        if (!v) return null;
+        if (v === null || v === undefined || v === '') return null;
         if (typeof v === 'string') {
-            const m = v.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)?$/i);
+            const m = v.trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)?$/i);
             if (m) {
                 let h = parseInt(m[1], 10);
                 const mi = parseInt(m[2], 10);
-                const s  = m[3] ? parseInt(m[3], 10) : 0;
+                const s = m[3] ? parseInt(m[3], 10) : 0;
                 const ap = (m[4] || '').toLowerCase();
                 if (ap === 'pm' && h < 12) h += 12;
                 if (ap === 'am' && h === 12) h = 0;
                 return { h, m: mi, s };
             }
         }
-        const d = toDate(v);
-        return d ? { h: d.getHours(), m: d.getMinutes(), s: d.getSeconds() } : null;
+        if (typeof v === 'number' && v >= 0 && v < 24) {
+            return { h: Math.floor(v), m: 0, s: 0 };
+        }
+        return null;
     }
+
+    /* ============ NORMALIZAR ============ */
     function normalizePodcast(d, srcId) {
-        const titulo = String(pick(d, ['titulo','nombre','title','name','podcastNombre']) || '').trim();
-        const audio  = String(pick(d, ['audio','audioUrl','podcastAudio','url','mp3']) || '').trim();
-        const imagen = String(pick(d, ['imagen','imagenUrl','portada','cover','image']) || '').trim();
+        const titulo = String(d.titulo || d.title || d.nombre || '').trim();
+        const audio  = String(d.audioUrl || d.audio || d.mp3 || '').trim();
+        const imagen = String(d.imagenUrl || d.imagen || d.portada || d.cover || '').trim();
 
-        const duracionTexto = String(pick(d, [
-            'podcastDuraciontex','podcastDuracionText','duracionTexto','duracionText','durationText'
-        ]) || '').trim();
+        const duracionSeg = Number(d.podcastDuracionSeg || d.duracionSeg || 0) || 0;
+        const duracionTexto = String(
+            d.podcastDuracionText || d.podcastDuraciontex || d.duracionTexto || ''
+        ).trim();
 
-        let duracionSeg = Number(pick(d, [
-            'podcastDuracionSeg','duracionSeg','duracionSegundos','durationSec'
-        ]) || 0) || 0;
+        const fecha = toDate(d.fecha || d.fechaInicio);
 
-        if (!duracionSeg && duracionTexto) {
-            const m = duracionTexto.match(/^(?:(\d+):)?(\d{1,2}):(\d{2})$/);
-            if (m) duracionSeg = (parseInt(m[1] || '0', 10) * 3600) +
-                                 (parseInt(m[2], 10) * 60) + parseInt(m[3], 10);
+        // podcastHorasInicio puede ser array (["12:15","17:00"]) o string
+        const rawHoras = d.podcastHorasInicio || d.horasInicio || d.podcastHora || d.horaInicio;
+        const horasInicio = [];
+        if (Array.isArray(rawHoras)) {
+            rawHoras.forEach(h => {
+                const parsed = parseTimeOfDay(h);
+                if (parsed) horasInicio.push(parsed);
+            });
+        } else if (rawHoras !== undefined) {
+            const parsed = parseTimeOfDay(rawHoras);
+            if (parsed) horasInicio.push(parsed);
         }
 
-        const fecha   = toDate(pick(d, ['fecha','fechaInicio','podcastFecha','fechaProgramada','startDate']));
-        const horaIni = parseTimeOfDay(pick(d, ['hora','horaInicio','podcastHora','horaInicioStr','startTime']));
-
-        const repRaw  = pick(d, ['repeticiones','podcastRepeticiones','repeticionesProgramadas','repeatCount','repeats']);
-        const repeticiones = Math.max(0, Number(repRaw) || 0);
-
-        const diasRaw = pick(d, ['dias','podcastDias','diasSemana','days','weekdays']);
-        const dias = Array.isArray(diasRaw)
-            ? diasRaw.map(norm)
-            : (typeof diasRaw === 'string' ? diasRaw.split(',').map(s => norm(s.trim())) : []);
-
-        const fechaFin = toDate(pick(d, ['fechaFin','hasta','endDate','fechaTermino']));
+        const repeticiones = Math.max(1, Number(d.podcastRepeticiones || d.repeticiones || 1) || 1);
+        const fechaFin = toDate(d.fechaFin || d.hasta);
 
         return {
             id: srcId,
             titulo, audio, imagen,
             duracionTexto, duracionSeg,
-            fecha, horaIni,
-            repeticiones, dias, fechaFin,
+            fecha, horasInicio, repeticiones, fechaFin,
             raw: d
         };
     }
 
+    /* ============ CARGA DESDE FIRESTORE ============ */
     async function loadPodcasts(force) {
         if (!force && loaded) return podcastsCache;
         if (loading && !force) return loading;
 
         loading = (async () => {
             if (typeof firebase === 'undefined' || !firebase.firestore) {
-                podcastsCache = [];
-                return podcastsCache;
+                podcastsCache = []; return podcastsCache;
             }
             const db = firebase.firestore();
             const out = [];
 
+            console.log(LOG, '📥 Cargando podcasts desde Firestore...');
+
+            // 1) Subcolección canciones dentro de historial_usuarios/{uid}
             try {
-                const snap = await db.collection('historial_usuarios').limit(2000).get();
+                const usersSnap = await db.collection('historial_usuarios').limit(1000).get();
+                const promises = usersSnap.docs.map(async userDoc => {
+                    try {
+                        const cSnap = await userDoc.ref.collection('canciones').get();
+                        cSnap.forEach(doc => {
+                            const d = doc.data() || {};
+                            const esPod = d.esPodcast === true
+                                || (d.genero && isPodcastText(d.genero))
+                                || isPodcastText(d.titulo);
+                            if (esPod) {
+                                const n = normalizePodcast(d, doc.id);
+                                if (n.titulo && n.audio) out.push(n);
+                            }
+                        });
+                    } catch (_) {}
+                });
+                await Promise.all(promises);
+            } catch (e) { console.warn(LOG, 'Error subcolecciones:', e); }
+
+            // 2) Doc raíz de historial_usuarios (campos podcast*)
+            try {
+                const snap = await db.collection('historial_usuarios').limit(1000).get();
                 snap.forEach(doc => {
                     const d = doc.data() || {};
                     const campos = {};
                     Object.keys(d).forEach(k => { if (/^podcast/i.test(k)) campos[k] = d[k]; });
-
-                    const arr = d.podcasts || d.programas || d.entrevistas;
-                    if (Array.isArray(arr)) {
-                        arr.forEach((p, i) => out.push(normalizePodcast(p, doc.id + '#' + i)));
-                    } else if (Object.keys(campos).length) {
-                        out.push(normalizePodcast(campos, doc.id));
+                    if (Object.keys(campos).length) {
+                        const n = normalizePodcast(campos, doc.id);
+                        if (n.titulo && n.audio) out.push(n);
                     }
                 });
-            } catch (e) { console.warn(LOG, 'historial_usuarios:', e); }
+            } catch (e) {}
 
+            // 3) Colecciones alternativas
             for (const col of ['podcasts','programas','Radio_Podcast']) {
                 try {
                     const snap = await db.collection(col).limit(500).get();
-                    snap.forEach(doc => out.push(normalizePodcast(doc.data() || {}, doc.id)));
+                    snap.forEach(doc => {
+                        const n = normalizePodcast(doc.data() || {}, doc.id);
+                        if (n.titulo && n.audio) out.push(n);
+                    });
                 } catch (_) {}
             }
 
-            podcastsCache = out.filter(p => p.titulo && p.audio);
+            podcastsCache = out;
             loaded = true;
-            console.log(LOG, '✅ Podcasts cargados:', podcastsCache.length);
+            console.log(LOG, `✅ Podcasts cargados: ${podcastsCache.length}`);
+            podcastsCache.forEach(p => {
+                console.log(LOG, '  →', p.titulo,
+                    '| dur:', p.duracionSeg + 's',
+                    '| fecha:', p.fecha ? p.fecha.toDateString() : '(sin fecha)',
+                    '| horas:', p.horasInicio.map(h => `${h.h}:${String(h.m).padStart(2,'0')}`).join(', ') || '(sin horas)',
+                    '| reps:', p.repeticiones);
+            });
             ensureAllPodcastItems();
             return podcastsCache;
         })();
@@ -13660,15 +13674,16 @@ document.addEventListener('DOMContentLoaded', () => {
             el.dataset.title = p.titulo;
             el.innerHTML =
                 '<div class="thumbnail">' +
-                    (p.imagen ? '<img src="' + esc(p.imagen) + '" alt="" loading="lazy">' : '') +
+                    (p.imagen ? '<img src="' + p.imagen + '" alt="" loading="lazy">' : '') +
                 '</div>' +
                 '<div class="item-info">' +
-                    '<span class="item-title">' + esc(p.titulo) + '</span>' +
+                    '<span class="item-title">' + p.titulo + '</span>' +
                     '<span class="item-subtitle">Podcast · OmegaBeats</span>' +
                 '</div>';
             store.appendChild(el);
         });
     }
+
     function findPodcastItemByTitle(titulo) {
         const target = norm(titulo);
         if (!target) return null;
@@ -13682,36 +13697,37 @@ document.addEventListener('DOMContentLoaded', () => {
         return best;
     }
 
-    function dayMatches(date, lista) {
-        if (!lista || !lista.length) return true;
-        const name = DIAS[date.getDay()];
-        return lista.some(d => d === name || d.startsWith(name.substring(0,3)));
-    }
+    /* ============ CÁLCULO DE OCURRENCIAS ============ */
     function computeOccurrences(p, nowMs) {
         const out = [];
-        if (!p.fecha || !p.horaIni || !p.duracionSeg) return out;
+        if (!p.fecha || !p.duracionSeg || !p.horasInicio.length) return out;
 
-        const durMs   = p.duracionSeg * 1000;
-        const base    = new Date(p.fecha);
-        base.setHours(p.horaIni.h, p.horaIni.m, p.horaIni.s || 0, 0);
-        const baseMs  = base.getTime();
+        const durMs = p.duracionSeg * 1000;
+        const baseDate = new Date(p.fecha);
+        baseDate.setHours(0, 0, 0, 0);
 
-        const fromMs  = nowMs - 2 * 86400000;
-        const toMs    = nowMs + 30 * 86400000;
-        const endLim  = p.fechaFin ? p.fechaFin.getTime() + 86400000 : toMs;
-        const maxCount = p.repeticiones > 0 ? (p.repeticiones + 1) : 500;
+        const totalReps = p.repeticiones;
+        const fromMs = nowMs - 2 * 86400000;
+        const toMs = nowMs + 30 * 86400000;
+        const endLim = p.fechaFin ? p.fechaFin.getTime() + 86400000 : toMs;
 
         let count = 0;
-        for (let day = 0; day < 400 && count < maxCount; day++) {
-            const cand = new Date(baseMs + day * 86400000);
-            const startMs = cand.getTime();
-            if (startMs > endLim) break;
-            if (startMs < fromMs - 7 * 86400000) continue;
-            if (!dayMatches(cand, p.dias)) continue;
-            const endMs = startMs + durMs;
-            if (endMs >= fromMs) out.push({ startMs, endMs });
-            count++;
-            if (startMs > toMs && out.length) break;
+        for (let day = 0; day < 90 && count < totalReps; day++) {
+            const dayBase = new Date(baseDate);
+            dayBase.setDate(dayBase.getDate() + day);
+
+            for (const h of p.horasInicio) {
+                if (count >= totalReps) break;
+                const start = new Date(dayBase);
+                start.setHours(h.h, h.m, h.s || 0, 0);
+                const startMs = start.getTime();
+                const endMs = startMs + durMs;
+
+                if (startMs > endLim) break;
+                if (endMs >= fromMs) out.push({ startMs, endMs });
+                count++;
+            }
+            if (dayBase.getTime() > toMs && out.length > 0) break;
         }
         return out;
     }
@@ -13728,7 +13744,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         item,
                         startMs: o.startMs,
                         endMs: o.endMs,
-                        offsetSec:  (now - o.startMs) / 1000,
+                        offsetSec: (now - o.startMs) / 1000,
                         remainingSec: (o.endMs - now) / 1000
                     };
                 }
@@ -13736,6 +13752,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         return null;
     }
+
     function getUpcomingBroadcast(nowMs) {
         const now = nowMs || Date.now();
         let best = null;
@@ -13750,17 +13767,42 @@ document.addEventListener('DOMContentLoaded', () => {
         return best;
     }
 
+    /* ============ API ============ */
     window.__podcastApi = {
-        isPodcastItem:      itemIsPodcast,
+        isPodcastItem: itemIsPodcast,
         isPodcastText,
         getActiveBroadcast,
         getUpcomingBroadcast,
-        getPodcasts:        () => podcastsCache.slice(),
+        getPodcasts: () => podcastsCache.slice(),
         loadPodcasts,
-        quarantine:         quarantineItems,
-        findItemByTitle:    findPodcastItemByTitle
+        quarantine: quarantineItems,
+        findItemByTitle: findPodcastItemByTitle,
+        _computeOccurrences: computeOccurrences
     };
 
+    /* ============ DEBUG ============ */
+    window.__podcastDebug = function () {
+        console.log('%c🎙️ PODCAST DEBUG', 'color:#4ade80;font-weight:bold;font-size:14px');
+        console.log('Podcasts cargados:', podcastsCache.length);
+        podcastsCache.forEach(p => {
+            console.log(`  · "${p.titulo}"`);
+            console.log(`      audio: ${p.audio ? p.audio.substring(0, 80) + '...' : '(vacío)'}`);
+            console.log(`      duración: ${p.duracionSeg}s`);
+            console.log(`      fecha base: ${p.fecha ? p.fecha.toString() : '(ninguna)'}`);
+            console.log(`      horas inicio: ${p.horasInicio.map(h => `${h.h}:${String(h.m).padStart(2,'0')}`).join(', ') || '(ninguna)'}`);
+            console.log(`      repeticiones totales: ${p.repeticiones}`);
+            const occs = computeOccurrences(p, Date.now());
+            console.log(`      ocurrencias calculadas: ${occs.length}`);
+            occs.slice(0, 6).forEach(o => {
+                console.log(`        · ${new Date(o.startMs).toLocaleString()} → ${new Date(o.endMs).toLocaleString()}`);
+            });
+        });
+        console.log('%cEmisión activa:', 'color:#fbbf24', getActiveBroadcast());
+        console.log('%cPróxima emisión:', 'color:#fbbf24', getUpcomingBroadcast());
+        console.log('Hora actual:', new Date().toLocaleString());
+    };
+
+    /* ============ INIT ============ */
     async function init() {
         if (typeof firebase === 'undefined' || !firebase.auth) { setTimeout(init, 300); return; }
 
@@ -13770,8 +13812,7 @@ document.addEventListener('DOMContentLoaded', () => {
             tries++;
         }
         quarantineItems();
-
-        await loadPodcasts(false).catch(() => {});
+        await loadPodcasts(false).catch(e => console.warn(LOG, 'Error carga:', e));
 
         const playlist = $('playlist');
         if (playlist && playlist.dataset.podcastWatch !== '1') {
@@ -13784,7 +13825,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         firebase.auth().onAuthStateChanged(user => {
-            if (user) { loadPodcasts(true).catch(() => {}); }
+            if (user) loadPodcasts(true).catch(() => {});
             else { podcastsCache = []; loaded = false; }
         });
     }
