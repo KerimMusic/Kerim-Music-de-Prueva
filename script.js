@@ -12353,6 +12353,7 @@ document.addEventListener('DOMContentLoaded', () => {
    - Al elegir una canción del reproductor normal, la radio se detiene
    - 🆕 Respeta podcasts programados (Sección 50)
    - 🆕 Muestra "Próximos programas" bajo el botón Comenzar
+   - 🆕 Próximos programas se actualiza EN TIEMPO REAL
    COMENTARIOS:
    - Carga con 3 niveles de fallback para funcionar sin índice
    ============================================================ */
@@ -12771,9 +12772,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /* ============================================================
-       🆕 PRÓXIMOS PROGRAMAS
+       🆕 PRÓXIMOS PROGRAMAS — TIEMPO REAL + ESTADO (En vivo / Siguiente)
+       ------------------------------------------------------------
+       · Se re-renderiza cuando:
+           a) Firestore emite cambios (evento "podcastsLoaded")
+           b) cambia el estado por paso del tiempo (ticker 1s)
+       · NO toca el audio, la música, los podcasts ni nada más.
        ============================================================ */
-    let upcomingRefreshTimer = null;
+    let upcomingTicker         = null;
+    let lastUpcomingSignature  = '';
 
     function formatHora(ms) {
         const d = new Date(ms);
@@ -12797,6 +12804,25 @@ document.addEventListener('DOMContentLoaded', () => {
         return 'Podcast';
     }
 
+    /* Firma ligera para detectar cambios reales sin re-renderizar de más */
+    function computeUpcomingSignature() {
+        const api = window.__podcastApi;
+        if (!api) return 'none';
+        const now = Date.now();
+        const active = (typeof api.getActiveBroadcast === 'function')
+            ? api.getActiveBroadcast(now) : null;
+        const upcoming = (typeof api.getUpcomingBroadcasts === 'function')
+            ? api.getUpcomingBroadcasts(now, 50) : [];
+
+        const a = active
+            ? active.podcast.id + '@' + active.startMs + '-' + active.endMs
+            : 'none';
+        const u = upcoming
+            .map(x => x.podcast.id + '@' + x.startMs + '-' + x.endMs)
+            .join(',');
+        return a + '|' + u;
+    }
+
     function renderUpcomingPrograms() {
         const sec   = $('sm-upcoming-section');
         const list  = $('sm-upcoming-list');
@@ -12809,10 +12835,33 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        const upcoming = api.getUpcomingBroadcasts(Date.now(), 20) || [];
+        const now      = Date.now();
+        const active   = (typeof api.getActiveBroadcast === 'function')
+            ? api.getActiveBroadcast(now) : null;
+        const upcoming = api.getUpcomingBroadcasts(now, 20) || [];
+
+        /* ── Construir la lista: [en vivo] + [siguiente] + [resto] ── */
+        const items = [];
+        if (active) {
+            items.push({
+                podcast: active.podcast,
+                startMs: active.startMs,
+                endMs:   active.endMs,
+                state:   'live'
+            });
+        }
+        upcoming.forEach((u, idx) => {
+            items.push({
+                podcast: u.podcast,
+                startMs: u.startMs,
+                endMs:   u.endMs,
+                state:   idx === 0 ? 'next' : 'soon'
+            });
+        });
+
         list.innerHTML = '';
 
-        if (!upcoming.length) {
+        if (!items.length) {
             sec.style.display = '';
             if (empty) empty.style.display = '';
             return;
@@ -12820,16 +12869,30 @@ document.addEventListener('DOMContentLoaded', () => {
         if (empty) empty.style.display = 'none';
         sec.style.display = '';
 
-        upcoming.forEach(u => {
-            const p = u.podcast;
+        items.forEach(it => {
+            const p = it.podcast;
+
             const card = document.createElement('div');
             card.className = 'sm-upcoming-card';
+            if (it.state === 'live') card.classList.add('live');
+            else if (it.state === 'next') card.classList.add('next');
 
-            const tipo = esc(getTipoEtiqueta(p));
-            const titulo = esc(p.titulo || 'Programa');
-            const fechaStr = formatFecha(u.startMs);
-            const horaIni = formatHora(u.startMs);
-            const horaFin = formatHora(u.endMs);
+            const tipo          = esc(getTipoEtiqueta(p));
+            const nombreProg    = esc(p.nombrePrograma || p.titulo || 'Programa');
+            const tituloEpisodio = esc(p.titulo || '');
+            const mostrarEpisodio = tituloEpisodio &&
+                                    tituloEpisodio !== nombreProg;
+
+            const fechaStr = formatFecha(it.startMs);
+            const horaIni  = formatHora(it.startMs);
+            const horaFin  = formatHora(it.endMs);
+
+            let statusHTML = '';
+            if (it.state === 'live') {
+                statusHTML = '<span class="sm-upcoming-status live">En transmisión</span>';
+            } else if (it.state === 'next') {
+                statusHTML = '<span class="sm-upcoming-status next">Siguiente</span>';
+            }
 
             card.innerHTML =
                 '<div class="sm-upcoming-cover">' +
@@ -12837,13 +12900,15 @@ document.addEventListener('DOMContentLoaded', () => {
                         ? '<img src="' + esc(p.imagen) + '" alt="" loading="lazy">'
                         : '') +
                     '<span class="sm-upcoming-tag">' + tipo + '</span>' +
+                    statusHTML +
                 '</div>' +
                 '<div class="sm-upcoming-info">' +
-                    '<span class="sm-upcoming-title">' + titulo + '</span>' +
+                    '<span class="sm-upcoming-title">' + nombreProg + '</span>' +
+                    (mostrarEpisodio
+                        ? '<span class="sm-upcoming-episode">' + tituloEpisodio + '</span>'
+                        : '') +
                     '<span class="sm-upcoming-date">' + fechaStr + '</span>' +
-                    '<span class="sm-upcoming-time">' +
-                        horaIni + ' → ' + horaFin +
-                    '</span>' +
+                    '<span class="sm-upcoming-time">' + horaIni + ' → ' + horaFin + '</span>' +
                 '</div>';
 
             list.appendChild(card);
@@ -12851,13 +12916,32 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function startUpcomingRefresh() {
-        if (upcomingRefreshTimer) return;
-        upcomingRefreshTimer = setInterval(() => {
+        if (upcomingTicker) return;
+        lastUpcomingSignature = computeUpcomingSignature();
+
+        /* Ticker de 1s: detecta el momento exacto en que un programa
+           comienza o termina (solo cambia cuando la firma cambia). */
+        upcomingTicker = setInterval(() => {
             const v = $('sala-musica-view');
-            if (v && v.classList.contains('visible')) {
+            if (!v || !v.classList.contains('visible')) return;
+            const sig = computeUpcomingSignature();
+            if (sig !== lastUpcomingSignature) {
+                lastUpcomingSignature = sig;
                 renderUpcomingPrograms();
             }
-        }, 30000); // refresca cada 30 s
+        }, 1000);
+
+        /* Cambios en Firestore → refresco inmediato (sin recargar la app) */
+        if (!window.__upcomingFirebaseHooked) {
+            window.__upcomingFirebaseHooked = true;
+            window.addEventListener('podcastsLoaded', () => {
+                lastUpcomingSignature = '';
+                const v = $('sala-musica-view');
+                if (v && v.classList.contains('visible')) {
+                    renderUpcomingPrograms();
+                }
+            });
+        }
     }
 
     /* ============================================================
@@ -12974,7 +13058,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (sc) sc.scrollTop = 0;
         syncFromPlayer();
         renderUpcomingPrograms();      // 🆕 dibujar próximos programas
-        startUpcomingRefresh();        // 🆕 refrescar periódicamente
+        startUpcomingRefresh();        // 🆕 refrescar en tiempo real
     }
     function closeSalaMusica() {
         const view = $('sala-musica-view');
@@ -13558,6 +13642,7 @@ document.addEventListener('DOMContentLoaded', () => {
    · Usa audioUrl, podcastHorasInicio[], podcastDuracionSeg
    · Calcula emisiones según fecha + horarios + repeticiones
    · Expone getUpcomingBroadcasts para la sección de próximos
+   · 🆕 Se actualiza EN TIEMPO REAL con onSnapshot (Firestore)
    ============================================================ */
 (function () {
     'use strict';
@@ -13659,6 +13744,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const audio  = String(d.audioUrl || d.audio || d.mp3 || '').trim();
         const imagen = String(d.imagenUrl || d.imagen || d.portada || d.cover || '').trim();
 
+        // 🆕 Nombre del programa / show (opcional, distinto del título del episodio)
+        const nombrePrograma = String(
+            d.nombrePrograma || d.programa || d.show || d.programaNombre || ''
+        ).trim();
+
         const duracionSeg = Number(d.podcastDuracionSeg || d.duracionSeg || 0) || 0;
         const duracionTexto = String(
             d.podcastDuracionText || d.podcastDuraciontex || d.duracionTexto || ''
@@ -13666,7 +13756,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const fecha = toDate(d.fecha || d.fechaInicio);
 
-        const rawHoras = d.podcastHorasInicio || d.horasInicio || d.podcastHora || d.horaInicio;
+        const rawHoras = d.podcastHorasInicio || d.horasInicio ||
+                         d.podcastHora || d.horaInicio;
         const horasInicio = [];
         if (Array.isArray(rawHoras)) {
             rawHoras.forEach(h => {
@@ -13678,12 +13769,15 @@ document.addEventListener('DOMContentLoaded', () => {
             if (parsed) horasInicio.push(parsed);
         }
 
-        const repeticiones = Math.max(1, Number(d.podcastRepeticiones || d.repeticiones || 1) || 1);
+        const repeticiones = Math.max(1,
+            Number(d.podcastRepeticiones || d.repeticiones || 1) || 1);
         const fechaFin = toDate(d.fechaFin || d.hasta);
 
         return {
             id: srcId,
-            titulo, audio, imagen,
+            titulo,                 // título del episodio
+            nombrePrograma,         // 🆕 nombre del programa / show
+            audio, imagen,
             duracionTexto, duracionSeg,
             fecha, horasInicio, repeticiones, fechaFin,
             raw: d
@@ -13930,6 +14024,70 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log('Hora actual:', new Date().toLocaleString());
     };
 
+    /* ============================================================
+       🆕 ESCUCHAS EN TIEMPO REAL (onSnapshot)
+       - Cualquier alta / baja / modificación en Firestore dispara
+         una recarga “debounced” de podcastsCache.
+       - Se emite el evento global "podcastsLoaded" para que Sala
+         Música refresque su vista sin recargar la página.
+       ============================================================ */
+    let realtimeUnsubs  = [];
+    let reloadDebounce  = null;
+    let realtimeStarted = false;
+
+    function schedulePodcastsReload() {
+        if (reloadDebounce) clearTimeout(reloadDebounce);
+        reloadDebounce = setTimeout(async () => {
+            reloadDebounce = null;
+            try {
+                await loadPodcasts(true);   // fuerza recarga + emite podcastsLoaded
+            } catch (e) {
+                console.warn(LOG, 'Error recargando podcasts:', e);
+            }
+        }, 350);
+    }
+
+    function setupRealtimeListeners() {
+        if (realtimeStarted) return;
+        if (typeof firebase === 'undefined' || !firebase.firestore) return;
+        realtimeStarted = true;
+
+        const db = firebase.firestore();
+
+        // 1) Subcolección canciones (incluye podcasts subidos por usuarios)
+        try {
+            const unsub = db.collectionGroup('canciones').onSnapshot(
+                () => schedulePodcastsReload(),
+                err => console.warn(LOG, '⚠️ cg listener:', err && err.code)
+            );
+            realtimeUnsubs.push(unsub);
+        } catch (e) {
+            console.warn(LOG, 'No se pudo suscribir a collectionGroup:', e);
+        }
+
+        // 2) Docs raíz de historial_usuarios (campos podcast*)
+        try {
+            const unsub = db.collection('historial_usuarios').onSnapshot(
+                () => schedulePodcastsReload(),
+                err => console.warn(LOG, '⚠️ hu listener:', err && err.code)
+            );
+            realtimeUnsubs.push(unsub);
+        } catch (e) { /* silencioso */ }
+
+        // 3) Colecciones alternativas
+        ['podcasts', 'programas', 'Radio_Podcast'].forEach(col => {
+            try {
+                const unsub = db.collection(col).onSnapshot(
+                    () => schedulePodcastsReload(),
+                    () => {}
+                );
+                realtimeUnsubs.push(unsub);
+            } catch (e) { /* silencioso */ }
+        });
+
+        console.log(LOG, '🔄 Listeners en tiempo real activados');
+    }
+
     /* ============ INIT ============ */
     async function init() {
         if (typeof firebase === 'undefined' || !firebase.auth) { setTimeout(init, 300); return; }
@@ -13941,6 +14099,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         quarantineItems();
         await loadPodcasts(false).catch(e => console.warn(LOG, 'Error carga:', e));
+
+        /* 🆕 Activar escuchas en tiempo real */
+        setupRealtimeListeners();
 
         const playlist = $('playlist');
         if (playlist && playlist.dataset.podcastWatch !== '1') {
