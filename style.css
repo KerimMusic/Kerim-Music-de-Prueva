@@ -5181,6 +5181,43 @@ body.sm-open #fs-player {
     padding: 10px;
     align-items: center;
     box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+    position: relative;
+    transition: background 0.35s ease,
+                border-color 0.35s ease,
+                box-shadow 0.35s ease;
+}
+
+/* 🆕 En transmisión (live) */
+.sm-upcoming-card.live {
+    background: linear-gradient(135deg,
+                rgba(255, 42, 42, 0.22) 0%,
+                rgba(0, 0, 0, 0.55) 100%);
+    border-color: rgba(255, 42, 42, 0.65);
+    box-shadow: 0 8px 26px rgba(255, 42, 42, 0.35),
+                0 0 0 1px rgba(255, 42, 42, 0.20) inset;
+    animation: sm-upcoming-live-glow 2s ease-in-out infinite;
+}
+.sm-upcoming-card.live .sm-upcoming-title {
+    color: #ffffff;
+    text-shadow: 0 0 12px rgba(255, 42, 42, 0.55);
+}
+
+/* 🆕 Siguiente */
+.sm-upcoming-card.next {
+    border-color: rgba(255, 255, 255, 0.28);
+    background: rgba(0, 0, 0, 0.48);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.42);
+}
+
+@keyframes sm-upcoming-live-glow {
+    0%, 100% {
+        box-shadow: 0 8px 26px rgba(255, 42, 42, 0.35),
+                    0 0 0 1px rgba(255, 42, 42, 0.20) inset;
+    }
+    50% {
+        box-shadow: 0 10px 32px rgba(255, 42, 42, 0.55),
+                    0 0 0 1px rgba(255, 42, 42, 0.35) inset;
+    }
 }
 
 .sm-upcoming-cover {
@@ -5218,6 +5255,34 @@ body.sm-open #fs-player {
     -webkit-backdrop-filter: blur(4px);
 }
 
+/* 🆕 Badges de estado (En transmisión / Siguiente) */
+.sm-upcoming-status {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    font-size: 8px;
+    font-weight: 900;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+    padding: 3px 7px;
+    border-radius: 50px;
+    z-index: 3;
+    line-height: 1;
+    white-space: nowrap;
+}
+.sm-upcoming-status.live {
+    background: #ff2a2a;
+    color: #ffffff;
+    animation: sm-live-pulse 1.6s ease-in-out infinite;
+}
+.sm-upcoming-status.next {
+    background: rgba(255, 255, 255, 0.16);
+    color: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.40);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+}
+
 .sm-upcoming-info {
     flex: 1;
     min-width: 0;
@@ -5233,6 +5298,19 @@ body.sm-open #fs-player {
     line-height: 1.25;
     display: -webkit-box;
     -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: break-word;
+}
+
+/* 🆕 Título del episodio (secundario) */
+.sm-upcoming-episode {
+    font-size: 12.5px;
+    color: rgba(255, 255, 255, 0.82);
+    font-weight: 700;
+    line-height: 1.3;
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
     -webkit-box-orient: vertical;
     overflow: hidden;
     word-break: break-word;
@@ -5267,6 +5345,7 @@ body.sm-open #fs-player {
 @media (max-width: 360px) {
     .sm-upcoming-cover { width: 64px; height: 64px; }
     .sm-upcoming-title { font-size: 13.5px; }
+    .sm-upcoming-episode { font-size: 12px; }
     .sm-upcoming-time  { font-size: 11.5px; }
 }
 
