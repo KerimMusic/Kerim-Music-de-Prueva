@@ -5697,3 +5697,83 @@ body .sala-musica-view .sm-song-title {
     box-shadow: 0 10px 26px rgba(255, 42, 42, 0.45),
                 inset 0 0 0 1px rgba(255, 42, 42, 0.35);
 }
+/* ============================================================
+   🆕 CONTADOR DE OYENTES EN VIVO — SALA MÚSICA
+   ============================================================ */
+.sm-listeners-badge {
+    position: absolute;
+    top: 14px;
+    right: 16px;
+    z-index: 5;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(0, 0, 0, 0.78);
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: 0.5px;
+    padding: 6px 12px 6px 10px;
+    border-radius: 50px;
+    border: 1px solid rgba(74, 222, 128, 0.55);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55);
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+    pointer-events: none;
+    transition: border-color 0.35s ease, box-shadow 0.35s ease, transform 0.35s ease;
+}
+
+.sm-listeners-badge svg {
+    color: #4ade80;
+    flex-shrink: 0;
+}
+
+.sm-listeners-badge #sm-listeners-count {
+    color: #ffffff;
+    font-variant-numeric: tabular-nums;
+    min-width: 12px;
+    text-align: center;
+}
+
+/* Estado con al menos 1 oyente */
+.sm-listeners-badge.active {
+    border-color: rgba(74, 222, 128, 0.95);
+    animation: sm-listeners-pulse 2.4s ease-in-out infinite;
+}
+
+/* Estado vacío (0 oyentes) */
+.sm-listeners-badge.empty {
+    border-color: rgba(255, 255, 255, 0.18);
+    opacity: 0.72;
+}
+.sm-listeners-badge.empty svg { color: #b3b3b3; }
+
+@keyframes sm-listeners-pulse {
+    0%, 100% {
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55),
+                    0 0 0 0 rgba(74, 222, 128, 0.30);
+    }
+    50% {
+        box-shadow: 0 6px 22px rgba(0, 0, 0, 0.65),
+                    0 0 20px 2px rgba(74, 222, 128, 0.55);
+    }
+}
+
+/* Pulso rápido cuando el número cambia */
+.sm-listeners-badge.bump {
+    animation: sm-listeners-bump 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes sm-listeners-bump {
+    0%   { transform: scale(1); }
+    45%  { transform: scale(1.12); }
+    100% { transform: scale(1); }
+}
+
+@media (max-width: 360px) {
+    .sm-listeners-badge {
+        top: 12px;
+        right: 12px;
+        font-size: 11px;
+        padding: 5px 10px 5px 8px;
+    }
+}
