@@ -14125,3 +14125,342 @@ document.addEventListener('DOMContentLoaded', () => {
         init();
     }
 })();
+/* ============================================================
+   51. CONTADOR DE OYENTES EN VIVO — SALA MÚSICA
+   ------------------------------------------------------------
+   · Usa una colección Firestore "sala_musica_oyentes"
+   · Doc ID = UID del usuario  →  garantiza 1 doc por usuario
+   · Cada oyente activo actualiza "lastSeen" cada HEARTBEAT_MS
+   · Se considera oyente activo quien tenga un "lastSeen"
+     dentro de los últimos STALE_MS
+   · onSnapshot sincroniza el contador en TIEMPO REAL
+   · Se registra cuando el audio de Sala Música reproduce
+   · Se desregistra al pausar, detener o al cerrar la app
+   · NO modifica ninguna otra funcionalidad existente
+   ============================================================ */
+(function () {
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+    const LOG = '[OYENTES-SM]';
+    const COLLECTION   = 'sala_musica_oyentes';
+
+    /* Tiempos (ajustados para resistir throttling de fondo) */
+    const HEARTBEAT_MS = 20000;   // 20 s entre latidos
+    const STALE_MS     = 75000;   // 75 s sin latido ⇒ inactivo
+    const REFRESH_MS   = 5000;    // recalcular localmente cada 5 s
+
+    let currentUser       = null;
+    let registeredRef     = null;   // DocumentReference del propio user
+    let isRegistered      = false;
+    let heartbeatTimer    = null;
+    let refreshTimer      = null;
+    let listenersUnsub    = null;
+    let cachedDocs        = [];     // [{ uid, lastSeenMs }]
+    let lastRenderedCount = -1;
+
+    /* ------------------------------------------------------------
+       Utilidades
+       ------------------------------------------------------------ */
+    function nowMs() { return Date.now(); }
+
+    function isActuallyListening() {
+        const audio = document.getElementById('sala-audio-player');
+        if (!audio) return false;
+        if (!audio.src) return false;
+        if (audio.paused) return false;
+        if (audio.ended)  return false;
+        return true;
+    }
+
+    function getDisplayName() {
+        if (!currentUser) return 'Usuario';
+        return currentUser.displayName
+            || (currentUser.email ? currentUser.email.split('@')[0] : 'Usuario');
+    }
+
+    /* ------------------------------------------------------------
+       Registro / heartbeat / desregistro
+       ------------------------------------------------------------ */
+    async function registerListener() {
+        if (!currentUser) return;
+        if (!isActuallyListening()) return;
+
+        const uid = currentUser.uid;
+        const ref = firebase.firestore().collection(COLLECTION).doc(uid);
+        registeredRef = ref;
+        isRegistered = true;
+
+        try {
+            await ref.set({
+                uid:       uid,
+                nombre:    getDisplayName(),
+                foto:      currentUser.photoURL || '',
+                lastSeen:  firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+            console.log(LOG, '✅ Oyente registrado:', uid);
+        } catch (e) {
+            console.warn(LOG, 'Error al registrar:', e);
+            isRegistered = false;
+            registeredRef = null;
+            return;
+        }
+
+        startHeartbeat();
+        updateBadgeImmediately(true);
+    }
+
+    function startHeartbeat() {
+        stopHeartbeat();
+        heartbeatTimer = setInterval(async () => {
+            if (!isRegistered || !registeredRef) return;
+
+            if (!isActuallyListening()) {
+                await unregisterListener();
+                return;
+            }
+
+            try {
+                await registeredRef.update({
+                    lastSeen: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            } catch (e) {
+                // Si el doc fue borrado (p. ej. por limpieza externa) → re-registrar
+                if (e && e.code === 'not-found') {
+                    isRegistered = false;
+                    registeredRef = null;
+                    await registerListener();
+                }
+            }
+        }, HEARTBEAT_MS);
+    }
+
+    function stopHeartbeat() {
+        if (heartbeatTimer) {
+            clearInterval(heartbeatTimer);
+            heartbeatTimer = null;
+        }
+    }
+
+    async function unregisterListener() {
+        if (!isRegistered) return;
+        const ref = registeredRef;
+        isRegistered  = false;
+        registeredRef = null;
+        stopHeartbeat();
+
+        if (!ref) return;
+        try {
+            await ref.delete();
+            console.log(LOG, '⏹ Oyente desregistrado');
+        } catch (e) {
+            // Ignorar errores de red al salir
+        }
+    }
+
+    /* ------------------------------------------------------------
+       Listen global + recuento local
+       ------------------------------------------------------------ */
+    function listenForCount() {
+        if (listenersUnsub) return;
+        if (typeof firebase === 'undefined' || !firebase.firestore) return;
+
+        try {
+            listenersUnsub = firebase.firestore()
+                .collection(COLLECTION)
+                .onSnapshot(snap => {
+                    const arr = [];
+                    snap.forEach(doc => {
+                        const d  = doc.data() || {};
+                        const ts = d.lastSeen;
+                        let ms = 0;
+                        if (ts && typeof ts.toMillis === 'function')      ms = ts.toMillis();
+                        else if (ts && typeof ts.toDate === 'function')   ms = ts.toDate().getTime();
+                        else if (typeof ts === 'number')                  ms = ts;
+                        if (ms > 0) arr.push({ uid: doc.id, lastSeenMs: ms });
+                    });
+                    cachedDocs = arr;
+                    updateBadgeImmediately(false);
+                }, err => {
+                    console.warn(LOG, 'onSnapshot error:', err && err.code);
+                });
+        } catch (e) {
+            console.warn(LOG, 'No se pudo escuchar el contador:', e);
+        }
+    }
+
+    function computeCount() {
+        const cutoff = nowMs() - STALE_MS;
+        const seen   = new Set();
+        let count = 0;
+        for (const d of cachedDocs) {
+            if (!d.lastSeenMs || d.lastSeenMs < cutoff) continue;
+            if (seen.has(d.uid)) continue;
+            seen.add(d.uid);
+            count++;
+        }
+        return count;
+    }
+
+    function updateBadgeImmediately(forcePulse) {
+        const el    = $('sm-listeners-count');
+        const badge = $('sm-listeners-badge');
+        if (!el || !badge) return;
+
+        const n = computeCount();
+        el.textContent = String(n);
+
+        badge.classList.toggle('active', n > 0);
+        badge.classList.toggle('empty',  n === 0);
+
+        if (lastRenderedCount !== -1 && lastRenderedCount !== n) {
+            badge.classList.remove('bump');
+            void badge.offsetWidth;
+            badge.classList.add('bump');
+            setTimeout(() => badge.classList.remove('bump'), 500);
+        }
+        if (forcePulse) {
+            badge.classList.remove('bump');
+            void badge.offsetWidth;
+            badge.classList.add('bump');
+            setTimeout(() => badge.classList.remove('bump'), 500);
+        }
+        lastRenderedCount = n;
+    }
+
+    function startLocalRefresh() {
+        if (refreshTimer) return;
+        refreshTimer = setInterval(() => {
+            // Sólo recalcula si estamos viendo Sala Música (ahorra CPU)
+            const v = $('sala-musica-view');
+            if (v && v.classList.contains('visible')) {
+                updateBadgeImmediately(false);
+            }
+        }, REFRESH_MS);
+    }
+
+    /* ------------------------------------------------------------
+       Enganches al audio de Sala Música
+       ------------------------------------------------------------ */
+    function hookSalaAudio() {
+        const audio = document.getElementById('sala-audio-player');
+        if (!audio) return false;
+        if (audio.dataset.listenersHooked === '1') return true;
+        audio.dataset.listenersHooked = '1';
+
+        audio.addEventListener('play',    () => { registerListener(); });
+        audio.addEventListener('playing', () => { registerListener(); });
+
+        audio.addEventListener('pause',   () => { unregisterListener(); });
+
+        audio.addEventListener('ended', () => {
+            // Puede que vaya a encadenar otra canción (radio).
+            // Damos una pequeña ventana; si no retoma, desregistramos.
+            setTimeout(() => {
+                if (!isActuallyListening()) unregisterListener();
+            }, 2500);
+        });
+
+        console.log(LOG, 'Audio de Sala Música enganchado');
+        return true;
+    }
+
+    /* ------------------------------------------------------------
+       Cierre / salida / reconexión
+       ------------------------------------------------------------ */
+    function hookUnloadCleanup() {
+        const cleanup = () => {
+            if (isRegistered && registeredRef) {
+                // Intento best-effort; si falla, el latido expirará solo.
+                try { registeredRef.delete(); } catch (_) {}
+            }
+        };
+        window.addEventListener('pagehide',      cleanup);
+        window.addEventListener('beforeunload',  cleanup);
+    }
+
+    /* ------------------------------------------------------------
+       Init
+       ------------------------------------------------------------ */
+    function init() {
+        if (typeof firebase === 'undefined' || !firebase.auth) {
+            setTimeout(init, 300);
+            return;
+        }
+
+        firebase.auth().onAuthStateChanged(user => {
+            currentUser = user;
+
+            if (user) {
+                listenForCount();
+                startLocalRefresh();
+                updateBadgeImmediately(false);
+
+                // Enganchar el audio (puede tardar en aparecer)
+                let tries = 0;
+                (function loop() {
+                    tries++;
+                    if (hookSalaAudio()) {
+                        if (isActuallyListening()) registerListener();
+                        return;
+                    }
+                    if (tries < 40) setTimeout(loop, 300);
+                })();
+
+            } else {
+                // Cerró sesión
+                if (listenersUnsub) { listenersUnsub(); listenersUnsub = null; }
+                unregisterListener();
+                cachedDocs = [];
+                updateBadgeImmediately(false);
+            }
+        });
+
+        hookUnloadCleanup();
+
+        // Al volver a la app: refrescar y re-registrar si el audio sigue sonando
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                if (isActuallyListening()) registerListener();
+                updateBadgeImmediately(false);
+            }
+        });
+
+        // Por si el usuario abre Sala Música ya estando el audio en reproducción
+        const smView = document.getElementById('sala-musica-view');
+        if (smView && smView.dataset.listenersWatch !== '1') {
+            smView.dataset.listenersWatch = '1';
+            const obs = new MutationObserver(() => {
+                if (smView.classList.contains('visible')) {
+                    updateBadgeImmediately(false);
+                    if (isActuallyListening()) registerListener();
+                    // Por si el audio aún no ha sido enganchado
+                    hookSalaAudio();
+                }
+            });
+            obs.observe(smView, { attributes: true, attributeFilter: ['class'] });
+        }
+
+        // Reintentos por si algo tarda en cargar
+        [800, 2500, 6000].forEach(ms => setTimeout(() => {
+            hookSalaAudio();
+            if (isActuallyListening()) registerListener();
+            updateBadgeImmediately(false);
+        }, ms));
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+
+    /* API pública por si la necesitas desde la consola */
+    window.__listenersApi = {
+        register:    registerListener,
+        unregister:  unregisterListener,
+        refresh:     () => updateBadgeImmediately(true),
+        getCount:    computeCount,
+        isListening: isActuallyListening
+    };
+})();
