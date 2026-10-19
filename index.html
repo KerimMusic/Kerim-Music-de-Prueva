@@ -68,9 +68,6 @@
                 <li><a href="#" id="change-color-link" class="submenu-link" type="button">Cambiar color</a></li>
                 <!-- Botón de compartir movido aquí -->
                 <li><a href="#" id="submenu-share-btn" class="submenu-link" type="button">Compartir</a></li>
-                <!-- 🆕 NUEVAS OPCIONES: EVENTOS EN VIVO -->
-                <li><a href="#" id="live-events-link" class="submenu-link" type="button">Eventos en vivo</a></li>
-                <li><a href="#" id="start-stream-link" class="submenu-link" type="button">Transmitir evento en vivo</a></li>
                 <li><a href="#" id="logout-link" class="submenu-link" type="button">Cerrar Sesion</a></li>
             </ul>
         </nav>
@@ -631,84 +628,6 @@
     </div>
 </div>
 
-<!-- =========================================================
-     🆕 VISTA: EVENTOS EN VIVO
-     ========================================================= -->
-<div class="eventos-view" id="eventos-view" aria-hidden="true">
-
-    <div class="le-header">
-        <button class="le-back" id="le-back" type="button" aria-label="Volver">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none"
-                 stroke="#ffffff" stroke-width="2.4" stroke-linecap="round"
-                 stroke-linejoin="round">
-                <polyline points="15 18 9 12 15 6"/>
-            </svg>
-        </button>
-        <h1 class="le-title">Eventos en vivo</h1>
-    </div>
-
-    <div class="le-scroll" id="le-scroll">
-        <div class="le-list" id="le-list"></div>
-        <div class="le-empty" id="le-empty" style="display:none;">
-            <div class="le-empty-title">No hay eventos en vivo ahora</div>
-            <div class="le-empty-sub">Vuelve más tarde o inicia tu propia transmisión.</div>
-        </div>
-    </div>
-</div>
-
-<!-- =========================================================
-     🆕 VISTA: TRANSMITIR EVENTO EN VIVO
-     ========================================================= -->
-<div class="transmitir-view" id="transmitir-view" aria-hidden="true">
-
-    <div class="ls-header">
-        <button class="ls-back" id="ls-back" type="button" aria-label="Volver">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none"
-                 stroke="#ffffff" stroke-width="2.4" stroke-linecap="round"
-                 stroke-linejoin="round">
-                <polyline points="15 18 9 12 15 6"/>
-            </svg>
-        </button>
-        <h1 class="ls-title">Transmitir en vivo</h1>
-    </div>
-
-    <div class="ls-scroll" id="ls-scroll">
-
-        <!-- Selector de cámara -->
-        <div class="ls-camera-selector" id="ls-camera-selector" style="display:none;">
-            <label class="ls-label">Cámara:</label>
-            <select id="ls-camera-select" class="ls-select"></select>
-        </div>
-
-        <!-- Vista previa del video local -->
-        <div class="ls-preview-wrap">
-            <video id="ls-preview" autoplay muted playsinline></video>
-            <div class="ls-preview-placeholder" id="ls-preview-placeholder">
-                <span>Vista previa de la cámara</span>
-            </div>
-        </div>
-
-        <!-- Campo para el título del evento -->
-        <div class="ls-field">
-            <label for="ls-title-input" class="ls-label">Título del evento</label>
-            <input type="text" id="ls-title-input" class="ls-input"
-                   placeholder="Ej: Sesión de beats en vivo" maxlength="80">
-        </div>
-
-        <!-- Botones de control -->
-        <div class="ls-controls">
-            <button id="ls-start-btn" class="ls-start-btn" type="button">
-                Iniciar transmisión
-            </button>
-            <button id="ls-stop-btn" class="ls-stop-btn" type="button" style="display:none;">
-                Finalizar transmisión
-            </button>
-        </div>
-
-        <p class="ls-status" id="ls-status"></p>
-    </div>
-</div>
-
 <!-- Modal para escribir comentario -->
 <div class="sm-modal" id="sm-comment-modal" aria-hidden="true">
     <div class="sm-modal-backdrop" id="sm-comment-backdrop"></div>
@@ -948,8 +867,5 @@
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 
 <script src="script.js"></script>
-
-<!-- 🆕 Script con la lógica de Eventos en vivo y Transmisión -->
-<script src="live-events.js"></script>
 </body>
 </html>
