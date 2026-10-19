@@ -15288,3 +15288,576 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 })();
+/* ============================================================
+   55. EVENTOS EN VIVO Y TRANSMISIÓN
+   ------------------------------------------------------------
+   · Lista eventos activos en Firestore (collection 'eventos_en_vivo')
+   · Permite iniciar transmisión con cámara del dispositivo
+   · Vista previa con getUserMedia
+   · Vista de espectador (placeholder; integración WebRTC opcional)
+   · Actualización en tiempo real con onSnapshot
+   · Heartbeat para detectar transmisiones inactivas
+   · Limpia la cámara/micrófono al cerrar
+   NO modifica las funciones existentes.
+   ============================================================ */
+(function () {
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+    const LOG = '[LIVE]';
+    const COL_EVENTOS = 'eventos_en_vivo';
+
+    // ⚠️ Opcional: si tienes cuenta en Agora (console.agora.io), pon aquí tu App ID.
+    // Si lo dejas vacío, la app funciona igual pero solo con vista previa local.
+    const AGORA_APP_ID = '';
+    const AGORA_SDK_URL = 'https://download.agora.io/sdk/release/AgoraRTC_N.js';
+
+    let usuarioActual       = null;
+    let eventosUnsub        = null;
+    let eventoActual        = null;
+    let mediaStreamActual   = null;
+    let clienteAgora        = null;
+    let heartbeatInterval   = null;
+    let sdkLoaded           = false;
+    let sdkLoading          = null;
+    let camaraSeleccionadaId = null;
+    let modoCamaraActual    = 'user';
+
+    /* --------------------------------------------------------
+       VISTAS
+       -------------------------------------------------------- */
+    const VISTAS_OCULTABLES = [
+        'playlist-view','artist-profile','album-view','mi-playlist-view',
+        'mensajes-view','chat-view','newmsg-view','stats-view',
+        'comunidad-view','comunidad-crear-view','comentarios-view',
+        'sala-musica-view','generos-view','genre-songs-view'
+    ];
+
+    function abrirVista(idVista) {
+        VISTAS_OCULTABLES.forEach(id => {
+            if (id === idVista) return;
+            const v = $(id);
+            if (v && v.classList.contains('visible')) {
+                v.classList.remove('visible');
+                v.setAttribute('aria-hidden', 'true');
+            }
+        });
+        const vista = $(idVista);
+        if (vista) {
+            vista.classList.add('visible');
+            vista.setAttribute('aria-hidden', 'false');
+        }
+    }
+
+    function cerrarVista(idVista) {
+        const vista = $(idVista);
+        if (vista) {
+            vista.classList.remove('visible');
+            vista.setAttribute('aria-hidden', 'true');
+        }
+    }
+
+    function cerrarSubmenu() {
+        const sm = $('submenu');
+        const so = $('submenu-overlay');
+        if (sm) { sm.classList.remove('visible'); sm.setAttribute('aria-hidden', 'true'); }
+        if (so) so.classList.remove('visible');
+    }
+
+    /* --------------------------------------------------------
+       AGORA SDK LOADER (opcional)
+       -------------------------------------------------------- */
+    async function cargarAgoraSDK() {
+        if (sdkLoaded) return true;
+        if (sdkLoading) return sdkLoading;
+        sdkLoading = new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = AGORA_SDK_URL;
+            script.onload = () => { sdkLoaded = true; resolve(true); };
+            script.onerror = () => reject(new Error('No se pudo cargar Agora SDK'));
+            document.head.appendChild(script);
+        });
+        return sdkLoading;
+    }
+
+    /* --------------------------------------------------------
+       UTILIDADES
+       -------------------------------------------------------- */
+    function escText(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[c]));
+    }
+    function escAttr(s) { return escText(s); }
+
+    function mostrarStatus(msg, tipo) {
+        const status = $('ls-status');
+        if (!status) return;
+        status.textContent = msg || '';
+        status.classList.remove('ok', 'error');
+        if (tipo === 'ok')         status.classList.add('ok');
+        else if (tipo === 'error') status.classList.add('error');
+    }
+
+    function getMensajeError(err) {
+        if (!err) return 'Error desconocido.';
+        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')
+            return 'Permisos de cámara/micrófono denegados.';
+        if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError')
+            return 'No se encontró cámara o micrófono.';
+        if (err.name === 'NotReadableError')
+            return 'La cámara está en uso por otra aplicación.';
+        return 'No se pudo iniciar la vista previa: ' + (err.message || err.name);
+    }
+
+    /* --------------------------------------------------------
+       LISTA DE EVENTOS EN VIVO (ESPECTADOR)
+       -------------------------------------------------------- */
+    function escucharEventos() {
+        if (eventosUnsub) { eventosUnsub(); eventosUnsub = null; }
+        if (typeof firebase === 'undefined') return;
+
+        eventosUnsub = firebase.firestore()
+            .collection(COL_EVENTOS)
+            .where('estado', '==', 'activo')
+            .orderBy('inicio', 'desc')
+            .onSnapshot(snap => {
+                const lista = $('le-list');
+                const vacio = $('le-empty');
+                if (!lista) return;
+                lista.innerHTML = '';
+
+                if (snap.empty) {
+                    if (vacio) vacio.style.display = 'block';
+                    return;
+                }
+                if (vacio) vacio.style.display = 'none';
+
+                snap.forEach(doc => {
+                    const d = doc.data() || {};
+                    const card = document.createElement('div');
+                    card.className = 'le-card';
+                    card.dataset.eventoId = doc.id;
+
+                    const inicial = (d.streamerNombre || 'U').trim()[0].toUpperCase();
+                    const avatarHTML = d.streamerFoto
+                        ? `<img src="${escAttr(d.streamerFoto)}" alt="" onerror="this.style.display='none';this.parentNode.textContent='${inicial}';">`
+                        : inicial;
+
+                    card.innerHTML =
+                        `<div class="le-card-avatar">${avatarHTML}</div>` +
+                        `<div class="le-card-info">` +
+                            `<div class="le-card-title">${escText(d.titulo || 'Evento sin título')}</div>` +
+                            `<div class="le-card-streamer">${escText(d.streamerNombre || 'Usuario')}</div>` +
+                        `</div>` +
+                        `<span class="le-card-live-badge">En vivo</span>`;
+
+                    card.addEventListener('click', () => {
+                        if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} }
+                        unirseAEvento(d, doc.id);
+                    });
+                    lista.appendChild(card);
+                });
+            }, err => {
+                console.warn(LOG, 'Error escuchando eventos:', err);
+                const vacio = $('le-empty');
+                if (vacio) vacio.style.display = 'block';
+            });
+    }
+
+    function unirseAEvento(evento, eventoId) {
+        alert(
+            'Conectando al evento en vivo:\n\n' +
+            '"' + (evento.titulo || 'Sin título') + '"\n' +
+            'Streamer: ' + (evento.streamerNombre || 'Usuario') + '\n' +
+            'Canal: ' + (evento.canal || eventoId) + '\n\n' +
+            '(La reproducción real requiere configurar Agora u otro servicio WebRTC. ' +
+            'Consulta la documentación para conectar el canal.)'
+        );
+        // Para integración real:
+        // await cargarAgoraSDK();
+        // const client = AgoraRTC.createClient({ mode: 'live', codec: 'vp8' });
+        // await client.setClientRole('audience');
+        // await client.join(AGORA_APP_ID, evento.canal, null, null);
+        // client.on('user-published', async (user, mediaType) => {
+        //     await client.subscribe(user, mediaType);
+        //     // reproducir en <video>
+        // });
+    }
+
+    /* --------------------------------------------------------
+       VISTA PREVIA
+       -------------------------------------------------------- */
+    async function iniciarVistaPrevia() {
+        const video       = $('ls-preview');
+        const placeholder = $('ls-preview-placeholder');
+
+        try {
+            const constraints = {
+                video: camaraSeleccionadaId
+                    ? { deviceId: { exact: camaraSeleccionadaId } }
+                    : { facingMode: modoCamaraActual },
+                audio: true
+            };
+            mediaStreamActual = await navigator.mediaDevices.getUserMedia(constraints);
+
+            if (video) {
+                video.srcObject = mediaStreamActual;
+                video.muted = true;
+                video.playsInline = true;
+                video.play().catch(() => {});
+
+                const track = mediaStreamActual.getVideoTracks()[0];
+                const settings = track ? track.getSettings() : {};
+                if (settings.facingMode === 'environment') {
+                    video.classList.add('rear-camera');
+                } else {
+                    video.classList.remove('rear-camera');
+                }
+            }
+
+            if (placeholder) placeholder.style.display = 'none';
+            mostrarStatus('', '');
+            await enumerarCamaras();
+            return mediaStreamActual;
+        } catch (err) {
+            console.error(LOG, 'Error acceso cámara/micrófono:', err);
+            if (placeholder) {
+                placeholder.style.display = 'flex';
+                placeholder.textContent = 'No se pudo acceder a la cámara. Verifica los permisos.';
+            }
+            mostrarStatus(getMensajeError(err), 'error');
+            return null;
+        }
+    }
+
+    async function enumerarCamaras() {
+        try {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const videos = devices.filter(d => d.kind === 'videoinput');
+            const selector = $('ls-camera-selector');
+            const select   = $('ls-camera-select');
+
+            if (!selector || !select) return;
+
+            if (videos.length > 1) {
+                selector.style.display = 'block';
+                select.innerHTML = '';
+                videos.forEach((cam, idx) => {
+                    const opt = document.createElement('option');
+                    opt.value = cam.deviceId;
+                    opt.textContent = cam.label || ('Cámara ' + (idx + 1));
+                    if (cam.deviceId === camaraSeleccionadaId) opt.selected = true;
+                    select.appendChild(opt);
+                });
+            } else {
+                selector.style.display = 'none';
+            }
+        } catch (e) {
+            console.warn(LOG, 'Error enumerando cámaras:', e);
+        }
+    }
+
+    /* --------------------------------------------------------
+       INICIAR / FINALIZAR TRANSMISIÓN
+       -------------------------------------------------------- */
+    async function iniciarTransmision() {
+        if (!usuarioActual) { mostrarStatus('Debes iniciar sesión.', 'error'); return; }
+
+        const titulo = ($('ls-title-input')?.value || '').trim();
+        if (!titulo) { mostrarStatus('Escribe un título para el evento.', 'error'); return; }
+
+        const btnStart = $('ls-start-btn');
+        const btnStop  = $('ls-stop-btn');
+
+        if (btnStart) { btnStart.disabled = true; btnStart.textContent = 'Iniciando…'; }
+        mostrarStatus('Iniciando transmisión…', '');
+
+        try {
+            if (!mediaStreamActual) {
+                const s = await iniciarVistaPrevia();
+                if (!s) {
+                    if (btnStart) { btnStart.disabled = false; btnStart.textContent = 'Iniciar transmisión'; }
+                    return;
+                }
+            }
+
+            const canalId = 'omega-live-' + usuarioActual.uid + '-' + Date.now();
+
+            const docRef = await firebase.firestore().collection(COL_EVENTOS).add({
+                titulo: titulo,
+                streamerUid: usuarioActual.uid,
+                streamerNombre: usuarioActual.displayName || (usuarioActual.email ? usuarioActual.email.split('@')[0] : 'Usuario'),
+                streamerFoto: usuarioActual.photoURL || '',
+                canal: canalId,
+                estado: 'activo',
+                inicio: firebase.firestore.FieldValue.serverTimestamp(),
+                ultimaActualizacion: firebase.firestore.FieldValue.serverTimestamp()
+            });
+
+            eventoActual = { id: docRef.id, canal: canalId, titulo };
+
+            if (AGORA_APP_ID) {
+                try {
+                    await cargarAgoraSDK();
+                    clienteAgora = AgoraRTC.createClient({ mode: 'live', codec: 'vp8' });
+                    await clienteAgora.setClientRole('host');
+                    await clienteAgora.join(AGORA_APP_ID, canalId, null, usuarioActual.uid);
+                    const audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+                    const videoTrack = await AgoraRTC.createCameraVideoTrack();
+                    await clienteAgora.publish([audioTrack, videoTrack]);
+                } catch (agoraErr) {
+                    console.warn(LOG, 'Agora no configurado:', agoraErr.message);
+                }
+            }
+
+            iniciarHeartbeat(docRef.id);
+
+            if (btnStart) btnStart.style.display = 'none';
+            if (btnStop)  btnStop.style.display = 'block';
+
+            const liveInd = document.querySelector('.ls-live-indicator');
+            if (liveInd) liveInd.classList.add('visible');
+
+            mostrarStatus('✓ Transmisión iniciada. Aparecerás en "Eventos en vivo".', 'ok');
+        } catch (err) {
+            console.error(LOG, 'Error al iniciar:', err);
+            mostrarStatus('Error al iniciar: ' + (err.message || 'Error desconocido'), 'error');
+            if (btnStart) { btnStart.disabled = false; btnStart.textContent = 'Iniciar transmisión'; }
+        }
+    }
+
+    function iniciarHeartbeat(docId) {
+        detenerHeartbeat();
+        heartbeatInterval = setInterval(async () => {
+            try {
+                await firebase.firestore().collection(COL_EVENTOS).doc(docId).update({
+                    ultimaActualizacion: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            } catch (e) {
+                console.warn(LOG, 'Heartbeat falló:', e.message);
+            }
+        }, 30000);
+    }
+
+    function detenerHeartbeat() {
+        if (heartbeatInterval) { clearInterval(heartbeatInterval); heartbeatInterval = null; }
+    }
+
+    async function finalizarTransmision(silent) {
+        detenerHeartbeat();
+
+        if (mediaStreamActual) {
+            mediaStreamActual.getTracks().forEach(t => { try { t.stop(); } catch (_) {} });
+            mediaStreamActual = null;
+        }
+
+        if (clienteAgora) {
+            try { await clienteAgora.leave(); } catch (_) {}
+            clienteAgora = null;
+        }
+
+        const video = $('ls-preview');
+        if (video) video.srcObject = null;
+
+        const placeholder = $('ls-preview-placeholder');
+        if (placeholder) {
+            placeholder.style.display = 'flex';
+            placeholder.textContent = 'Vista previa de la cámara';
+        }
+
+        if (eventoActual && eventoActual.id) {
+            try {
+                await firebase.firestore().collection(COL_EVENTOS).doc(eventoActual.id).update({
+                    estado: 'finalizado',
+                    fin: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            } catch (e) {
+                console.warn(LOG, 'Error marcando finalizado:', e.message);
+            }
+        }
+
+        eventoActual = null;
+
+        const btnStart = $('ls-start-btn');
+        const btnStop  = $('ls-stop-btn');
+        if (btnStart) { btnStart.disabled = false; btnStart.style.display = 'block'; btnStart.textContent = 'Iniciar transmisión'; }
+        if (btnStop)  btnStop.style.display = 'none';
+
+        const liveInd = document.querySelector('.ls-live-indicator');
+        if (liveInd) liveInd.classList.remove('visible');
+
+        if (!silent) mostrarStatus('Transmisión finalizada.', '');
+    }
+
+    /* --------------------------------------------------------
+       HOOKS
+       -------------------------------------------------------- */
+    function hookMenuLinks() {
+        const eventsLink = $('live-events-link');
+        const streamLink = $('start-stream-link');
+
+        if (eventsLink && eventsLink.dataset.liveReady !== '1') {
+            eventsLink.dataset.liveReady = '1';
+            eventsLink.addEventListener('click', (e) => {
+                e.preventDefault(); e.stopPropagation();
+                cerrarSubmenu();
+                setTimeout(() => {
+                    abrirVista('eventos-view');
+                    escucharEventos();
+                }, 120);
+            });
+        }
+
+        if (streamLink && streamLink.dataset.liveReady !== '1') {
+            streamLink.dataset.liveReady = '1';
+            streamLink.addEventListener('click', (e) => {
+                e.preventDefault(); e.stopPropagation();
+                cerrarSubmenu();
+                setTimeout(() => {
+                    abrirVista('transmitir-view');
+                    const titleInput = $('ls-title-input');
+                    if (titleInput) titleInput.value = '';
+                    const btnStart = $('ls-start-btn');
+                    const btnStop  = $('ls-stop-btn');
+                    if (btnStart) { btnStart.style.display = 'block'; btnStart.disabled = false; btnStart.textContent = 'Iniciar transmisión'; }
+                    if (btnStop)  btnStop.style.display = 'none';
+                    const liveInd = document.querySelector('.ls-live-indicator');
+                    if (liveInd) liveInd.classList.remove('visible');
+                    mostrarStatus('', '');
+                    iniciarVistaPrevia();
+                }, 120);
+            });
+        }
+    }
+
+    function hookBackButtons() {
+        const leBack = $('le-back');
+        if (leBack && leBack.dataset.liveReady !== '1') {
+            leBack.dataset.liveReady = '1';
+            leBack.addEventListener('click', () => {
+                cerrarVista('eventos-view');
+                if (eventosUnsub) { eventosUnsub(); eventosUnsub = null; }
+            });
+        }
+
+        const lsBack = $('ls-back');
+        if (lsBack && lsBack.dataset.liveReady !== '1') {
+            lsBack.dataset.liveReady = '1';
+            lsBack.addEventListener('click', async () => {
+                if (eventoActual || mediaStreamActual) {
+                    const msg = eventoActual
+                        ? '¿Finalizar transmisión y salir?'
+                        : '¿Detener vista previa y salir?';
+                    if (!confirm(msg)) return;
+                    if (eventoActual) await finalizarTransmision(true);
+                    else {
+                        if (mediaStreamActual) {
+                            mediaStreamActual.getTracks().forEach(t => { try { t.stop(); } catch (_) {} });
+                            mediaStreamActual = null;
+                        }
+                    }
+                }
+                cerrarVista('transmitir-view');
+            });
+        }
+    }
+
+    function hookStreamControls() {
+        const btnStart = $('ls-start-btn');
+        const btnStop  = $('ls-stop-btn');
+        const selectCam = $('ls-camera-select');
+
+        if (btnStart && btnStart.dataset.liveReady !== '1') {
+            btnStart.dataset.liveReady = '1';
+            btnStart.addEventListener('click', iniciarTransmision);
+        }
+
+        if (btnStop && btnStop.dataset.liveReady !== '1') {
+            btnStop.dataset.liveReady = '1';
+            btnStop.addEventListener('click', async () => {
+                if (!confirm('¿Finalizar la transmisión?')) return;
+                await finalizarTransmision(false);
+            });
+        }
+
+        if (selectCam && selectCam.dataset.liveReady !== '1') {
+            selectCam.dataset.liveReady = '1';
+            selectCam.addEventListener('change', async () => {
+                camaraSeleccionadaId = selectCam.value;
+                if (mediaStreamActual) {
+                    mediaStreamActual.getTracks().forEach(t => { try { t.stop(); } catch (_) {} });
+                    mediaStreamActual = null;
+                }
+                if (!eventoActual) await iniciarVistaPrevia();
+            });
+        }
+    }
+
+    function hookEscapeKey() {
+        if (window.__liveEscapeHooked) return;
+        window.__liveEscapeHooked = true;
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'Escape') return;
+            const evView = $('eventos-view');
+            const trView = $('transmitir-view');
+            if (trView && trView.classList.contains('visible')) {
+                e.stopPropagation();
+                const lsBack = $('ls-back');
+                if (lsBack) lsBack.click();
+            } else if (evView && evView.classList.contains('visible')) {
+                e.stopPropagation();
+                cerrarVista('eventos-view');
+                if (eventosUnsub) { eventosUnsub(); eventosUnsub = null; }
+            }
+        }, true);
+    }
+
+    function hookCleanup() {
+        const cleanup = () => {
+            if (mediaStreamActual) {
+                mediaStreamActual.getTracks().forEach(t => { try { t.stop(); } catch (_) {} });
+                mediaStreamActual = null;
+            }
+            if (eventoActual && eventoActual.id && typeof firebase !== 'undefined') {
+                firebase.firestore().collection(COL_EVENTOS).doc(eventoActual.id)
+                    .update({ estado: 'finalizado' }).catch(() => {});
+            }
+            detenerHeartbeat();
+        };
+        window.addEventListener('beforeunload', cleanup);
+        window.addEventListener('pagehide', cleanup);
+    }
+
+    /* --------------------------------------------------------
+       INIT
+       -------------------------------------------------------- */
+    function init() {
+        if (typeof firebase === 'undefined' || !firebase.auth) {
+            setTimeout(init, 300);
+            return;
+        }
+
+        hookMenuLinks();
+        hookBackButtons();
+        hookStreamControls();
+        hookEscapeKey();
+        hookCleanup();
+
+        firebase.auth().onAuthStateChanged(user => { usuarioActual = user; });
+
+        console.log(LOG, '✅ Sección 55 lista');
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+
+    window.__liveEventsApi = {
+        abrirEventos:   () => { abrirVista('eventos-view'); escucharEventos(); },
+        abrirTransmitir: () => { abrirVista('transmitir-view'); iniciarVistaPrevia(); }
+    };
+})();
