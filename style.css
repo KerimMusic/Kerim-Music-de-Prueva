@@ -38,14 +38,19 @@ input, textarea {
     overflow: hidden;
 }
 
+/* ============================================================
+   NUEVA BARRA SUPERIOR
+   ============================================================ */
 .top-bar {
     position: relative;
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 15px 20px;
-    min-height: 75px;
+    justify-content: flex-start;
+    gap: 15px;
+    padding: 12px 15px;
+    min-height: 65px;
     z-index: 20;
+    background-color: #000000;
 }
 
 .menu-btn {
@@ -63,61 +68,37 @@ input, textarea {
 .menu-btn:hover  { transform: scale(1.1); }
 .menu-btn:active { transform: scale(0.9); }
 
-.header-logo {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    width: 140px;
-    pointer-events: none;
-    z-index: 19;
-}
-
-.header-logo img {
-    display: block;
-    width: 50%;
-    height: auto;
-    object-fit: contain;
-}
-
-.header-actions {
+.top-nav {
     display: flex;
     align-items: center;
-    gap: 15px;
-    z-index: 21;
+    gap: 18px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    flex: 1;
 }
+.top-nav::-webkit-scrollbar { display: none; }
 
-.share-btn {
-    background-color: #ff2a2a;
-    border: none;
-    border-radius: 50%;
-    width: 40px;
-    height: 40px;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    cursor: pointer;
-    padding: 0;
-    transition: transform 0.2s ease;
-}
-
-.share-btn:hover  { transform: scale(1.1); }
-.share-btn:active { transform: scale(0.9); }
-
-.heart-search-btn {
+.top-nav-btn {
     background: none;
     border: none;
+    color: #888888;
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 900;
+    text-transform: uppercase;
+    line-height: 1.15;
+    white-space: nowrap;
+    padding: 5px 0;
+    transition: color 0.2s ease, transform 0.15s ease;
+    text-align: left;
     cursor: pointer;
-    padding: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: transform 0.2s ease;
 }
+.top-nav-btn.active { color: #ffffff; }
+.top-nav-btn:active { transform: scale(0.95); }
 
-.heart-search-btn:hover  { transform: scale(1.1); }
-.heart-search-btn:active { transform: scale(0.9); }
-
+/* ============================================================
+   SUBMENÚ
+   ============================================================ */
 .submenu-overlay {
     position: fixed;
     inset: 0;
@@ -226,16 +207,27 @@ input, textarea {
     padding-left: 18px;
 }
 
+/* ============================================================
+   BUSCADOR (DESPLEGABLE DESDE ARRIBA)
+   ============================================================ */
 .search-container {
+    position: absolute;
+    top: 65px;
+    left: 0;
+    width: 100%;
+    z-index: 99;
+    background-color: #000000;
     max-height: 0;
     overflow: hidden;
     transition: max-height 0.3s ease, padding 0.3s ease;
     padding: 0 20px;
-    background-color: #000000;
-    z-index: 15;
 }
 
-.search-container.visible { max-height: 70px; padding: 0 20px 15px 20px; }
+.search-container.visible {
+    max-height: 70px;
+    padding: 0 20px 15px 20px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.6);
+}
 
 .search-input {
     width: 100%;
@@ -252,6 +244,9 @@ input, textarea {
 .search-input:focus { border-color: #ff2a2a; }
 .search-input::placeholder { color: #888; }
 
+/* ============================================================
+   LISTA DE REPRODUCCIÓN PRINCIPAL
+   ============================================================ */
 .playlist {
     flex: 1;
     overflow-y: auto;
@@ -326,6 +321,9 @@ input, textarea {
     line-height: 1.2;
 }
 
+/* ============================================================
+   REPRODUCTOR MINI
+   ============================================================ */
 .player {
     position: absolute;
     bottom: 0; left: 0;
@@ -525,6 +523,9 @@ button:active { opacity: 0.72; }
     .close-submenu:hover { color: #ffffff; transform: none; }
 }
 
+/* ============================================================
+   ANUNCIOS
+   ============================================================ */
 #ad-overlay {
     position: fixed;
     inset: 0;
@@ -547,6 +548,9 @@ button:active { opacity: 0.72; }
 #ad-overlay .ad-skip { background: #ff2a2a; color: #ffffff; border: none; border-radius: 50px; padding: 12px 32px; font-size: 14px; font-weight: 800; letter-spacing: 1px; cursor: pointer; box-shadow: 0 8px 24px rgba(255, 42, 42, 0.35); }
 #ad-overlay .ad-skip:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
 
+/* ============================================================
+   REPRODUCTOR FULLSCREEN
+   ============================================================ */
 .fs-player {
     position: fixed;
     inset: 0;
@@ -679,23 +683,10 @@ button:active { opacity: 0.72; }
 /* ============================================================
    ESTADOS DEL BOTÓN #fs-like (DESCARGA OFFLINE)
    ============================================================ */
-
-.fs-like.downloaded {
-    color: #4ade80 !important;
-}
-.fs-like.downloaded svg {
-    width: 46px;
-    height: 46px;
-    fill: none;
-}
-.fs-like.downloaded svg polyline {
-    stroke: #4ade80 !important;
-    stroke-width: 3.2;
-    fill: none;
-}
-.fs-like.downloaded span {
-    color: #4ade80 !important;
-}
+.fs-like.downloaded { color: #4ade80 !important; }
+.fs-like.downloaded svg { width: 46px; height: 46px; fill: none; }
+.fs-like.downloaded svg polyline { stroke: #4ade80 !important; stroke-width: 3.2; fill: none; }
+.fs-like.downloaded span { color: #4ade80 !important; }
 
 .fs-like.processing {
     opacity: 0.9;
@@ -707,9 +698,7 @@ button:active { opacity: 0.72; }
     fill: none !important;
     animation: fs-like-spin 0.9s linear infinite;
 }
-.fs-like.processing span {
-    color: #ff2a2a !important;
-}
+.fs-like.processing span { color: #ff2a2a !important; }
 
 @keyframes fs-like-spin {
     from { transform: rotate(0deg); }
@@ -739,6 +728,9 @@ button:active { opacity: 0.72; }
 }
 #omega-toast.visible { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
 
+/* ============================================================
+   PERFIL DE ARTISTA
+   ============================================================ */
 .artist-profile {
     position: absolute;
     top: 0; left: 0; right: 0; bottom: 81px;
@@ -908,6 +900,9 @@ button:active { opacity: 0.72; }
 .ap-temas-header { grid-column: 1 / -1; font-size: 12px; font-weight: 800; letter-spacing: 2.2px; color: #ff2a2a; text-transform: uppercase; padding: 10px 4px 2px; }
 .ap-temas-grid { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 
+/* ============================================================
+   HOME
+   ============================================================ */
 .home-view { margin: 0 -20px; padding: 0 0 4px; }
 .home-section { margin-bottom: 18px; }
 .home-section-title { font-size: 20px; font-weight: 800; color: #ffffff; padding: 0 20px; margin: 4px 0 10px; }
@@ -950,6 +945,9 @@ button:active { opacity: 0.72; }
 .home-card--artist .home-card-thumb { width: 118px; height: 118px; border-radius: 50%; box-shadow: 0 8px 20px rgba(0, 0, 0, 0.6), 0 0 0 2px rgba(255, 42, 42, 0.35); }
 .home-card--artist .home-card-title { text-align: center; -webkit-line-clamp: 1; }
 
+/* ============================================================
+   VISTA ÁLBUM
+   ============================================================ */
 .album-view {
     position: absolute;
     top: 0; left: 0; right: 0; bottom: 81px;
@@ -1005,6 +1003,9 @@ button:active { opacity: 0.72; }
 .show-all-btn:active { transform: scale(0.95); opacity: 0.9; }
 .show-all-btn[hidden] { display: none; }
 
+/* ============================================================
+   AUTENTICACIÓN
+   ============================================================ */
 .auth-gate {
     position: fixed;
     inset: 0;
@@ -1287,9 +1288,8 @@ button:active { opacity: 0.72; }
 .share-user-row--recent { background: rgba(255, 42, 42, 0.05); }
 
 /* ============================================================
-   MI PLAYLIST (vista, crear, público/privado, añadir)
+   MI PLAYLIST
    ============================================================ */
-
 .mi-playlist-view {
     position: absolute;
     top: 0; left: 0; right: 0; bottom: 81px;
@@ -1599,7 +1599,6 @@ button:active { opacity: 0.72; }
 /* ============================================================
    MENSAJES DIRECTOS
    ============================================================ */
-
 .msg-badge {
     display: inline-flex;
     align-items: center;
@@ -2085,7 +2084,7 @@ button:active { opacity: 0.72; }
 }
 
 /* ============================================================
-   33. BÚSQUEDA POR GÉNERO Y PLAYLISTS PÚBLICAS
+   BÚSQUEDA POR GÉNERO Y PLAYLISTS PÚBLICAS
    ============================================================ */
 .search-section--genres .search-card-thumb,
 .search-section--public-playlists .search-card-thumb {
@@ -2094,7 +2093,7 @@ button:active { opacity: 0.72; }
 }
 
 /* ============================================================
-   35. ELIMINAR PLAYLIST DESDE "EDITAR"
+   ELIMINAR PLAYLIST DESDE "EDITAR"
    ============================================================ */
 .pv-delete-playlist {
     flex: 1;
@@ -2123,7 +2122,7 @@ button:active { opacity: 0.72; }
 }
 
 /* ============================================================
-   36. COLABORADORES EN EL REPRODUCTOR FULLSCREEN
+   COLABORADORES EN EL REPRODUCTOR FULLSCREEN
    ============================================================ */
 .fs-collabs {
     position: absolute;
@@ -2251,7 +2250,7 @@ button:active { opacity: 0.72; }
 }
 
 /* ============================================================
-   BOTTOM NAVIGATION BAR
+   BARRA DE NAVEGACIÓN INFERIOR
    ============================================================ */
 .bottom-nav {
     position: absolute;
@@ -2282,7 +2281,8 @@ button:active { opacity: 0.72; }
     font-size: 12px;
     font-weight: 700;
     cursor: pointer;
-    width: 33.33%;
+    width: auto;
+    flex: 1;
     transition: transform 0.2s ease;
     padding: 8px 0;
 }
@@ -2298,11 +2298,11 @@ button:active { opacity: 0.72; }
     position: relative;
 }
 
-.bn-icon svg { width: 100%; height: 100%; }
+.bn-icon svg { width: 26px; height: 26px; }
 
 .bn-label {
     color: #ffffff;
-    font-size: 12px;
+    font-size: 10.5px;
     font-weight: 700;
     letter-spacing: 0.3px;
     text-align: center;
@@ -2325,10 +2325,10 @@ button:active { opacity: 0.72; }
         border-radius: 0 0 12px 12px;
     }
 }
+
 /* ============================================================
    FIX: SCROLL TÁCTIL FLUIDO EN MÓVILES
    ============================================================ */
-
 .playlist,
 .home-view,
 .search-results,
@@ -2391,7 +2391,7 @@ textarea {
 }
 
 /* ============================================================
-   39. VISTA DE ESTADÍSTICAS DE HORAS ESCUCHANDO MÚSICA
+   ESTADÍSTICAS DE HORAS ESCUCHANDO MÚSICA
    ============================================================ */
 .stats-view {
     position: absolute;
@@ -2542,9 +2542,8 @@ textarea {
 .st-empty-sub   { font-size: 13px; color: #999999; }
 
 /* ============================================================
-   41. PERFIL DE ARTISTA Y ÁLBUM EN FORMA DE LISTA
+   PERFIL DE ARTISTA Y ÁLBUM EN FORMA DE LISTA
    ============================================================ */
-
 .ap-grid.ap-grid--list {
     display: flex !important;
     flex-direction: column !important;
@@ -2631,10 +2630,8 @@ textarea {
 }
 
 /* ============================================================
-   44. CAMBIAR COLOR — MODO BLANCO / NEGRO
+   CAMBIAR COLOR — MODO BLANCO / NEGRO
    ============================================================ */
-
-/* ---------- Estilos del modal de opciones ---------- */
 .color-options {
     display: flex;
     flex-direction: column;
@@ -2687,20 +2684,20 @@ textarea {
 
 /* ============================================================
    TEMA BLANCO (MODO CLARO)
-   Se activa con: <body data-theme="light">
    ============================================================ */
-
 body[data-theme="light"] {
     background-color: #f0f0f0;
     color: #111111;
 }
 body[data-theme="light"] .app-container { background-color: #ffffff; }
 
-/* ---------- 1) BARRA SUPERIOR ---------- */
+/* 1) BARRA SUPERIOR Y NAV */
 body[data-theme="light"] .top-bar { background-color: #ffffff; }
 body[data-theme="light"] .menu-btn svg line { stroke: #000000; }
+body[data-theme="light"] .top-nav-btn { color: #666666; }
+body[data-theme="light"] .top-nav-btn.active { color: #111111; }
 
-/* ---------- 2) MENÚ HAMBURGUESA ---------- */
+/* 2) MENÚ HAMBURGUESA */
 body[data-theme="light"] .submenu {
     background-color: #ffffff;
     border-right-color: #e0e0e0;
@@ -2720,8 +2717,8 @@ body[data-theme="light"] .submenu-list li a:hover {
 }
 body[data-theme="light"] .submenu-link:active { background-color: #f0f0f0; }
 
-/* ---------- 3) BUSCADOR ---------- */
-body[data-theme="light"] .search-container { background-color: #ffffff; }
+/* 3) BUSCADOR */
+body[data-theme="light"] .search-container { background-color: #ffffff; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
 body[data-theme="light"] .search-input {
     background-color: #f2f2f2;
     color: #111111;
@@ -2730,7 +2727,7 @@ body[data-theme="light"] .search-input {
 body[data-theme="light"] .search-input::placeholder { color: #888888; }
 body[data-theme="light"] .search-input:focus { border-color: #ff2a2a; }
 
-/* ---------- 4) LISTA PRINCIPAL ---------- */
+/* 4) LISTA PRINCIPAL */
 body[data-theme="light"] .playlist { background-color: #ffffff; color: #111111; }
 body[data-theme="light"] .playlist-item:hover { background-color: #f2f2f2; }
 body[data-theme="light"] .playlist-item.active { background-color: #f0f0f0; }
@@ -2744,7 +2741,7 @@ body[data-theme="light"] .item-info,
 body[data-theme="light"] .Album { color: #111111; }
 body[data-theme="light"] .item-plays { color: #ff2a2a; }
 
-/* ---------- 5) REPRODUCTOR MINI ---------- */
+/* 5) REPRODUCTOR MINI */
 body[data-theme="light"] .player {
     background: linear-gradient(180deg, #f5f5f5 0%, #ffffff 100%);
     border-top-color: #e0e0e0;
@@ -2759,7 +2756,7 @@ body[data-theme="light"] .progress-bar { background-color: #d8d8d8; }
 body[data-theme="light"] .progress-bar:hover { background-color: #cccccc; }
 body[data-theme="light"] .time-labels { color: #666666; }
 
-/* ---------- 6) BARRA INFERIOR ---------- */
+/* 6) BARRA INFERIOR */
 body[data-theme="light"] .bottom-nav {
     background-color: #ffffff;
     border-top-color: #e0e0e0;
@@ -2767,7 +2764,7 @@ body[data-theme="light"] .bottom-nav {
 body[data-theme="light"] .bn-label { color: #111111; }
 body[data-theme="light"] .bn-icon svg text { fill: #111111 !important; }
 
-/* ---------- 7) HOME ---------- */
+/* 7) HOME */
 body[data-theme="light"] .home-section-title { color: #111111; }
 body[data-theme="light"] .home-section-title--all { border-top-color: #e5e5e5; }
 body[data-theme="light"] .home-card { color: #111111; }
@@ -2783,7 +2780,7 @@ body[data-theme="light"] .home-card--artist .home-card-thumb {
 body[data-theme="light"] .home-all-header { border-top-color: #e5e5e5; }
 body[data-theme="light"] .playlist-collage-cell { background: #e5e5e5; }
 
-/* ---------- 8) PERFIL DE ARTISTA ---------- */
+/* 8) PERFIL DE ARTISTA */
 body[data-theme="light"] .artist-profile { background: #ffffff; }
 body[data-theme="light"] .ap-header-title { color: #111111; }
 body[data-theme="light"] .ap-total-label { color: #111111; }
@@ -2804,7 +2801,7 @@ body[data-theme="light"] .ap-row-thumb { background-color: #e5e5e5; }
 body[data-theme="light"] .ap-card { background: #e5e5e5; }
 body[data-theme="light"] .ap-artist-name { color: #ffffff; }
 
-/* ---------- 9) VISTA ÁLBUM ---------- */
+/* 9) VISTA ÁLBUM */
 body[data-theme="light"] .album-view { background: #ffffff; }
 body[data-theme="light"] .av-title { color: #111111; }
 body[data-theme="light"] .av-toggle { color: #ffffff; }
@@ -2822,7 +2819,7 @@ body[data-theme="light"] .av-footer {
     border-top-color: #e0e0e0;
 }
 
-/* ---------- 10) VISTA PLAYLIST ---------- */
+/* 10) VISTA PLAYLIST */
 body[data-theme="light"] .playlist-view { background: #ffffff; }
 body[data-theme="light"] .pv-title { color: #111111; }
 body[data-theme="light"] .pv-cover-wrap {
@@ -2860,7 +2857,7 @@ body[data-theme="light"] .pv-delete-playlist {
     border-color: #f5c0c0;
 }
 
-/* ---------- 11) MI PLAYLIST ---------- */
+/* 11) MI PLAYLIST */
 body[data-theme="light"] .mi-playlist-view { background: #ffffff; }
 body[data-theme="light"] .mp-title { color: #111111; }
 body[data-theme="light"] .mp-create { color: #ffffff; }
@@ -2872,7 +2869,7 @@ body[data-theme="light"] .mp-add-row-thumb { background-color: #e5e5e5; }
 body[data-theme="light"] .mp-empty-title { color: #111111; }
 body[data-theme="light"] .mp-empty-sub   { color: #666666; }
 
-/* ---------- 12) MENSAJES — LISTA ---------- */
+/* 12) MENSAJES */
 body[data-theme="light"] .mensajes-view { background: #ffffff; }
 body[data-theme="light"] .msg-title { color: #111111; }
 body[data-theme="light"] .msg-new-btn { color: #ffffff; }
@@ -2886,7 +2883,7 @@ body[data-theme="light"] .msg-row-song-tag { color: #ff2a2a; }
 body[data-theme="light"] .msg-empty-title { color: #111111; }
 body[data-theme="light"] .msg-empty-sub   { color: #666666; }
 
-/* ---------- 13) CHAT ---------- */
+/* 13) CHAT */
 body[data-theme="light"] .chat-view { background: #ffffff; }
 body[data-theme="light"] .chat-header { border-bottom-color: #e0e0e0; }
 body[data-theme="light"] .chat-username { color: #111111; }
@@ -2926,7 +2923,7 @@ body[data-theme="light"] .chat-attachment-thumb { background: #e5e5e5; }
 body[data-theme="light"] .chat-attachment-title { color: #111111; }
 body[data-theme="light"] .chat-attachment-sub { color: #666666; }
 
-/* ---------- 14) NUEVO MENSAJE ---------- */
+/* 14) NUEVO MENSAJE */
 body[data-theme="light"] .newmsg-view { background: #ffffff; }
 body[data-theme="light"] .newmsg-title { color: #111111; }
 body[data-theme="light"] .newmsg-input {
@@ -2942,7 +2939,7 @@ body[data-theme="light"] .newmsg-row-email { color: #666666; }
 body[data-theme="light"] .newmsg-loading,
 body[data-theme="light"] .newmsg-empty { color: #666666; }
 
-/* ---------- 15) ESTADÍSTICAS ---------- */
+/* 15) ESTADÍSTICAS */
 body[data-theme="light"] .stats-view { background: #ffffff; }
 body[data-theme="light"] .st-title { color: #111111; }
 body[data-theme="light"] .st-hero {
@@ -2968,7 +2965,7 @@ body[data-theme="light"] .st-row-icon  { background: rgba(255, 42, 42, 0.10); }
 body[data-theme="light"] .st-empty-title { color: #111111; }
 body[data-theme="light"] .st-empty-sub   { color: #666666; }
 
-/* ---------- 16) RESULTADOS DE BÚSQUEDA ---------- */
+/* 16) RESULTADOS DE BÚSQUEDA */
 body[data-theme="light"] .search-section-title { color: #111111; }
 body[data-theme="light"] .search-row { color: #111111; }
 body[data-theme="light"] .search-row:active { background-color: #f0f0f0; }
@@ -2983,7 +2980,7 @@ body[data-theme="light"] .search-card-sub { color: #666666; }
 body[data-theme="light"] .search-empty-title { color: #111111; }
 body[data-theme="light"] .search-empty-sub   { color: #666666; }
 
-/* ---------- 17) MODALES ---------- */
+/* 17) MODALES */
 body[data-theme="light"] .mp-modal-box,
 body[data-theme="light"] .share-modal-box {
     background: #ffffff;
@@ -3059,7 +3056,7 @@ body[data-theme="light"] .mp-share-vis-btn.active {
     color: #ff2a2a;
 }
 
-/* ---------- 18) DIÁLOGOS DE CONFIRMACIÓN ---------- */
+/* 18) DIÁLOGOS DE CONFIRMACIÓN */
 body[data-theme="light"] .conv-menu {
     background: #ffffff;
     border-color: #e5e5e5;
@@ -3106,7 +3103,7 @@ body[data-theme="light"] .conv-clean-btn.cancel {
 body[data-theme="light"] .conv-clean-btn.confirm { color: #ffffff; }
 body[data-theme="light"] .msg-row.msg-row-selected { background: rgba(255, 42, 42, 0.12) !important; }
 
-/* ---------- 19) MODAL "CAMBIAR COLOR" en tema blanco ---------- */
+/* 19) MODAL "CAMBIAR COLOR" */
 body[data-theme="light"] .color-option {
     background: #f5f5f5;
     border-color: #e0e0e0;
@@ -3124,11 +3121,8 @@ body[data-theme="light"] .color-swatch--light {
 /* ============================================================
    COMUNIDAD OMEGA
    ============================================================ */
+.bottom-nav .bn-item { width: 20%; } /* Ajuste para 5 botones */
 
-/* ---- Barra inferior: 4 botones ---- */
-.bottom-nav .bn-item { width: 25%; }
-
-/* ---- Vistas ---- */
 .comunidad-view,
 .comunidad-crear-view,
 .comentarios-view {
@@ -3147,7 +3141,6 @@ body[data-theme="light"] .color-swatch--light {
 .comunidad-crear-view.visible,
 .comentarios-view.visible { transform: translateY(0); visibility: visible; }
 
-/* ---- Header común ---- */
 .cm-header {
     flex-shrink: 0;
     display: flex;
@@ -3196,7 +3189,6 @@ body[data-theme="light"] .color-swatch--light {
 }
 .cm-publish-btn:active { transform: scale(0.95); opacity: 0.9; }
 
-/* ---- Scroll containers ---- */
 .cm-scroll,
 .com-scroll {
     flex: 1;
@@ -3207,7 +3199,6 @@ body[data-theme="light"] .color-swatch--light {
     overscroll-behavior: contain;
 }
 
-/* ---- Lista de publicaciones ---- */
 .cm-list { display: flex; flex-direction: column; gap: 14px; }
 .com-list { display: flex; flex-direction: column; gap: 10px; }
 
@@ -3220,7 +3211,6 @@ body[data-theme="light"] .color-swatch--light {
     box-shadow: 0 4px 16px rgba(0,0,0,0.45);
 }
 
-/* Puntos suspensivos */
 .cm-post-menu-btn {
     position: absolute;
     top: 10px;
@@ -3242,7 +3232,6 @@ body[data-theme="light"] .color-swatch--light {
 }
 .cm-post-menu-btn:active { background: rgba(255,255,255,0.08); transform: scale(0.92); }
 
-/* Header del post (avatar + nombre) */
 .cm-post-header {
     display: flex;
     align-items: center;
@@ -3285,7 +3274,6 @@ body[data-theme="light"] .color-swatch--light {
     color: #888888;
 }
 
-/* Texto principal del post */
 .cm-post-text {
     font-size: 20px;
     font-weight: 800;
@@ -3298,7 +3286,6 @@ body[data-theme="light"] .color-swatch--light {
 }
 .cm-post-text:empty { display: none; }
 
-/* Card de la canción */
 .cm-post-song {
     display: flex;
     align-items: center;
@@ -3354,7 +3341,6 @@ body[data-theme="light"] .color-swatch--light {
     box-shadow: 0 4px 10px rgba(255,42,42,0.35);
 }
 
-/* Comentar */
 .cm-post-comment {
     display: block;
     width: 100%;
@@ -3376,14 +3362,10 @@ body[data-theme="light"] .color-swatch--light {
     margin-left: 6px;
 }
 
-/* Empty states */
 .cm-empty, .com-empty { text-align: center; padding: 60px 20px; }
 .cm-empty-title { font-size: 17px; font-weight: 800; color: #ffffff; margin-bottom: 6px; }
 .cm-empty-sub   { font-size: 13px; color: #999999; }
 
-/* ============================================================
-   CREAR PUBLICACIÓN
-   ============================================================ */
 .cmc-textarea-wrap { padding: 4px 4px 12px; }
 .cmc-textarea {
     width: 100%;
@@ -3562,9 +3544,6 @@ body[data-theme="light"] .color-swatch--light {
 .cmc-publish:active { transform: scale(0.96); opacity: 0.9; }
 .cmc-publish:disabled { opacity: 0.6; cursor: wait; box-shadow: none; }
 
-/* ============================================================
-   COMENTARIOS
-   ============================================================ */
 .com-post-preview {
     background: #141414;
     border-radius: 16px;
@@ -3685,7 +3664,6 @@ body[data-theme="light"] .color-swatch--light {
 .com-send:active { transform: scale(0.94); opacity: 0.9; }
 .com-send svg { width: 18px; height: 18px; }
 
-/* Modo edición de comentario */
 .com-edit-box {
     display: flex;
     gap: 8px;
@@ -3716,7 +3694,6 @@ body[data-theme="light"] .color-swatch--light {
 .com-edit-save { background: #ff2a2a; color: #ffffff; }
 .com-edit-cancel { background: #262626; color: #ffffff; }
 
-/* Menú contextual reutilizado para posts y comentarios */
 .com-omega-menu-backdrop {
     position: fixed; inset: 0;
     background: rgba(0,0,0,0.72);
@@ -3764,9 +3741,7 @@ body[data-theme="light"] .color-swatch--light {
 .com-omega-menu-btn.danger { color: #ff5757; }
 .com-omega-menu-btn svg { flex-shrink: 0; }
 
-/* ============================================================
-   TEMA BLANCO — COMUNIDAD OMEGA
-   ============================================================ */
+/* TEMA BLANCO — COMUNIDAD OMEGA */
 body[data-theme="light"] .comunidad-view,
 body[data-theme="light"] .comunidad-crear-view,
 body[data-theme="light"] .comentarios-view { background: #ffffff; }
@@ -3875,10 +3850,8 @@ body[data-theme="light"] .com-omega-menu-btn:active { background: #f0f0f0; }
 body[data-theme="light"] .com-omega-menu-btn.danger { color: #d81e1e; }
 
 /* ============================================================
-   46. CARRUSEL DE RECOMENDADOS POR GÉNERO EN PANTALLA COMPLETA
+   CARRUSEL DE RECOMENDADOS POR GÉNERO EN PANTALLA COMPLETA
    ============================================================ */
-
-/* --- Handle superior (píldora visible) --- */
 .fs-drawer-handle {
     position: absolute;
     top: 10px;
@@ -3951,7 +3924,6 @@ body[data-theme="light"] .com-omega-menu-btn.danger { color: #d81e1e; }
     50%      { transform: translateY(2.5px); }
 }
 
-/* --- Panel desplegable --- */
 .fs-drawer {
     position: absolute;
     top: 0;
@@ -4117,7 +4089,6 @@ body[data-theme="light"] .com-omega-menu-btn.danger { color: #d81e1e; }
     cursor: not-allowed;
 }
 
-/* --- Responsive --- */
 @media (max-height: 640px) {
     .fs-drawer { max-height: 68vh; }
     .fs-drawer-card,
@@ -4137,9 +4108,8 @@ body[data-theme="light"] .com-omega-menu-btn.danger { color: #d81e1e; }
 }
 
 /* ============================================================
-   47. TOGGLE LISTA / CUADRÍCULA EN EL PERFIL DE ARTISTA
+   TOGGLE LISTA / CUADRÍCULA EN EL PERFIL DE ARTISTA
    ============================================================ */
-
 .ap-view-toggle {
     position: absolute;
     left: 14px;
@@ -4167,7 +4137,6 @@ body[data-theme="light"] .com-omega-menu-btn.danger { color: #d81e1e; }
     pointer-events: none;
 }
 
-/* Modo cuadrícula: 3 columnas (comportamiento original) */
 .ap-grid:not(.ap-grid--list) {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -4175,7 +4144,6 @@ body[data-theme="light"] .com-omega-menu-btn.danger { color: #d81e1e; }
     padding: 10px 16px 8px;
 }
 
-/* Ajustes responsive para el grid */
 @media (max-width: 360px) {
     .ap-grid:not(.ap-grid--list) {
         gap: 6px;
@@ -4188,25 +4156,14 @@ body[data-theme="light"] .com-omega-menu-btn.danger { color: #d81e1e; }
     }
 }
 
-/* Tema claro */
-body[data-theme="light"] .ap-view-toggle {
-    background: rgba(0, 0, 0, 0.06);
-}
-body[data-theme="light"] .ap-view-toggle:active {
-    background: rgba(0, 0, 0, 0.14);
-}
-body[data-theme="light"] .ap-view-toggle svg {
-    stroke: #111111;
-}
-body[data-theme="light"] .ap-view-toggle svg circle {
-    fill: #111111;
-}
+body[data-theme="light"] .ap-view-toggle { background: rgba(0, 0, 0, 0.06); }
+body[data-theme="light"] .ap-view-toggle:active { background: rgba(0, 0, 0, 0.14); }
+body[data-theme="light"] .ap-view-toggle svg { stroke: #111111; }
+body[data-theme="light"] .ap-view-toggle svg circle { fill: #111111; }
 
 /* ============================================================
-   48. BOTÓN "COMPRAR" PARA BEATS + REORGANIZACIÓN DE ACCIONES
+   BOTÓN "COMPRAR" PARA BEATS + REORGANIZACIÓN DE ACCIONES
    ============================================================ */
-
-/* ---------- Botón Comprar (oculto por defecto) ---------- */
 .fs-buy-btn {
     display: none;
     background: #ffffff;
@@ -4246,7 +4203,6 @@ body[data-theme="light"] .ap-view-toggle svg circle {
     100% { transform: scale(1);    opacity: 1; }
 }
 
-/* ---------- Reorganización de las acciones del reproductor ---------- */
 .fs-player .fs-actions {
     position: absolute;
     bottom: 20px;
@@ -4327,7 +4283,7 @@ body[data-theme="light"] .ap-view-toggle svg circle {
 }
 
 /* ============================================================
-   49. MODAL DE COMPRA DE BEATS
+   MODAL DE COMPRA DE BEATS
    ============================================================ */
 .buy-modal {
     position: fixed;
@@ -4581,7 +4537,6 @@ body[data-theme="light"] .ap-view-toggle svg circle {
 }
 .buy-status.ok { color: #4ade80; font-weight: 700; }
 
-/* Tema claro */
 body[data-theme="light"] .buy-modal-box {
     background: #ffffff;
     border-color: #e5e5e5;
@@ -4604,8 +4559,6 @@ body[data-theme="light"] .buy-switch::after { background: #ffffff; }
 /* ============================================================
    SALA MÚSICA — PORTADA, GÉNEROS Y CANCIONES POR GÉNERO
    ============================================================ */
-
-/* ---------- Portada "Sala Musical" ---------- */
 #sec-sala-musica {
     padding: 0 20px;
 }
@@ -4712,7 +4665,6 @@ body[data-theme="light"] .buy-switch::after { background: #ffffff; }
     padding-bottom: 4px;
 }
 
-/* ---------- Vistas de Sala Música ---------- */
 .generos-view,
 .genre-songs-view {
     position: absolute;
@@ -4784,7 +4736,6 @@ body[data-theme="light"] .buy-switch::after { background: #ffffff; }
     overscroll-behavior: contain;
 }
 
-/* ---------- Grid de géneros ---------- */
 .gen-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
@@ -4861,7 +4812,6 @@ body[data-theme="light"] .buy-switch::after { background: #ffffff; }
     color: #999999;
 }
 
-/* ---------- Lista de canciones del género ---------- */
 .gs-list {
     display: flex;
     flex-direction: column;
@@ -4938,7 +4888,6 @@ body[data-theme="light"] .buy-switch::after { background: #ffffff; }
     font-weight: 800;
 }
 
-/* ---------- Tema claro ---------- */
 body[data-theme="light"] .generos-view,
 body[data-theme="light"] .genre-songs-view {
     background: #ffffff;
@@ -4964,14 +4913,11 @@ body[data-theme="light"] .gs-row-play { background: rgba(255, 42, 42, 0.10); }
 /* ============================================================
    SALA MÚSICA — RADIO EN VIVO
    ============================================================ */
-
-/* Ocultar reproductor mientras Sala Música esté abierta */
 body.sm-open .player,
 body.sm-open #fs-player {
     display: none !important;
 }
 
-/* Vista principal */
 .sala-musica-view {
     position: absolute;
     top: 0; left: 0; right: 0; bottom: 75px;
@@ -4987,7 +4933,6 @@ body.sm-open #fs-player {
 }
 .sala-musica-view.visible { transform: translateY(0); visibility: visible; }
 
-/* Header */
 .sm-header {
     flex-shrink: 0;
     display: flex;
@@ -5022,7 +4967,6 @@ body.sm-open #fs-player {
     text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
 }
 
-/* Scroll */
 .sm-scroll {
     flex: 1;
     overflow-y: auto;
@@ -5032,7 +4976,6 @@ body.sm-open #fs-player {
     overscroll-behavior: contain;
 }
 
-/* Descripción */
 .sm-description {
     font-size: 13.5px;
     line-height: 1.55;
@@ -5043,7 +4986,6 @@ body.sm-open #fs-player {
     text-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
 }
 
-/* Card del reproductor */
 .sm-player-card {
     border-radius: 20px;
     overflow: hidden;
@@ -5100,7 +5042,6 @@ body.sm-open #fs-player {
 }
 .sm-live-badge.hidden { opacity: 0; }
 
-/* Info de canción */
 .sm-song-info {
     padding: 14px 16px 18px;
     display: flex;
@@ -5125,7 +5066,6 @@ body.sm-open #fs-player {
     text-overflow: ellipsis;
 }
 
-/* Botón Comenzar */
 .sm-start-btn {
     width: 100%;
     background: #000000;
@@ -5151,11 +5091,9 @@ body.sm-open #fs-player {
 }
 
 /* ============================================================
-   🆕 PRÓXIMOS PROGRAMAS — Sala Música
+   PRÓXIMOS PROGRAMAS — Sala Música
    ============================================================ */
-.sm-upcoming-section {
-    margin: 8px 4px 22px;
-}
+.sm-upcoming-section { margin: 8px 4px 22px; }
 
 .sm-upcoming-heading {
     font-size: 15px;
@@ -5187,7 +5125,6 @@ body.sm-open #fs-player {
                 box-shadow 0.35s ease;
 }
 
-/* 🆕 En transmisión (live) */
 .sm-upcoming-card.live {
     background: linear-gradient(135deg,
                 rgba(255, 42, 42, 0.22) 0%,
@@ -5202,7 +5139,6 @@ body.sm-open #fs-player {
     text-shadow: 0 0 12px rgba(255, 42, 42, 0.55);
 }
 
-/* 🆕 Siguiente */
 .sm-upcoming-card.next {
     border-color: rgba(255, 255, 255, 0.28);
     background: rgba(0, 0, 0, 0.48);
@@ -5255,7 +5191,6 @@ body.sm-open #fs-player {
     -webkit-backdrop-filter: blur(4px);
 }
 
-/* 🆕 Badges de estado (En transmisión / Siguiente) */
 .sm-upcoming-status {
     position: absolute;
     top: 5px;
@@ -5303,7 +5238,6 @@ body.sm-open #fs-player {
     word-break: break-word;
 }
 
-/* 🆕 Título del episodio (secundario) */
 .sm-upcoming-episode {
     font-size: 12.5px;
     color: rgba(255, 255, 255, 0.82);
@@ -5388,7 +5322,6 @@ body.sm-open #fs-player {
 }
 .sm-comment-btn:active { transform: scale(0.95); opacity: 0.9; }
 
-/* Lista de comentarios */
 .sm-comments-list { display: flex; flex-direction: column; gap: 10px; }
 
 .sm-comment-row {
@@ -5479,7 +5412,6 @@ body.sm-open #fs-player {
 
 .sm-bottom-space { height: 20px; }
 
-/* Modal (nuevo comentario / confirmar) */
 .sm-modal {
     position: fixed;
     inset: 0;
@@ -5595,7 +5527,6 @@ body.sm-open #fs-player {
 .sm-modal-btn-confirm { background: #ff2a2a; color: #ffffff; box-shadow: 0 8px 22px rgba(255, 42, 42, 0.35); }
 .sm-modal-btn-danger  { background: #ff2a2a; color: #ffffff; box-shadow: 0 8px 22px rgba(255, 42, 42, 0.35); }
 
-/* Tema claro (dentro de Sala Música) */
 body[data-theme="light"] .sm-modal-box {
     background: #ffffff;
     border-color: #e5e5e5;
@@ -5612,18 +5543,14 @@ body[data-theme="light"] .sm-modal-textarea::placeholder { color: #888888; }
 body[data-theme="light"] .sm-modal-text { color: #666666; }
 body[data-theme="light"] .sm-modal-btn-cancel { background: #eeeeee; color: #111111; }
 
-/* Responsive */
 @media (max-width: 360px) {
     .sm-start-btn { font-size: 22px; padding: 18px 22px; }
     .sm-description { font-size: 12.5px; }
 }
 
 /* ============================================================
-   50. PODCASTS / PROGRAMAS / ENTREVISTAS — SALA MÚSICA
+   PODCASTS / PROGRAMAS / ENTREVISTAS — SALA MÚSICA
    ============================================================ */
-
-/* Elementos del reproductor normal que fueron movidos por ser
-   contenido programado (nunca deben verse en la interfaz normal) */
 #omega-podcast-storage,
 #podcast-store,
 .playlist-item.podcast-hidden {
@@ -5635,7 +5562,6 @@ body[data-theme="light"] .sm-modal-btn-cancel { background: #eeeeee; color: #111
     pointer-events: none !important;
 }
 
-/* Rediseño del badge LIVE dentro de Sala Música */
 .sm-live-badge {
     top: 14px;
     left: 16px;
@@ -5697,8 +5623,9 @@ body .sala-musica-view .sm-song-title {
     box-shadow: 0 10px 26px rgba(255, 42, 42, 0.45),
                 inset 0 0 0 1px rgba(255, 42, 42, 0.35);
 }
+
 /* ============================================================
-   🆕 CONTADOR DE OYENTES EN VIVO — SALA MÚSICA
+   CONTADOR DE OYENTES EN VIVO — SALA MÚSICA
    ============================================================ */
 .sm-listeners-badge {
     position: absolute;
@@ -5735,13 +5662,11 @@ body .sala-musica-view .sm-song-title {
     text-align: center;
 }
 
-/* Estado con al menos 1 oyente */
 .sm-listeners-badge.active {
     border-color: rgba(74, 222, 128, 0.95);
     animation: sm-listeners-pulse 2.4s ease-in-out infinite;
 }
 
-/* Estado vacío (0 oyentes) */
 .sm-listeners-badge.empty {
     border-color: rgba(255, 255, 255, 0.18);
     opacity: 0.72;
@@ -5759,7 +5684,6 @@ body .sala-musica-view .sm-song-title {
     }
 }
 
-/* Pulso rápido cuando el número cambia */
 .sm-listeners-badge.bump {
     animation: sm-listeners-bump 0.45s cubic-bezier(0.22, 1, 0.36, 1);
 }
