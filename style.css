@@ -5716,3 +5716,47 @@ body .sala-musica-view .sm-song-title {
 body[data-theme="light"] .cm-post-comment-count {
     color: #888888;
 }
+/* ============================================================
+   54. NOTIFICACIONES EN LA BARRA DE NAVEGACIÓN INFERIOR
+   ============================================================ */
+.bn-icon {
+    position: relative;
+}
+
+.bn-notif-badge {
+    position: absolute;
+    top: -4px;
+    right: -8px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    background: #ff2a2a;
+    color: #ffffff;
+    font-size: 10.5px;
+    font-weight: 800;
+    border-radius: 50px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    box-shadow:
+        0 2px 6px rgba(0, 0, 0, 0.45),
+        0 0 0 2px #000000;
+    pointer-events: none;
+    z-index: 2;
+    animation: bn-notif-pop 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+    font-variant-numeric: tabular-nums;
+}
+
+@keyframes bn-notif-pop {
+    0%   { transform: scale(0.4); opacity: 0; }
+    60%  { transform: scale(1.15); opacity: 1; }
+    100% { transform: scale(1);    opacity: 1; }
+}
+
+/* Modo claro */
+body[data-theme="light"] .bn-notif-badge {
+    box-shadow:
+        0 2px 6px rgba(0, 0, 0, 0.18),
+        0 0 0 2px #ffffff;
+}
