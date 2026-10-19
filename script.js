@@ -15299,7 +15299,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let v2Initialized = false;
     let currentSlide = null;
     let lastV2Signature = '';
-    let lastPlaybackDirection = 'next'; // Rastrea si vamos hacia adelante o atrás
+    let lastPlaybackDirection = 'next';
 
     // Escuchar eventos globales para saber la dirección
     document.addEventListener('omega:next', () => { lastPlaybackDirection = 'next'; });
@@ -15336,6 +15336,25 @@ document.addEventListener('DOMContentLoaded', () => {
         overlay.appendChild(aSpan);
         slide.appendChild(img);
         slide.appendChild(overlay);
+
+        // CLIC EN EL TÍTULO: Abrir perfil del artista (igual que en V1)
+        slide.style.cursor = 'pointer';
+        slide.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const activeItem = document.querySelector('#playlist .playlist-item.active');
+            if (!activeItem) return;
+            const sub = activeItem.querySelector('.item-subtitle')?.textContent || '';
+            const artistName = sub.split('·')[0].trim();
+            if (!artistName) return;
+            
+            // Cerrar el reproductor fullscreen y abrir el perfil
+            document.getElementById('fs-close')?.click();
+            setTimeout(() => {
+                if (typeof window.__openArtistProfile === 'function') {
+                    window.__openArtistProfile(artistName);
+                }
+            }, 80);
+        });
         
         return slide;
     }
@@ -15545,7 +15564,6 @@ document.addEventListener('DOMContentLoaded', () => {
             obs.observe(titleEl, { childList: true, characterData: true, subtree: true });
             obs.observe(coverEl, { attributes: true, attributeFilter: ['src'] });
             
-            // Observar si el botón de comprar original se muestra/oculta
             if (buyBtnV1) {
                 const buyObs = new MutationObserver(() => {
                     if (isV2Mode) syncV2UI();
@@ -15553,6 +15571,24 @@ document.addEventListener('DOMContentLoaded', () => {
                 buyObs.observe(buyBtnV1, { attributes: true, attributeFilter: ['class'] });
             }
         }
+
+        // ------------------------------------------------------------------
+        // BLOQUEO DE CONTROLES DEL MODO V1 CUANDO V2 ESTÁ ACTIVO
+        // ------------------------------------------------------------------
+        // Interceptar eventos de clic y puntero para que no lleguen a V1
+        fsPlayer.addEventListener('pointerdown', (e) => {
+            if (isV2Mode && !e.target.closest('#fs-content-v2')) {
+                e.stopPropagation();
+                e.preventDefault();
+            }
+        }, true);
+
+        fsPlayer.addEventListener('click', (e) => {
+            if (isV2Mode && !e.target.closest('#fs-content-v2')) {
+                e.stopPropagation();
+                e.preventDefault();
+            }
+        }, true);
     }
 
     function syncV2UI(forceNoAnim = false) {
