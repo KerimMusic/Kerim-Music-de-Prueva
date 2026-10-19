@@ -16,6 +16,23 @@ const db = firebase.firestore();
 const auth = firebase.auth();
 
 /* ============================================================
+   NUEVA LÓGICA DE CATEGORÍAS
+   ============================================================ */
+window.__currentCategory = 'musica';
+window.__getCategoryOfItem = function(item) {
+    if (!item) return 'musica';
+    const title = (item.querySelector('.item-title')?.textContent || '').toLowerCase();
+    const subtitle = (item.querySelector('.item-subtitle')?.textContent || '').toLowerCase();
+    const album = (item.querySelector('.Album')?.textContent || '').toLowerCase();
+    const fullText = title + ' ' + subtitle + ' ' + album;
+
+    if (item.dataset.podcast === '1') return 'podcast';
+    if (/\bbeats?\b/i.test(fullText)) return 'beats';
+    if (/dormir|meditar|relax|sleep|meditation|relajación|relajacion|calma|zen/i.test(fullText)) return 'dormir';
+    return 'musica';
+};
+
+/* ============================================================
    0. AUTENTICACIÓN OBLIGATORIA CON GOOGLE
    ============================================================ */
 const googleProvider = new firebase.auth.GoogleAuthProvider();
@@ -769,15 +786,67 @@ document.addEventListener('DOMContentLoaded', () => {
         loadItem(item, true);
     });
 
+    /* CATEGORÍAS / TOP NAV */
+    const topNavBtns = document.querySelectorAll('.top-nav-btn');
+    topNavBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const cat = btn.dataset.category;
+            window.__currentCategory = cat;
+            
+            topNavBtns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
+            const searchInput = document.getElementById('search-input');
+            const searchContainer = document.getElementById('search-container');
+            if (searchInput) searchInput.value = '';
+            if (searchContainer) searchContainer.classList.remove('visible');
+
+            if (typeof window.__applyCategoryFilter === 'function') {
+                window.__applyCategoryFilter();
+            }
+        });
+    });
+
+    window.__applyCategoryFilter = function() {
+        const pl = document.getElementById('playlist');
+        if (pl) pl.scrollTop = 0;
+
+        if (typeof window.__applySearchVisibility === 'function') {
+            window.__applySearchVisibility();
+        }
+        if (typeof window.__buildArtists === 'function') window.__buildArtists();
+        if (typeof window.__buildAlbums === 'function') window.__buildAlbums();
+        if (typeof window.__buildListenAgain === 'function') window.__buildListenAgain();
+        if (typeof window.__buildMaybe === 'function') window.__buildMaybe();
+        if (typeof window.__buildTop === 'function') window.__buildTop();
+        if (typeof window.__renderRecommendations === 'function') window.__renderRecommendations();
+    };
+
+    setTimeout(() => {
+        if (typeof window.__applyCategoryFilter === 'function') window.__applyCategoryFilter();
+    }, 1000);
+
     /* BUSCADOR */
-    const heartSearchBtn  = document.getElementById('heart-search-btn');
     const searchContainer = document.getElementById('search-container');
     const searchInput     = document.getElementById('search-input');
 
     function applySearchVisibility() {
         const q = (searchInput?.value || '').toLowerCase().trim();
         const items = document.querySelectorAll('.playlist-item');
+        const category = window.__currentCategory || 'musica';
+
         items.forEach(item => {
+            if (item.dataset.podcast === '1') {
+                item.style.display = 'none';
+                return;
+            }
+
+            const itemCat = window.__getCategoryOfItem(item);
+            if (itemCat !== category) {
+                item.style.display = 'none';
+                return;
+            }
+
             if (!q) { item.style.display = window.__showAllSongs ? 'flex' : 'none'; return; }
             const title = item.querySelector('.item-title')?.textContent.toLowerCase() || '';
             const subtitle = item.querySelector('.item-subtitle')?.textContent.toLowerCase() || '';
@@ -786,20 +855,21 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     window.__applySearchVisibility = applySearchVisibility;
 
-    if (heartSearchBtn && searchContainer && searchInput) {
-        heartSearchBtn.addEventListener('click', () => {
-            searchContainer.classList.toggle('visible');
-            if (searchContainer.classList.contains('visible')) searchInput.focus();
-            else { searchInput.value = ''; searchInput.dispatchEvent(new Event('input')); }
-        });
+    if (searchInput) {
         searchInput.addEventListener('input', applySearchVisibility);
     }
 
-    /* COMPARTIR */
-    const shareBtn = document.getElementById('share-btn');
+    /* COMPARTIR (Movido al menú hamburguesa) */
+    const shareBtn = document.getElementById('submenu-share-btn');
     const SHARE_URL = 'https://kerimmusic.github.io/DescargarAppOmegaBeats/';
     if (shareBtn) {
-        shareBtn.addEventListener('click', () => {
+        shareBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            const sm = document.getElementById('submenu');
+            const so = document.getElementById('submenu-overlay');
+            if (sm) sm.classList.remove('visible');
+            if (so) so.classList.remove('visible');
+
             const currentTitle = currentItem ? getItemTitle(currentItem) : document.title;
             const shareData = {
                 title: 'Omega Beats',
@@ -842,6 +912,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (link.id === 'logout-link') return;
             if (link.id === 'mi-playlist-link') return;
             if (link.id === 'stats-link') return;
+            if (link.id === 'submenu-share-btn') return;
             closeSubmenu();
         });
     });
@@ -1867,7 +1938,12 @@ document.addEventListener('DOMContentLoaded', () => {
     function getAllItems() {
         const pl = document.getElementById('playlist');
         if (!pl) return [];
-        return Array.from(pl.querySelectorAll('.playlist-item'));
+        const all = Array.from(pl.querySelectorAll('.playlist-item'));
+        const category = window.__currentCategory || 'musica';
+        return all.filter(item => {
+            if (item.dataset.podcast === '1') return false;
+            return window.__getCategoryOfItem(item) === category;
+        });
     }
     function findItemByTitle(title) {
         const n = norm(title);
@@ -2101,6 +2177,8 @@ document.addEventListener('DOMContentLoaded', () => {
     window.__buildListenAgain = buildListenAgain;
     window.__buildArtists = buildArtists;
     window.__buildAlbums = buildAlbums;
+    window.__buildMaybe = buildMaybe;
+    window.__buildTop = buildTop;
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
     else boot();
 })();
@@ -2485,7 +2563,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const homeView = document.getElementById('home-view');
         if (homeView) homeView.style.display = '';
         const showAll = window.__showAllSongs === true;
-        playlistEl.querySelectorAll('.playlist-item').forEach(it => { it.style.display = showAll ? 'flex' : 'none'; });
+        playlistEl.querySelectorAll('.playlist-item').forEach(it => {
+            it.style.display = showAll ? 'flex' : 'none';
+        });
     }
     function clearResults() {
         if (!searchResultsEl) return;
@@ -2597,6 +2677,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const artistsMap = new Map();
         const albumsMap = new Map();
         allItems.forEach(item => {
+            if (item.dataset.podcast === '1') return;
+            if (window.__getCategoryOfItem(item) !== window.__currentCategory) return;
+
             const title = getItemTitle(item);
             const albumName = getItemAlbum(item);
             const artists = getItemArtists(item);
@@ -7391,7 +7474,8 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     }
     function getAllItems() {
-        return Array.from(document.querySelectorAll('#playlist .playlist-item'));
+        const all = Array.from(document.querySelectorAll('#playlist .playlist-item'));
+        return all.filter(item => window.__getCategoryOfItem(item) === window.__currentCategory);
     }
 
     function buildProfile() {
@@ -7589,6 +7673,8 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
         init();
     }
+
+    window.__renderRecommendations = render;
 })();
 
 /* ============================================================
@@ -8136,6 +8222,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const bnMensajes = document.getElementById('bn-mensajes');
         const bnBeats = document.getElementById('bn-beatsmusic');
         const bnPlaylists = document.getElementById('bn-playlists');
+        const bnSearch = document.getElementById('bn-search');
 
         if (bnMensajes && bnMensajes.dataset.bnReady !== '1') {
             bnMensajes.dataset.bnReady = '1';
@@ -8177,6 +8264,34 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} }
                 const link = document.getElementById('mi-playlist-link');
                 if (link) link.click();
+            });
+        }
+
+        if (bnSearch && bnSearch.dataset.bnReady !== '1') {
+            bnSearch.dataset.bnReady = '1';
+            bnSearch.addEventListener('click', () => {
+                if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} }
+                const searchContainer = document.getElementById('search-container');
+                const searchInput = document.getElementById('search-input');
+                if (searchContainer && searchInput) {
+                    searchContainer.classList.toggle('visible');
+                    if (searchContainer.classList.contains('visible')) {
+                        searchInput.focus();
+                        ['playlist-view', 'artist-profile', 'album-view', 'mi-playlist-view',
+                         'mensajes-view', 'chat-view', 'newmsg-view', 'stats-view',
+                         'comunidad-view', 'comunidad-crear-view', 'comentarios-view',
+                         'sala-musica-view'].forEach(id => {
+                            const v = document.getElementById(id);
+                            if (v && v.classList.contains('visible')) {
+                                v.classList.remove('visible');
+                                v.setAttribute('aria-hidden', 'true');
+                            }
+                        });
+                    } else {
+                        searchInput.value = '';
+                        searchInput.dispatchEvent(new Event('input'));
+                    }
+                }
             });
         }
     }
@@ -12344,18 +12459,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /* ============================================================
    XX. SALA MÚSICA — RADIO EN VIVO + COMENTARIOS
-   ------------------------------------------------------------
-   RADIO TOTALMENTE INDEPENDIENTE:
-   - Usa su propio <audio> (#sala-audio-player)
-   - No modifica el estado del reproductor normal
-   - Sus anuncios se cuentan por separado (cada 2 canciones)
-   - Al arrancar pausa el reproductor normal
-   - Al elegir una canción del reproductor normal, la radio se detiene
-   - 🆕 Respeta podcasts programados (Sección 50)
-   - 🆕 Muestra "Próximos programas" bajo el botón Comenzar
-   - 🆕 Próximos programas se actualiza EN TIEMPO REAL
-   COMENTARIOS:
-   - Carga con 3 niveles de fallback para funcionar sin índice
    ============================================================ */
 (function () {
     'use strict';
@@ -12365,7 +12468,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const COMMENTS_SUB = 'sala_musica_comentarios';
     const SM_SONGS_PER_AD = 2;
 
-    /* ---------- Utilidades ---------- */
     function norm(s) {
         return String(s || '').toLowerCase()
             .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -12407,30 +12509,20 @@ document.addEventListener('DOMContentLoaded', () => {
         return date.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
     }
 
-    /* ============================================================
-       AUDIO DEDICADO DE SALA MÚSICA
-       ============================================================ */
     function getSalaAudio() {
         return document.getElementById('sala-audio-player');
     }
 
-    /* ============================================================
-       ESTADO DE LA RADIO
-       ============================================================ */
     let radioStarted    = false;
     let smInternalClick = false;
     let smSongsPlayed   = 0;
     let currentSalaItem = null;
 
-    /* --- Podcasts --- */
     let isPlayingPodcast      = false;
     let podcastTimer          = null;
     let podcastCheckInterval  = null;
-    let podcastMode           = null;   /* 'live' | 'normal' | null */
+    let podcastMode           = null;
 
-    /* ------------------------------------------------------------
-       Cargar y reproducir un item en el audio de Sala Música
-       ------------------------------------------------------------ */
     function loadSalaItem(item, autoplay) {
         if (!item) return;
         const salaAudio = getSalaAudio();
@@ -12473,7 +12565,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function playNextSalaItem() {
-        // --- PRIORIDAD: podcast en vivo ---
         if (!isPlayingPodcast && window.__podcastApi) {
             const bc = window.__podcastApi.getActiveBroadcast();
             if (bc && bc.item) { playPodcastBroadcast(bc); return; }
@@ -12539,7 +12630,6 @@ document.addEventListener('DOMContentLoaded', () => {
             window.__adsApi.setSkipAutoTrigger(true);
         }
 
-        // --- PRIORIDAD: podcast en vivo al arrancar ---
         if (window.__podcastApi) {
             const bc = window.__podcastApi.getActiveBroadcast();
             if (bc && bc.item) {
@@ -12638,7 +12728,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         salaAudio.addEventListener('ended', () => {
             if (!radioStarted) return;
-            if (isPlayingPodcast) return;            // 🆕 No contar anuncios durante podcast
+            if (isPlayingPodcast) return;
             if (!window.__adsApi) return;
             if (window.__adsApi.isAdPlaying && window.__adsApi.isAdPlaying()) return;
 
@@ -12664,9 +12754,6 @@ document.addEventListener('DOMContentLoaded', () => {
         salaAudio.addEventListener('loadedmetadata', () => updateStartButton());
     }
 
-    /* ============================================================
-       TRANSMISIÓN DE PODCAST COMO "EN VIVO"
-       ============================================================ */
     function playPodcastBroadcast(bc) {
         if (!bc || !bc.item) return;
         const salaAudio = getSalaAudio();
@@ -12717,7 +12804,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (podcastTimer) clearInterval(podcastTimer);
         podcastTimer = setInterval(() => {
             if (!isPlayingPodcast) return;
-            if (podcastMode !== 'live') return;   /* Sólo detener si es transmisión en vivo */
+            if (podcastMode !== 'live') return;
             const now = Date.now();
             if (now >= bc.endMs) { stopPodcastBroadcast(false); return; }
             const still = window.__podcastApi.getActiveBroadcast();
@@ -12771,14 +12858,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ============================================================
-       🆕 PRÓXIMOS PROGRAMAS — TIEMPO REAL + ESTADO (En vivo / Siguiente)
-       ------------------------------------------------------------
-       · Se re-renderiza cuando:
-           a) Firestore emite cambios (evento "podcastsLoaded")
-           b) cambia el estado por paso del tiempo (ticker 1s)
-       · NO toca el audio, la música, los podcasts ni nada más.
-       ============================================================ */
     let upcomingTicker         = null;
     let lastUpcomingSignature  = '';
 
@@ -12804,7 +12883,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return 'Podcast';
     }
 
-    /* Firma ligera para detectar cambios reales sin re-renderizar de más */
     function computeUpcomingSignature() {
         const api = window.__podcastApi;
         if (!api) return 'none';
@@ -12840,7 +12918,6 @@ document.addEventListener('DOMContentLoaded', () => {
             ? api.getActiveBroadcast(now) : null;
         const upcoming = api.getUpcomingBroadcasts(now, 20) || [];
 
-        /* ── Construir la lista: [en vivo] + [siguiente] + [resto] ── */
         const items = [];
         if (active) {
             items.push({
@@ -12919,8 +12996,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (upcomingTicker) return;
         lastUpcomingSignature = computeUpcomingSignature();
 
-        /* Ticker de 1s: detecta el momento exacto en que un programa
-           comienza o termina (solo cambia cuando la firma cambia). */
         upcomingTicker = setInterval(() => {
             const v = $('sala-musica-view');
             if (!v || !v.classList.contains('visible')) return;
@@ -12931,7 +13006,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }, 1000);
 
-        /* Cambios en Firestore → refresco inmediato (sin recargar la app) */
         if (!window.__upcomingFirebaseHooked) {
             window.__upcomingFirebaseHooked = true;
             window.addEventListener('podcastsLoaded', () => {
@@ -12944,9 +13018,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ============================================================
-       PORTADA CON TRANSICIÓN ANIMADA
-       ============================================================ */
     let coverA = null, coverB = null;
     let showingA = true;
     let lastCoverSrc = '';
@@ -13026,9 +13097,6 @@ document.addEventListener('DOMContentLoaded', () => {
         obs.observe(titleEl, { childList: true, characterData: true, subtree: true });
     }
 
-    /* ============================================================
-       ABRIR / CERRAR VISTA
-       ============================================================ */
     function closeAllOtherViews() {
         ['playlist-view','artist-profile','album-view','mi-playlist-view',
          'mensajes-view','chat-view','newmsg-view','stats-view'].forEach(id => {
@@ -13057,8 +13125,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const sc = $('sm-scroll');
         if (sc) sc.scrollTop = 0;
         syncFromPlayer();
-        renderUpcomingPrograms();      // 🆕 dibujar próximos programas
-        startUpcomingRefresh();        // 🆕 refrescar en tiempo real
+        renderUpcomingPrograms();
+        startUpcomingRefresh();
     }
     function closeSalaMusica() {
         const view = $('sala-musica-view');
@@ -13068,9 +13136,6 @@ document.addEventListener('DOMContentLoaded', () => {
         document.body.classList.remove('sm-open');
     }
 
-    /* ============================================================
-       COMENTARIOS — CON 3 NIVELES DE FALLBACK
-       ============================================================ */
     let currentUser = null;
     let unsubComments = null;
 
@@ -13378,9 +13443,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ============================================================
-       SECCIÓN EN EL HOME
-       ============================================================ */
     function renderCover() {
         const wrap = $('sala-musica-artists');
         if (!wrap) return;
@@ -13477,9 +13539,6 @@ document.addEventListener('DOMContentLoaded', () => {
         obs.observe(pl, { childList: true, subtree: false });
     }
 
-    /* ============================================================
-       INIT
-       ============================================================ */
     function init() {
         if (typeof firebase === 'undefined' || !firebase.auth) {
             setTimeout(init, 300);
@@ -13583,7 +13642,6 @@ document.addEventListener('DOMContentLoaded', () => {
             obs.observe(smView, { attributes: true, attributeFilter: ['class'] });
         }
 
-        // 🆕 Refrescar próximos programas cuando el módulo 50 termine de cargar
         window.addEventListener('podcastsLoaded', () => {
             const v = $('sala-musica-view');
             if (v && v.classList.contains('visible')) {
@@ -13636,13 +13694,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /* ============================================================
    50. PODCASTS Y PROGRAMAS — TRANSMISIÓN EN VIVO EN SALA MÚSICA
-   v2 — Lee desde historial_usuarios/{uid}/canciones
-   ------------------------------------------------------------
-   · Detecta esPodcast:true o genero:"Podcast"
-   · Usa audioUrl, podcastHorasInicio[], podcastDuracionSeg
-   · Calcula emisiones según fecha + horarios + repeticiones
-   · Expone getUpcomingBroadcasts para la sección de próximos
-   · 🆕 Se actualiza EN TIEMPO REAL con onSnapshot (Firestore)
    ============================================================ */
 (function () {
     'use strict';
@@ -13708,7 +13759,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* ============ FECHAS Y HORAS ============ */
     function toDate(v) {
         if (!v) return null;
         if (typeof v.toDate === 'function') return v.toDate();
@@ -13738,13 +13788,11 @@ document.addEventListener('DOMContentLoaded', () => {
         return null;
     }
 
-    /* ============ NORMALIZAR ============ */
     function normalizePodcast(d, srcId) {
         const titulo = String(d.titulo || d.title || d.nombre || '').trim();
         const audio  = String(d.audioUrl || d.audio || d.mp3 || '').trim();
         const imagen = String(d.imagenUrl || d.imagen || d.portada || d.cover || '').trim();
 
-        // 🆕 Nombre del programa / show (opcional, distinto del título del episodio)
         const nombrePrograma = String(
             d.nombrePrograma || d.programa || d.show || d.programaNombre || ''
         ).trim();
@@ -13775,8 +13823,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         return {
             id: srcId,
-            titulo,                 // título del episodio
-            nombrePrograma,         // 🆕 nombre del programa / show
+            titulo,
+            nombrePrograma,
             audio, imagen,
             duracionTexto, duracionSeg,
             fecha, horasInicio, repeticiones, fechaFin,
@@ -13784,7 +13832,6 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     }
 
-    /* ============ CARGA DESDE FIRESTORE ============ */
     async function loadPodcasts(force) {
         if (!force && loaded) return podcastsCache;
         if (loading && !force) return loading;
@@ -13798,7 +13845,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             console.log(LOG, '📥 Cargando podcasts desde Firestore...');
 
-            // 1) Subcolección canciones dentro de historial_usuarios/{uid}
             try {
                 const usersSnap = await db.collection('historial_usuarios').limit(1000).get();
                 const promises = usersSnap.docs.map(async userDoc => {
@@ -13819,7 +13865,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 await Promise.all(promises);
             } catch (e) { console.warn(LOG, 'Error subcolecciones:', e); }
 
-            // 2) Doc raíz de historial_usuarios (campos podcast*)
             try {
                 const snap = await db.collection('historial_usuarios').limit(1000).get();
                 snap.forEach(doc => {
@@ -13833,7 +13878,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             } catch (e) {}
 
-            // 3) Colecciones alternativas
             for (const col of ['podcasts','programas','Radio_Podcast']) {
                 try {
                     const snap = await db.collection(col).limit(500).get();
@@ -13855,7 +13899,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     '| reps:', p.repeticiones);
             });
             ensureAllPodcastItems();
-            // Notificar a Sala Música para refrescar próximos programas
             try {
                 window.dispatchEvent(new CustomEvent('podcastsLoaded', {
                     detail: { count: podcastsCache.length }
@@ -13902,7 +13945,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return best;
     }
 
-    /* ============ CÁLCULO DE OCURRENCIAS ============ */
     function computeOccurrences(p, nowMs) {
         const out = [];
         if (!p.fecha || !p.duracionSeg || !p.horasInicio.length) return out;
@@ -13972,7 +14014,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return best;
     }
 
-    /* 🆕 Lista completa de próximas emisiones */
     function getUpcomingBroadcasts(nowMs, limit) {
         const now = nowMs || Date.now();
         const all = [];
@@ -13988,7 +14029,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return all.slice(0, limit || 20);
     }
 
-    /* ============ API ============ */
     window.__podcastApi = {
         isPodcastItem: itemIsPodcast,
         isPodcastText,
@@ -14002,7 +14042,6 @@ document.addEventListener('DOMContentLoaded', () => {
         _computeOccurrences: computeOccurrences
     };
 
-    /* ============ DEBUG ============ */
     window.__podcastDebug = function () {
         console.log('%c🎙️ PODCAST DEBUG', 'color:#4ade80;font-weight:bold;font-size:14px');
         console.log('Podcasts cargados:', podcastsCache.length);
@@ -14024,13 +14063,6 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log('Hora actual:', new Date().toLocaleString());
     };
 
-    /* ============================================================
-       🆕 ESCUCHAS EN TIEMPO REAL (onSnapshot)
-       - Cualquier alta / baja / modificación en Firestore dispara
-         una recarga “debounced” de podcastsCache.
-       - Se emite el evento global "podcastsLoaded" para que Sala
-         Música refresque su vista sin recargar la página.
-       ============================================================ */
     let realtimeUnsubs  = [];
     let reloadDebounce  = null;
     let realtimeStarted = false;
@@ -14040,7 +14072,7 @@ document.addEventListener('DOMContentLoaded', () => {
         reloadDebounce = setTimeout(async () => {
             reloadDebounce = null;
             try {
-                await loadPodcasts(true);   // fuerza recarga + emite podcastsLoaded
+                await loadPodcasts(true);
             } catch (e) {
                 console.warn(LOG, 'Error recargando podcasts:', e);
             }
@@ -14054,7 +14086,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const db = firebase.firestore();
 
-        // 1) Subcolección canciones (incluye podcasts subidos por usuarios)
         try {
             const unsub = db.collectionGroup('canciones').onSnapshot(
                 () => schedulePodcastsReload(),
@@ -14065,16 +14096,14 @@ document.addEventListener('DOMContentLoaded', () => {
             console.warn(LOG, 'No se pudo suscribir a collectionGroup:', e);
         }
 
-        // 2) Docs raíz de historial_usuarios (campos podcast*)
         try {
             const unsub = db.collection('historial_usuarios').onSnapshot(
                 () => schedulePodcastsReload(),
                 err => console.warn(LOG, '⚠️ hu listener:', err && err.code)
             );
             realtimeUnsubs.push(unsub);
-        } catch (e) { /* silencioso */ }
+        } catch (e) { }
 
-        // 3) Colecciones alternativas
         ['podcasts', 'programas', 'Radio_Podcast'].forEach(col => {
             try {
                 const unsub = db.collection(col).onSnapshot(
@@ -14082,13 +14111,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     () => {}
                 );
                 realtimeUnsubs.push(unsub);
-            } catch (e) { /* silencioso */ }
+            } catch (e) { }
         });
 
         console.log(LOG, '🔄 Listeners en tiempo real activados');
     }
 
-    /* ============ INIT ============ */
     async function init() {
         if (typeof firebase === 'undefined' || !firebase.auth) { setTimeout(init, 300); return; }
 
@@ -14100,7 +14128,6 @@ document.addEventListener('DOMContentLoaded', () => {
         quarantineItems();
         await loadPodcasts(false).catch(e => console.warn(LOG, 'Error carga:', e));
 
-        /* 🆕 Activar escuchas en tiempo real */
         setupRealtimeListeners();
 
         const playlist = $('playlist');
@@ -14125,18 +14152,9 @@ document.addEventListener('DOMContentLoaded', () => {
         init();
     }
 })();
+
 /* ============================================================
    51. CONTADOR DE OYENTES EN VIVO — SALA MÚSICA
-   ------------------------------------------------------------
-   · Usa una colección Firestore "sala_musica_oyentes"
-   · Doc ID = UID del usuario  →  garantiza 1 doc por usuario
-   · Cada oyente activo actualiza "lastSeen" cada HEARTBEAT_MS
-   · Se considera oyente activo quien tenga un "lastSeen"
-     dentro de los últimos STALE_MS
-   · onSnapshot sincroniza el contador en TIEMPO REAL
-   · Se registra cuando el audio de Sala Música reproduce
-   · Se desregistra al pausar, detener o al cerrar la app
-   · NO modifica ninguna otra funcionalidad existente
    ============================================================ */
 (function () {
     'use strict';
@@ -14145,23 +14163,19 @@ document.addEventListener('DOMContentLoaded', () => {
     const LOG = '[OYENTES-SM]';
     const COLLECTION   = 'sala_musica_oyentes';
 
-    /* Tiempos (ajustados para resistir throttling de fondo) */
-    const HEARTBEAT_MS = 20000;   // 20 s entre latidos
-    const STALE_MS     = 75000;   // 75 s sin latido ⇒ inactivo
-    const REFRESH_MS   = 5000;    // recalcular localmente cada 5 s
+    const HEARTBEAT_MS = 20000;
+    const STALE_MS     = 75000;
+    const REFRESH_MS   = 5000;
 
     let currentUser       = null;
-    let registeredRef     = null;   // DocumentReference del propio user
+    let registeredRef     = null;
     let isRegistered      = false;
     let heartbeatTimer    = null;
     let refreshTimer      = null;
     let listenersUnsub    = null;
-    let cachedDocs        = [];     // [{ uid, lastSeenMs }]
+    let cachedDocs        = [];
     let lastRenderedCount = -1;
 
-    /* ------------------------------------------------------------
-       Utilidades
-       ------------------------------------------------------------ */
     function nowMs() { return Date.now(); }
 
     function isActuallyListening() {
@@ -14179,9 +14193,6 @@ document.addEventListener('DOMContentLoaded', () => {
             || (currentUser.email ? currentUser.email.split('@')[0] : 'Usuario');
     }
 
-    /* ------------------------------------------------------------
-       Registro / heartbeat / desregistro
-       ------------------------------------------------------------ */
     async function registerListener() {
         if (!currentUser) return;
         if (!isActuallyListening()) return;
@@ -14225,7 +14236,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     lastSeen: firebase.firestore.FieldValue.serverTimestamp()
                 });
             } catch (e) {
-                // Si el doc fue borrado (p. ej. por limpieza externa) → re-registrar
                 if (e && e.code === 'not-found') {
                     isRegistered = false;
                     registeredRef = null;
@@ -14254,13 +14264,9 @@ document.addEventListener('DOMContentLoaded', () => {
             await ref.delete();
             console.log(LOG, '⏹ Oyente desregistrado');
         } catch (e) {
-            // Ignorar errores de red al salir
         }
     }
 
-    /* ------------------------------------------------------------
-       Listen global + recuento local
-       ------------------------------------------------------------ */
     function listenForCount() {
         if (listenersUnsub) return;
         if (typeof firebase === 'undefined' || !firebase.firestore) return;
@@ -14331,7 +14337,6 @@ document.addEventListener('DOMContentLoaded', () => {
     function startLocalRefresh() {
         if (refreshTimer) return;
         refreshTimer = setInterval(() => {
-            // Sólo recalcula si estamos viendo Sala Música (ahorra CPU)
             const v = $('sala-musica-view');
             if (v && v.classList.contains('visible')) {
                 updateBadgeImmediately(false);
@@ -14339,9 +14344,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }, REFRESH_MS);
     }
 
-    /* ------------------------------------------------------------
-       Enganches al audio de Sala Música
-       ------------------------------------------------------------ */
     function hookSalaAudio() {
         const audio = document.getElementById('sala-audio-player');
         if (!audio) return false;
@@ -14354,8 +14356,6 @@ document.addEventListener('DOMContentLoaded', () => {
         audio.addEventListener('pause',   () => { unregisterListener(); });
 
         audio.addEventListener('ended', () => {
-            // Puede que vaya a encadenar otra canción (radio).
-            // Damos una pequeña ventana; si no retoma, desregistramos.
             setTimeout(() => {
                 if (!isActuallyListening()) unregisterListener();
             }, 2500);
@@ -14365,13 +14365,9 @@ document.addEventListener('DOMContentLoaded', () => {
         return true;
     }
 
-    /* ------------------------------------------------------------
-       Cierre / salida / reconexión
-       ------------------------------------------------------------ */
     function hookUnloadCleanup() {
         const cleanup = () => {
             if (isRegistered && registeredRef) {
-                // Intento best-effort; si falla, el latido expirará solo.
                 try { registeredRef.delete(); } catch (_) {}
             }
         };
@@ -14379,9 +14375,6 @@ document.addEventListener('DOMContentLoaded', () => {
         window.addEventListener('beforeunload',  cleanup);
     }
 
-    /* ------------------------------------------------------------
-       Init
-       ------------------------------------------------------------ */
     function init() {
         if (typeof firebase === 'undefined' || !firebase.auth) {
             setTimeout(init, 300);
@@ -14396,7 +14389,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 startLocalRefresh();
                 updateBadgeImmediately(false);
 
-                // Enganchar el audio (puede tardar en aparecer)
                 let tries = 0;
                 (function loop() {
                     tries++;
@@ -14408,7 +14400,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 })();
 
             } else {
-                // Cerró sesión
                 if (listenersUnsub) { listenersUnsub(); listenersUnsub = null; }
                 unregisterListener();
                 cachedDocs = [];
@@ -14418,7 +14409,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         hookUnloadCleanup();
 
-        // Al volver a la app: refrescar y re-registrar si el audio sigue sonando
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') {
                 if (isActuallyListening()) registerListener();
@@ -14426,7 +14416,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
-        // Por si el usuario abre Sala Música ya estando el audio en reproducción
         const smView = document.getElementById('sala-musica-view');
         if (smView && smView.dataset.listenersWatch !== '1') {
             smView.dataset.listenersWatch = '1';
@@ -14434,14 +14423,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (smView.classList.contains('visible')) {
                     updateBadgeImmediately(false);
                     if (isActuallyListening()) registerListener();
-                    // Por si el audio aún no ha sido enganchado
                     hookSalaAudio();
                 }
             });
             obs.observe(smView, { attributes: true, attributeFilter: ['class'] });
         }
 
-        // Reintentos por si algo tarda en cargar
         [800, 2500, 6000].forEach(ms => setTimeout(() => {
             hookSalaAudio();
             if (isActuallyListening()) registerListener();
@@ -14455,7 +14442,6 @@ document.addEventListener('DOMContentLoaded', () => {
         init();
     }
 
-    /* API pública por si la necesitas desde la consola */
     window.__listenersApi = {
         register:    registerListener,
         unregister:  unregisterListener,
