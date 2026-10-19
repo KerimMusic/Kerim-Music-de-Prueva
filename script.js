@@ -15290,23 +15290,7 @@ document.addEventListener('DOMContentLoaded', () => {
 })();
 
 /* ============================================================
-   55. EVENTOS EN VIVO Y TRANSMISIÓN
-   ------------------------------------------------------------
-   · Lista eventos activos en Firestore (collection 'eventos_en_vivo')
-   · Permite iniciar transmisión con cámara del dispositivo
-   · Vista previa con getUserMedia
-   · Vista de espectador (placeholder; integración WebRTC opcional)
-   · Actualización en tiempo real con onSnapshot
-   · Heartbeat para detectar transmisiones inactivas
-   · Limpia la cámara/micrófono al cerrar
-   NO modifica las funciones existentes.
-   ------------------------------------------------------------
-   🔧 FIX: Se quitó `.orderBy('inicio','desc')` de la consulta
-   porque combinarlo con `.where('estado','==','activo')` requiere
-   un índice compuesto en Firestore que, si no existe, hace que la
-   query falle silenciosamente (pantalla en blanco).
-   Ahora se ordena en el cliente y se muestran mensajes claros
-   en caso de error (índice faltante o permisos).
+   55. EVENTOS EN VIVO Y TRANSMISIÓN (INTEGRACIÓN CON AGORA)
    ============================================================ */
 (function () {
     'use strict';
@@ -15315,16 +15299,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const LOG = '[LIVE]';
     const COL_EVENTOS = 'eventos_en_vivo';
 
-    // ⚠️ Opcional: si tienes cuenta en Agora (console.agora.io), pon aquí tu App ID.
-    // Si lo dejas vacío, la app funciona igual pero solo con vista previa local.
-    const AGORA_APP_ID = '';
+    // 🔑 TU APP ID DE AGORA
+    const AGORA_APP_ID = '3047148525bd48ebaae912e6385d2dac';
     const AGORA_SDK_URL = 'https://download.agora.io/sdk/release/AgoraRTC_N.js';
 
     let usuarioActual       = null;
     let eventosUnsub        = null;
-    let eventoActual        = null;
+    let eventoActual        = null; // Datos del evento si estamos transmitiendo
     let mediaStreamActual   = null;
-    let clienteAgora        = null;
+    let clienteAgora        = null; // Cliente Agora para emitir
     let heartbeatInterval   = null;
     let sdkLoaded           = false;
     let sdkLoading          = null;
@@ -15373,7 +15356,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /* --------------------------------------------------------
-       AGORA SDK LOADER (opcional)
+       CARGADOR DEL SDK DE AGORA
        -------------------------------------------------------- */
     async function cargarAgoraSDK() {
         if (sdkLoaded) return true;
@@ -15419,49 +15402,33 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /* --------------------------------------------------------
-       🔧 FIX — LISTA DE EVENTOS EN VIVO (ESPECTADOR)
-       --------------------------------------------------------
-       ANTES:
-           .where('estado', '==', 'activo').orderBy('inicio', 'desc')
-       →  Firestore exige índice compuesto. Si no existe, la query
-          falla silenciosamente y la vista queda en blanco.
-
-       AHORA:
-           Solo .where('estado', '==', 'activo') y ordenar en el cliente.
-       →  Funciona sin índices adicionales.
+       LISTA DE EVENTOS EN VIVO (ESPECTADOR)
        -------------------------------------------------------- */
     function escucharEventos() {
         if (eventosUnsub) { eventosUnsub(); eventosUnsub = null; }
         if (typeof firebase === 'undefined') return;
 
-        console.log(LOG, '🔍 Suscribiéndose a eventos activos...');
-
         eventosUnsub = firebase.firestore()
             .collection(COL_EVENTOS)
             .where('estado', '==', 'activo')
             .onSnapshot(snap => {
-                console.log(LOG, `📡 Snapshot recibido: ${snap.size} evento(s)`);
-
                 const lista  = $('le-list');
                 const vacio  = $('le-empty');
-                if (!lista) { console.warn(LOG, '❌ No existe #le-list'); return; }
+                if (!lista) return;
                 lista.innerHTML = '';
 
                 if (snap.empty) {
-                    console.log(LOG, 'ℹ️ No hay eventos activos (collection vacía)');
                     if (vacio) vacio.style.display = 'block';
                     return;
                 }
                 if (vacio) vacio.style.display = 'none';
 
-                // Convertir a array y ordenar por 'inicio' desc EN EL CLIENTE
                 const getMs = (ts) => {
                     if (!ts) return 0;
                     if (typeof ts.toMillis === 'function') return ts.toMillis();
                     if (typeof ts.toDate   === 'function') return ts.toDate().getTime();
                     if (typeof ts === 'number')            return ts;
-                    if (typeof ts === 'object' && typeof ts.seconds === 'number')
-                        return ts.seconds * 1000;
+                    if (typeof ts === 'object' && typeof ts.seconds === 'number') return ts.seconds * 1000;
                     return 0;
                 };
 
@@ -15494,48 +15461,77 @@ document.addEventListener('DOMContentLoaded', () => {
                     lista.appendChild(card);
                 });
             }, err => {
-                console.error(LOG, '❌ Error escuchando eventos:', err);
-                console.error(LOG, 'Código:',  err && err.code);
-                console.error(LOG, 'Mensaje:', err && err.message);
-
+                console.error(LOG, 'Error escuchando eventos:', err);
                 const vacio = $('le-empty');
-                if (vacio) {
-                    vacio.style.display = 'block';
-                    const title = vacio.querySelector('.le-empty-title');
-                    const sub   = vacio.querySelector('.le-empty-sub');
-                    if (err && err.code === 'failed-precondition') {
-                        if (title) title.textContent = 'Falta un índice en Firestore';
-                        if (sub) sub.textContent = 'Abre la consola (F12) y haz clic en el enlace para crearlo.';
-                    } else if (err && err.code === 'permission-denied') {
-                        if (title) title.textContent = 'Sin permisos para leer eventos';
-                        if (sub) sub.textContent = 'Revisa las reglas de seguridad en Firestore.';
-                    }
-                }
+                if (vacio) vacio.style.display = 'block';
             });
     }
 
-    function unirseAEvento(evento, eventoId) {
-        alert(
-            'Conectando al evento en vivo:\n\n' +
-            '"' + (evento.titulo || 'Sin título') + '"\n' +
-            'Streamer: ' + (evento.streamerNombre || 'Usuario') + '\n' +
-            'Canal: ' + (evento.canal || eventoId) + '\n\n' +
-            '(La reproducción real requiere configurar Agora u otro servicio WebRTC. ' +
-            'Consulta la documentación para conectar el canal.)'
-        );
-        // Para integración real:
-        // await cargarAgoraSDK();
-        // const client = AgoraRTC.createClient({ mode: 'live', codec: 'vp8' });
-        // await client.setClientRole('audience');
-        // await client.join(AGORA_APP_ID, evento.canal, null, null);
-        // client.on('user-published', async (user, mediaType) => {
-        //     await client.subscribe(user, mediaType);
-        //     // reproducir en <video>
-        // });
+    /* --------------------------------------------------------
+       🎥 VER EVENTO EN VIVO (Espectador usando Agora)
+       -------------------------------------------------------- */
+    async function unirseAEvento(evento, eventoId) {
+        try {
+            await cargarAgoraSDK();
+            
+            // 1. Crear interfaz (Overlay a pantalla completa)
+            const overlay = document.createElement('div');
+            overlay.id = 'live-viewer-overlay';
+            overlay.style.cssText = 'position:fixed;inset:0;background:#000;z-index:99999;display:flex;flex-direction:column;';
+            
+            const header = document.createElement('div');
+            header.style.cssText = 'padding:15px;background:rgba(0,0,0,0.8);color:#fff;display:flex;justify-content:space-between;align-items:center;position:absolute;top:0;left:0;right:0;z-index:10;';
+            header.innerHTML = `<span style="font-weight:bold;">🔴 En vivo: ${escText(evento.titulo)} (${escText(evento.streamerNombre)})</span>`;
+            
+            const closeBtn = document.createElement('button');
+            closeBtn.textContent = 'Salir';
+            closeBtn.style.cssText = 'padding:8px 16px;background:#ff2a2a;color:#fff;border:none;border-radius:5px;cursor:pointer;font-weight:bold;';
+            header.appendChild(closeBtn);
+            
+            const video = document.createElement('video');
+            video.autoplay = true;
+            video.playsInline = true;
+            video.style.cssText = 'width:100%;height:100%;object-fit:contain;';
+            
+            overlay.appendChild(header);
+            overlay.appendChild(video);
+            document.body.appendChild(overlay);
+            
+            // 2. Conectar a Agora como Espectador
+            const client = AgoraRTC.createClient({ mode: 'live', codec: 'vp8' });
+            await client.setClientRole('audience');
+            
+            // Unirse al canal (usando el canal guardado en Firestore)
+            const uid = Math.floor(Math.random() * 10000);
+            await client.join(AGORA_APP_ID, evento.canal, null, uid);
+            
+            // 3. Escuchar cuando el host (streamer) envía video/audio
+            client.on('user-published', async (user, mediaType) => {
+                await client.subscribe(user, mediaType);
+                if (mediaType === 'video') {
+                    user.videoTrack.play(video);
+                }
+                if (mediaType === 'audio') {
+                    user.audioTrack.play();
+                }
+            });
+            
+            // 4. Función para limpiar y salir
+            const cleanup = async () => {
+                await client.leave();
+                overlay.remove();
+            };
+            
+            closeBtn.addEventListener('click', cleanup);
+            
+        } catch (err) {
+            console.error(LOG, 'Error al unirse al evento:', err);
+            alert('No se pudo conectar al video en vivo. Revisa tu conexión.');
+        }
     }
 
     /* --------------------------------------------------------
-       VISTA PREVIA
+       VISTA PREVIA DE CÁMARA LOCAL
        -------------------------------------------------------- */
     async function iniciarVistaPrevia() {
         const video       = $('ls-preview');
@@ -15555,14 +15551,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 video.muted = true;
                 video.playsInline = true;
                 video.play().catch(() => {});
-
-                const track = mediaStreamActual.getVideoTracks()[0];
-                const settings = track ? track.getSettings() : {};
-                if (settings.facingMode === 'environment') {
-                    video.classList.add('rear-camera');
-                } else {
-                    video.classList.remove('rear-camera');
-                }
             }
 
             if (placeholder) placeholder.style.display = 'none';
@@ -15608,7 +15596,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /* --------------------------------------------------------
-       INICIAR / FINALIZAR TRANSMISIÓN
+       📡 INICIAR / FINALIZAR TRANSMISIÓN (Host usando Agora)
        -------------------------------------------------------- */
     async function iniciarTransmision() {
         if (!usuarioActual) { mostrarStatus('Debes iniciar sesión.', 'error'); return; }
@@ -15631,8 +15619,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
 
+            // Generar canal único
             const canalId = 'omega-live-' + usuarioActual.uid + '-' + Date.now();
 
+            // 1. Guardar el evento en Firestore
             const docRef = await firebase.firestore().collection(COL_EVENTOS).add({
                 titulo: titulo,
                 streamerUid: usuarioActual.uid,
@@ -15646,18 +15636,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
             eventoActual = { id: docRef.id, canal: canalId, titulo };
 
-            if (AGORA_APP_ID) {
-                try {
-                    await cargarAgoraSDK();
-                    clienteAgora = AgoraRTC.createClient({ mode: 'live', codec: 'vp8' });
-                    await clienteAgora.setClientRole('host');
-                    await clienteAgora.join(AGORA_APP_ID, canalId, null, usuarioActual.uid);
-                    const audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
-                    const videoTrack = await AgoraRTC.createCameraVideoTrack();
-                    await clienteAgora.publish([audioTrack, videoTrack]);
-                } catch (agoraErr) {
-                    console.warn(LOG, 'Agora no configurado:', agoraErr.message);
-                }
+            // 2. Conectar a Agora como Host
+            await cargarAgoraSDK();
+            clienteAgora = AgoraRTC.createClient({ mode: 'live', codec: 'vp8' });
+            await clienteAgora.setClientRole('host');
+            await clienteAgora.join(AGORA_APP_ID, canalId, null, usuarioActual.uid);
+
+            // Detener la cámara local para que Agora tome el control (evita conflictos)
+            if (mediaStreamActual) {
+                mediaStreamActual.getTracks().forEach(t => t.stop());
+                mediaStreamActual = null;
+            }
+
+            // Crear pistas de video y audio y enviarlas
+            const audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+            const videoTrack = await AgoraRTC.createCameraVideoTrack();
+            await clienteAgora.publish([audioTrack, videoTrack]);
+
+            // Mostrar el video local en el recuadro
+            const preview = $('ls-preview');
+            if (preview) {
+                videoTrack.play(preview);
             }
 
             iniciarHeartbeat(docRef.id);
@@ -15668,7 +15667,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const liveInd = document.querySelector('.ls-live-indicator');
             if (liveInd) liveInd.classList.add('visible');
 
-            mostrarStatus('✓ Transmisión iniciada. Aparecerás en "Eventos en vivo".', 'ok');
+            mostrarStatus('✓ Transmisión en vivo iniciada.', 'ok');
         } catch (err) {
             console.error(LOG, 'Error al iniciar:', err);
             mostrarStatus('Error al iniciar: ' + (err.message || 'Error desconocido'), 'error');
@@ -15896,7 +15895,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         firebase.auth().onAuthStateChanged(user => { usuarioActual = user; });
 
-        console.log(LOG, '✅ Sección 55 lista (con fix de eventos en vivo)');
+        console.log(LOG, '✅ Sección 55 lista (Agora conectado)');
     }
 
     if (document.readyState === 'loading') {
