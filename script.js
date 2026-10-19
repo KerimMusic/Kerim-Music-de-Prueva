@@ -15299,6 +15299,11 @@ document.addEventListener('DOMContentLoaded', () => {
     let v2Initialized = false;
     let currentSlide = null;
     let lastV2Signature = '';
+    let lastPlaybackDirection = 'next'; // Rastrea si vamos hacia adelante o atrás
+
+    // Escuchar eventos globales para saber la dirección
+    document.addEventListener('omega:next', () => { lastPlaybackDirection = 'next'; });
+    document.addEventListener('omega:prev', () => { lastPlaybackDirection = 'prev'; });
 
     function formatTime(seconds) {
         if (!isFinite(seconds) || seconds < 0) return '0:00';
@@ -15335,38 +15340,36 @@ document.addEventListener('DOMContentLoaded', () => {
         return slide;
     }
 
-    function updateV2Cover(title, artist, cover) {
+    function animateSlideIn(title, artist, cover, direction) {
         const wrapper = document.getElementById('fs-v2-cover-wrapper');
         if (!wrapper) return;
 
         const newSlide = createSlideElement(title, artist, cover);
+        const oldSlide = currentSlide;
 
-        if (!currentSlide) {
-            newSlide.classList.add('current');
-            wrapper.appendChild(newSlide);
-            currentSlide = newSlide;
-            return;
+        // 1. Posicionar nueva slide en el lado correcto (fuera de pantalla)
+        if (direction === 'next') {
+            newSlide.classList.add('enter-from-right');
+        } else {
+            newSlide.classList.add('enter-from-left');
         }
-
-        // Posicionar nueva slide a la derecha (fuera de pantalla)
-        newSlide.classList.add('next');
         wrapper.appendChild(newSlide);
         
-        // Forzar reflow para que la animación funcione
+        // 2. Forzar reflow para que el navegador aplique la posición inicial
         void newSlide.offsetWidth;
 
-        // Animar nueva slide hacia el centro
-        newSlide.classList.remove('next');
-        newSlide.classList.add('current');
+        // 3. Animar nueva slide hacia el centro
+        newSlide.classList.remove('enter-from-right', 'enter-from-left');
+        newSlide.classList.add('slide-active');
 
-        // Animar slide anterior hacia la izquierda
-        const oldSlide = currentSlide;
-        oldSlide.classList.remove('current');
-        oldSlide.classList.add('prev');
+        // 4. Animar slide anterior hacia el lado contrario
+        if (oldSlide) {
+            oldSlide.classList.add(direction === 'next' ? 'slide-exit-left' : 'slide-exit-right');
+        }
 
         currentSlide = newSlide;
 
-        // Limpiar slide anterior del DOM después de la transición (450ms)
+        // 5. Limpiar slide anterior del DOM después de la transición
         setTimeout(() => {
             if (oldSlide && oldSlide.parentNode) {
                 oldSlide.parentNode.removeChild(oldSlide);
@@ -15383,7 +15386,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         v2Initialized = true;
 
-        // 1. Inyectar HTML del nuevo diseño (V2) - SIN CONTROL DE VOLUMEN
+        // 1. Inyectar HTML del nuevo diseño (V2)
         const v2Html = `
             <div class="fs-content-v2" id="fs-content-v2">
                 <div class="fs-v2-top">
@@ -15414,7 +15417,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         </button>
                     </div>
 
-                    <button class="fs-v2-change-btn" id="fs-v2-btn-toggle">Cambiar Modo</button>
+                    <div class="fs-v2-bottom-actions">
+                        <button class="fs-v2-change-btn" id="fs-v2-btn-toggle">Cambiar Modo</button>
+                        <button class="fs-v2-buy-btn" id="fs-v2-buy" style="display: none;">Comprar</button>
+                    </div>
 
                     <div class="fs-v2-actions">
                         <button class="fs-v2-action-btn" id="fs-v2-like">
@@ -15457,15 +15463,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
         document.getElementById('fs-v2-btn-toggle').addEventListener('click', toggleMode);
 
+        document.getElementById('fs-v2-buy').addEventListener('click', () => {
+            document.getElementById('fs-buy-btn')?.click();
+        });
+
         document.getElementById('fs-v2-play').addEventListener('click', () => {
             document.getElementById('play-button').click();
         });
 
         document.getElementById('fs-v2-prev').addEventListener('click', () => {
+            lastPlaybackDirection = 'prev';
             document.dispatchEvent(new CustomEvent('omega:prev'));
         });
 
         document.getElementById('fs-v2-next').addEventListener('click', () => {
+            lastPlaybackDirection = 'next';
             document.dispatchEvent(new CustomEvent('omega:next'));
         });
 
@@ -15489,6 +15501,13 @@ document.addEventListener('DOMContentLoaded', () => {
         // Sincronizar estado de Play/Pause
         audioPlayer.addEventListener('play', () => updateV2PlayIcon(true));
         audioPlayer.addEventListener('pause', () => updateV2PlayIcon(false));
+
+        // Si la canción termina por sí sola, la siguiente entrará desde la derecha
+        audioPlayer.addEventListener('ended', () => {
+            if (localStorage.getItem('omega_repeat_mode_v1') !== 'one') {
+                lastPlaybackDirection = 'next';
+            }
+        });
 
         // Barra de Progreso
         const progSlider = document.getElementById('fs-v2-progress-slider');
@@ -15514,15 +15533,25 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
-        // Sincronizar metadatos (Título, Artista, Portada)
+        // Sincronizar metadatos (Título, Artista, Portada) y botón de compra
         const titleEl = document.getElementById('player-title');
         const coverEl = document.getElementById('player-cover');
+        const buyBtnV1 = document.getElementById('fs-buy-btn');
+        
         if (titleEl && coverEl) {
             const obs = new MutationObserver(() => {
                 if (isV2Mode) syncV2UI();
             });
             obs.observe(titleEl, { childList: true, characterData: true, subtree: true });
             obs.observe(coverEl, { attributes: true, attributeFilter: ['src'] });
+            
+            // Observar si el botón de comprar original se muestra/oculta
+            if (buyBtnV1) {
+                const buyObs = new MutationObserver(() => {
+                    if (isV2Mode) syncV2UI();
+                });
+                buyObs.observe(buyBtnV1, { attributes: true, attributeFilter: ['class'] });
+            }
         }
     }
 
@@ -15537,9 +15566,18 @@ document.addEventListener('DOMContentLoaded', () => {
             artist = sub.split('·')[0].trim() || artist;
         }
 
+        // Sincronizar botón de compra
+        const buyBtnV1 = document.getElementById('fs-buy-btn');
+        const buyBtnV2 = document.getElementById('fs-v2-buy');
+        if (buyBtnV1 && buyBtnV2) {
+            if (buyBtnV1.classList.contains('visible')) {
+                buyBtnV2.style.display = 'block';
+            } else {
+                buyBtnV2.style.display = 'none';
+            }
+        }
+
         const signature = title + '||' + cover;
-        
-        // Si la canción no ha cambiado y no se fuerza la actualización, no hacer nada
         if (signature === lastV2Signature && !forceNoAnim) return;
         lastV2Signature = signature;
 
@@ -15548,19 +15586,19 @@ document.addEventListener('DOMContentLoaded', () => {
         if (v2Dur && audioPlayer.duration) v2Dur.textContent = formatTime(audioPlayer.duration);
         updateV2PlayIcon(!audioPlayer.paused);
 
-        // Si se fuerza la actualización (al abrir el modo V2) o no hay slide, actualizar sin animación
+        // Si se fuerza (al abrir V2) o no hay slide, actualizar sin animación
         if (forceNoAnim || !currentSlide) {
             const wrapper = document.getElementById('fs-v2-cover-wrapper');
             if (!wrapper) return;
             wrapper.innerHTML = '';
             currentSlide = createSlideElement(title, artist, cover);
-            currentSlide.classList.add('current');
+            currentSlide.classList.add('slide-active');
             wrapper.appendChild(currentSlide);
             return;
         }
 
         // Si hay cambio de canción, aplicar la animación tipo carrusel
-        updateV2Cover(title, artist, cover);
+        animateSlideIn(title, artist, cover, lastPlaybackDirection);
     }
 
     function updateV2PlayIcon(playing) {
@@ -15587,9 +15625,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (collabs) collabs.style.display = 'none';
             if (v1Toggle) v1Toggle.style.display = 'none';
             v2Content.style.display = 'flex';
-            // Forzar sincronización sin animación al entrar al modo V2
+            
             lastV2Signature = ''; 
-            syncV2UI(true);
+            syncV2UI(true); // Forzar sincronización sin animación al entrar
         } else {
             if (origContent) origContent.style.display = 'flex';
             if (drawerHandle) drawerHandle.style.display = '';
