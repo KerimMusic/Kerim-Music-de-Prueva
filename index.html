@@ -31,6 +31,7 @@
 
     <div class="app-container">
 
+        <!-- ==================== NUEVA BARRA SUPERIOR ==================== -->
         <header class="top-bar">
             <button class="menu-btn" id="menu-btn" aria-label="Abrir menú">
                 <svg viewBox="0 0 24 24" width="28" height="28">
@@ -40,27 +41,10 @@
                 </svg>
             </button>
 
-            <div class="header-logo">
-                <img src="https://cdn.pixabay.com/animation/2023/02/21/12/15/12-15-04-910_512.gif"
-                     alt="kerimmusic" loading="lazy">
-            </div>
-
-            <div class="header-actions">
-                <button class="heart-search-btn" id="heart-search-btn" aria-label="Buscar Beat">
-                    <svg viewBox="0 0 24 24" width="32" height="32" fill="#ff2a2a">
-                        <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
-                    </svg>
-                </button>
-
-                <button class="share-btn" id="share-btn" aria-label="Compartir">
-                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <circle cx="18" cy="5"  r="3" fill="#ffffff" stroke="none"/>
-                        <circle cx="6"  cy="12" r="3" fill="#ffffff" stroke="none"/>
-                        <circle cx="18" cy="19" r="3" fill="#ffffff" stroke="none"/>
-                        <line x1="8.59"  y1="13.51" x2="15.42" y2="17.49"/>
-                        <line x1="15.41" y1="6.51"  x2="8.59"  y2="10.49"/>
-                    </svg>
-                </button>
+            <div class="top-nav" id="top-nav">
+                <button class="top-nav-btn active" data-category="musica">Música</button>
+                <button class="top-nav-btn" data-category="beats">Beats</button>
+                <button class="top-nav-btn" data-category="dormir">Para dormir<br>o meditar</button>
             </div>
         </header>
 
@@ -82,6 +66,8 @@
                 <li><a href="#" id="mensajes-link" class="submenu-link" type="button">Mensajes <span class="msg-badge" id="msg-badge" style="display:none;">0</span></a></li>
                 <li><a href="#" id="edit-name-link" class="submenu-link" type="button">Editar nombre</a></li>
                 <li><a href="#" id="change-color-link" class="submenu-link" type="button">Cambiar color</a></li>
+                <!-- Botón de compartir movido aquí -->
+                <li><a href="#" id="submenu-share-btn" class="submenu-link" type="button">Compartir</a></li>
                 <li><a href="#" id="logout-link" class="submenu-link" type="button">Cerrar Sesion</a></li>
             </ul>
         </nav>
@@ -100,8 +86,8 @@
                 </section>
 
                 <section class="home-section" id="sec-listen-again">
-    <h2 class="home-section-title">🔁 Volver a Oír</h2>
-    <div class="home-carousel" id="carousel-listen-again"></div>
+                    <h2 class="home-section-title">🔁 Volver a Oír</h2>
+                    <div class="home-carousel" id="carousel-listen-again"></div>
                </section>
 
                 <section class="home-section" id="sec-maybe">
@@ -712,6 +698,16 @@
                     </svg>
                 </div>
                 <span class="bn-label">Comunidad</span>
+            </button>
+            <!-- NUEVO BOTÓN DE BÚSQUEDA -->
+            <button class="bn-item" id="bn-search" type="button">
+                <div class="bn-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                    </svg>
+                </div>
+                <span class="bn-label">Buscar</span>
             </button>
         </nav>
 
