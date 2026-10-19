@@ -15288,6 +15288,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 })();
+
 /* ============================================================
    55. EVENTOS EN VIVO Y TRANSMISIÓN
    ------------------------------------------------------------
@@ -15299,6 +15300,13 @@ document.addEventListener('DOMContentLoaded', () => {
    · Heartbeat para detectar transmisiones inactivas
    · Limpia la cámara/micrófono al cerrar
    NO modifica las funciones existentes.
+   ------------------------------------------------------------
+   🔧 FIX: Se quitó `.orderBy('inicio','desc')` de la consulta
+   porque combinarlo con `.where('estado','==','activo')` requiere
+   un índice compuesto en Firestore que, si no existe, hace que la
+   query falle silenciosamente (pantalla en blanco).
+   Ahora se ordena en el cliente y se muestran mensajes claros
+   en caso de error (índice faltante o permisos).
    ============================================================ */
 (function () {
     'use strict';
@@ -15411,33 +15419,60 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /* --------------------------------------------------------
-       LISTA DE EVENTOS EN VIVO (ESPECTADOR)
+       🔧 FIX — LISTA DE EVENTOS EN VIVO (ESPECTADOR)
+       --------------------------------------------------------
+       ANTES:
+           .where('estado', '==', 'activo').orderBy('inicio', 'desc')
+       →  Firestore exige índice compuesto. Si no existe, la query
+          falla silenciosamente y la vista queda en blanco.
+
+       AHORA:
+           Solo .where('estado', '==', 'activo') y ordenar en el cliente.
+       →  Funciona sin índices adicionales.
        -------------------------------------------------------- */
     function escucharEventos() {
         if (eventosUnsub) { eventosUnsub(); eventosUnsub = null; }
         if (typeof firebase === 'undefined') return;
 
+        console.log(LOG, '🔍 Suscribiéndose a eventos activos...');
+
         eventosUnsub = firebase.firestore()
             .collection(COL_EVENTOS)
             .where('estado', '==', 'activo')
-            .orderBy('inicio', 'desc')
             .onSnapshot(snap => {
-                const lista = $('le-list');
-                const vacio = $('le-empty');
-                if (!lista) return;
+                console.log(LOG, `📡 Snapshot recibido: ${snap.size} evento(s)`);
+
+                const lista  = $('le-list');
+                const vacio  = $('le-empty');
+                if (!lista) { console.warn(LOG, '❌ No existe #le-list'); return; }
                 lista.innerHTML = '';
 
                 if (snap.empty) {
+                    console.log(LOG, 'ℹ️ No hay eventos activos (collection vacía)');
                     if (vacio) vacio.style.display = 'block';
                     return;
                 }
                 if (vacio) vacio.style.display = 'none';
 
-                snap.forEach(doc => {
-                    const d = doc.data() || {};
+                // Convertir a array y ordenar por 'inicio' desc EN EL CLIENTE
+                const getMs = (ts) => {
+                    if (!ts) return 0;
+                    if (typeof ts.toMillis === 'function') return ts.toMillis();
+                    if (typeof ts.toDate   === 'function') return ts.toDate().getTime();
+                    if (typeof ts === 'number')            return ts;
+                    if (typeof ts === 'object' && typeof ts.seconds === 'number')
+                        return ts.seconds * 1000;
+                    return 0;
+                };
+
+                const docs = [];
+                snap.forEach(doc => docs.push({ id: doc.id, data: doc.data() || {} }));
+                docs.sort((a, b) => getMs(b.data.inicio) - getMs(a.data.inicio));
+
+                docs.forEach(({ id: docId, data: d }) => {
                     const card = document.createElement('div');
                     card.className = 'le-card';
-                    card.dataset.eventoId = doc.id;
+                    card.dataset.eventoId = docId;
 
                     const inicial = (d.streamerNombre || 'U').trim()[0].toUpperCase();
                     const avatarHTML = d.streamerFoto
@@ -15454,14 +15489,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     card.addEventListener('click', () => {
                         if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} }
-                        unirseAEvento(d, doc.id);
+                        unirseAEvento(d, docId);
                     });
                     lista.appendChild(card);
                 });
             }, err => {
-                console.warn(LOG, 'Error escuchando eventos:', err);
+                console.error(LOG, '❌ Error escuchando eventos:', err);
+                console.error(LOG, 'Código:',  err && err.code);
+                console.error(LOG, 'Mensaje:', err && err.message);
+
                 const vacio = $('le-empty');
-                if (vacio) vacio.style.display = 'block';
+                if (vacio) {
+                    vacio.style.display = 'block';
+                    const title = vacio.querySelector('.le-empty-title');
+                    const sub   = vacio.querySelector('.le-empty-sub');
+                    if (err && err.code === 'failed-precondition') {
+                        if (title) title.textContent = 'Falta un índice en Firestore';
+                        if (sub) sub.textContent = 'Abre la consola (F12) y haz clic en el enlace para crearlo.';
+                    } else if (err && err.code === 'permission-denied') {
+                        if (title) title.textContent = 'Sin permisos para leer eventos';
+                        if (sub) sub.textContent = 'Revisa las reglas de seguridad en Firestore.';
+                    }
+                }
             });
     }
 
@@ -15847,7 +15896,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         firebase.auth().onAuthStateChanged(user => { usuarioActual = user; });
 
-        console.log(LOG, '✅ Sección 55 lista');
+        console.log(LOG, '✅ Sección 55 lista (con fix de eventos en vivo)');
     }
 
     if (document.readyState === 'loading') {
