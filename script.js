@@ -14638,3 +14638,197 @@ document.addEventListener('DOMContentLoaded', () => {
         getSubscriptions: () => Array.from(activeSubs.keys())
     };
 })();
+/* ============================================================
+   53. VISIBILIDAD ESTRICTA POR CATEGORÍA — BARRA SUPERIOR
+   ------------------------------------------------------------
+   Corrige el filtrado de la barra superior para que al elegir
+   una categoría:
+     1. Se oculten TODOS los .playlist-item de otras categorías.
+     2. Se oculten TODAS las secciones exclusivas de música
+        (Volver a Oír, Compartidas, Públicas, Sala Musical,
+         Recomendado para ti).
+     3. Se reactiven correctamente al volver a "Música".
+     4. Se re-aplique automáticamente cuando se añadan/quiten
+        canciones (subidas, compartidas, etc.).
+   NO modifica las funciones existentes; las envuelve.
+   ============================================================ */
+(function () {
+    'use strict';
+
+    /* Secciones que solo tienen sentido en la categoría "musica".
+       En "beats" o "dormir" deben ocultarse por completo. */
+    const MUSIC_ONLY_SECTIONS = [
+        'sec-listen-again',   // Volver a Oír (playlists personales de música)
+        'sec-shared',         // Playlists compartidas entre usuarios
+        'sec-public',         // Playlists públicas
+        'sec-sala-musica',    // Sala Musical / Radio en vivo
+        'sec-recommended'     // Recomendado para ti (basado en historial)
+    ];
+
+    function getCategory() {
+        return window.__currentCategory || 'musica';
+    }
+
+    function getItemCategory(item) {
+        if (typeof window.__getCategoryOfItem === 'function') {
+            return window.__getCategoryOfItem(item);
+        }
+        return 'musica';
+    }
+
+    function carouselHasContent(sectionId) {
+        const carouselId = 'carousel-' + sectionId.replace('sec-', '');
+        const c = document.getElementById(carouselId);
+        return !!(c && c.children.length > 0);
+    }
+
+    /**
+     * Aplica la visibilidad estricta:
+     *   · Filtra items individuales por categoría (oculta los demás).
+     *   · Oculta secciones exclusivas de música cuando no toca.
+     *   · Restaura secciones exclusivas de música al volver a "musica".
+     */
+    function applyVisibility() {
+        const category = getCategory();
+
+        /* ── 1) Items individuales ────────────────────────────── */
+        const pl = document.getElementById('playlist');
+        if (pl) {
+            pl.querySelectorAll('.playlist-item').forEach(item => {
+                /* Los podcasts / programas nunca se muestran aquí */
+                if (item.dataset.podcast === '1') {
+                    item.style.display = 'none';
+                    return;
+                }
+                /* Ocultar si no pertenece a la categoría activa */
+                if (getItemCategory(item) !== category) {
+                    item.style.display = 'none';
+                }
+                /* Si sí pertenece, __applySearchVisibility se encarga
+                   del display final (flex/none según búsqueda o
+                   "Mostrar todas las canciones"). */
+            });
+        }
+
+        /* ── 2) Secciones exclusivas de música ────────────────── */
+        MUSIC_ONLY_SECTIONS.forEach(id => {
+            const el = document.getElementById(id);
+            if (!el) return;
+
+            if (category !== 'musica') {
+                /* En "beats" o "dormir": ocultar por completo */
+                el.style.display = 'none';
+                return;
+            }
+
+            /* Categoría "musica": decidir si mostrar */
+            if (id === 'sec-sala-musica') {
+                /* La radio siempre disponible en Música */
+                el.style.display = '';
+            } else if (id === 'sec-shared' || id === 'sec-public') {
+                /* Se llenan por listeners en tiempo real;
+                   mostrar solo si tienen contenido */
+                el.style.display = carouselHasContent(id) ? '' : 'none';
+            }
+            /* sec-listen-again y sec-recommended:
+               sus builders (buildListenAgain / render) ya se
+               encargan de mostrar/ocultar según haya o no
+               contenido. No tocamos su display aquí para
+               evitar conflictos. */
+        });
+    }
+
+    /* ────────────────────────────────────────────────────────
+       Envolver __applyCategoryFilter (no lo reemplaza:
+       ejecuta la lógica original DESPUÉS de aplicar visibilidad
+       y vuelve a aplicar visibilidad por si algún builder
+       reactivó algo indebidamente).
+       ──────────────────────────────────────────────────────── */
+    function wrapApplyCategoryFilter() {
+        const orig = window.__applyCategoryFilter;
+        if (typeof orig !== 'function' || orig.__catVisWrapped) return;
+
+        const wrapped = function () {
+            applyVisibility();
+            let result;
+            try {
+                result = orig.apply(this, arguments);
+            } catch (e) {
+                console.warn('[CAT-VIS] Error en applyCategoryFilter:', e);
+            }
+            /* Re-aplicar tras los builders (por si alguno muestra
+               una sección que no corresponde) */
+            setTimeout(applyVisibility, 30);
+            setTimeout(applyVisibility, 200);
+            setTimeout(applyVisibility, 600);
+            return result;
+        };
+        wrapped.__catVisWrapped = true;
+        window.__applyCategoryFilter = wrapped;
+    }
+
+    /* ────────────────────────────────────────────────────────
+       Observer: re-aplicar cuando cambien los items del playlist
+       (subidas nuevas, sincronización de eliminados, etc.)
+       ──────────────────────────────────────────────────────── */
+    function observePlaylist() {
+        const pl = document.getElementById('playlist');
+        if (!pl || pl.dataset.catVisObs === '1') return;
+        pl.dataset.catVisObs = '1';
+
+        let timer = null;
+        const obs = new MutationObserver(() => {
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(() => {
+                timer = null;
+                applyVisibility();
+            }, 120);
+        });
+        /* Solo hijos directos de #playlist para evitar loops
+           cuando se reconstruyen carruseles internos */
+        obs.observe(pl, { childList: true });
+    }
+
+    /* ────────────────────────────────────────────────────────
+       Hook de los botones de la barra superior: re-aplicar
+       visibilidad tras el click aunque el handler original
+       se ejecute con animaciones/delays.
+       ──────────────────────────────────────────────────────── */
+    function hookTopNav() {
+        document.querySelectorAll('.top-nav-btn').forEach(btn => {
+            if (btn.dataset.catVisHooked === '1') return;
+            btn.dataset.catVisHooked = '1';
+
+            btn.addEventListener('click', () => {
+                setTimeout(applyVisibility, 80);
+                setTimeout(applyVisibility, 300);
+                setTimeout(applyVisibility, 800);
+            });
+        });
+    }
+
+    function init() {
+        wrapApplyCategoryFilter();
+        observePlaylist();
+        hookTopNav();
+
+        /* Reintentos: por si los elementos tardan en cargar o los
+           builders se ejecutan más tarde */
+        [200, 600, 1500, 3000].forEach(ms => {
+            setTimeout(() => {
+                wrapApplyCategoryFilter();
+                hookTopNav();
+                applyVisibility();
+            }, ms);
+        });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+
+    /* API pública por si la necesitas desde la consola */
+    window.__applyCategoryVisibility = applyVisibility;
+})();
