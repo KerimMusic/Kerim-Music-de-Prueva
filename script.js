@@ -14450,3 +14450,191 @@ document.addEventListener('DOMContentLoaded', () => {
         isListening: isActuallyListening
     };
 })();
+/* ============================================================
+   52. CONTADOR DE COMENTARIOS POR PUBLICACIÓN (COMUNIDAD OMEGA)
+   ------------------------------------------------------------
+   · NO modifica las funciones existentes de Comunidad Omega
+   · Se suscribe por publicación a la subcolección "comentarios"
+   · Muestra "💬 N" junto al botón Comentar (siempre visible, incluye 0)
+   · Se actualiza en tiempo real cuando se añade/elimina un comentario
+   · Se sincroniza automáticamente para todos los usuarios
+   · Limpia las suscripciones al cerrar sesión o al re-renderizar
+   ============================================================ */
+(function () {
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+    const COL_POSTS  = 'comunidad_publicaciones';
+    const SUB_COMENT = 'comentarios';
+
+    /** Map<postId, unsubscribeFn>  → suscripciones activas */
+    const activeSubs = new Map();
+    /** Map<postId, count>          → caché para re-render sin esperar */
+    const countsCache = new Map();
+
+    let scanTimer = null;
+
+    /* ------------------------------------------------------------
+       Renderiza el contador dentro del botón "Comentar"
+       ------------------------------------------------------------ */
+    function renderCounter(commentBtn, count) {
+        if (!commentBtn) return;
+
+        // Elimina cualquier contador previo (evita duplicados)
+        const old = commentBtn.querySelector('.cm-post-comment-count');
+        if (old) old.remove();
+
+        // Añade el nuevo contador con formato "💬 N"
+        const span = document.createElement('span');
+        span.className = 'cm-post-comment-count';
+        span.textContent = '💬 ' + (Number.isFinite(count) ? count : 0);
+        commentBtn.appendChild(span);
+    }
+
+    /* ------------------------------------------------------------
+       Aplica un conteo al DOM de la publicación concreta
+       ------------------------------------------------------------ */
+    function applyCount(postId, count) {
+        const list = $('cm-list');
+        if (!list) return;
+        const cards = list.querySelectorAll('.cm-post[data-post-id]');
+        for (const card of cards) {
+            if (card.dataset.postId === postId) {
+                const btn = card.querySelector('.cm-post-comment');
+                if (btn) renderCounter(btn, count);
+                return;
+            }
+        }
+    }
+
+    /* ------------------------------------------------------------
+       Suscripción a una publicación
+       ------------------------------------------------------------ */
+    function subscribe(postId) {
+        if (!postId) return;
+        if (activeSubs.has(postId)) return;
+        if (typeof firebase === 'undefined' || !firebase.firestore) return;
+
+        try {
+            const unsub = firebase.firestore()
+                .collection(COL_POSTS).doc(postId)
+                .collection(SUB_COMENT)
+                .onSnapshot(snap => {
+                    const count = snap.size || 0;
+                    countsCache.set(postId, count);
+                    applyCount(postId, count);
+                }, err => {
+                    console.warn('[COUNTER] Error en post', postId, err);
+                });
+
+            activeSubs.set(postId, unsub);
+        } catch (e) {
+            console.warn('[COUNTER] No se pudo suscribir:', e);
+        }
+    }
+
+    /* ------------------------------------------------------------
+       Cancelar suscripciones
+       ------------------------------------------------------------ */
+    function unsubscribe(postId) {
+        const unsub = activeSubs.get(postId);
+        if (unsub) { try { unsub(); } catch (_) {} }
+        activeSubs.delete(postId);
+    }
+
+    function unsubscribeAll() {
+        for (const [, unsub] of activeSubs) {
+            try { unsub(); } catch (_) {}
+        }
+        activeSubs.clear();
+    }
+
+    /* ------------------------------------------------------------
+       Sincroniza suscripciones con las publicaciones visibles
+       ------------------------------------------------------------ */
+    function scanPosts() {
+        const list = $('cm-list');
+        if (!list) return;
+
+        const currentIds = new Set();
+        list.querySelectorAll('.cm-post[data-post-id]').forEach(el => {
+            const id = el.dataset.postId;
+            if (id) currentIds.add(id);
+        });
+
+        // 1) Desuscribir publicaciones que ya no están en el DOM
+        for (const postId of Array.from(activeSubs.keys())) {
+            if (!currentIds.has(postId)) {
+                unsubscribe(postId);
+                countsCache.delete(postId);
+            }
+        }
+
+        // 2) Suscribir nuevas publicaciones y re-aplicar caché
+        for (const postId of currentIds) {
+            if (!activeSubs.has(postId)) {
+                subscribe(postId);
+            }
+            const cached = countsCache.has(postId) ? countsCache.get(postId) : 0;
+            applyCount(postId, cached);
+        }
+    }
+
+    function scheduleScan() {
+        if (scanTimer) clearTimeout(scanTimer);
+        scanTimer = setTimeout(() => {
+            scanTimer = null;
+            scanPosts();
+        }, 150);
+    }
+
+    /* ------------------------------------------------------------
+       INIT
+       ------------------------------------------------------------ */
+    function init() {
+        if (typeof firebase === 'undefined' || !firebase.auth) {
+            setTimeout(init, 300);
+            return;
+        }
+
+        const list = $('cm-list');
+        if (!list) { setTimeout(init, 300); return; }
+        if (list.dataset.commentCounterReady === '1') return;
+        list.dataset.commentCounterReady = '1';
+
+        // Observa cuando se añaden / quitan publicaciones del DOM
+        const observer = new MutationObserver(scheduleScan);
+        observer.observe(list, { childList: true, subtree: true });
+
+        // Escaneo inicial (por si ya hay posts renderizados)
+        setTimeout(scanPosts, 400);
+
+        // Limpieza al cerrar sesión / reentrar
+        firebase.auth().onAuthStateChanged(user => {
+            if (!user) {
+                unsubscribeAll();
+                countsCache.clear();
+            } else {
+                // Pequeño delay para dejar que listenPosts re-renderice
+                setTimeout(scanPosts, 800);
+            }
+        });
+
+        // Limpieza al cerrar la pestaña / app
+        window.addEventListener('pagehide', unsubscribeAll);
+        window.addEventListener('beforeunload', unsubscribeAll);
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+
+    /* API pública por si la necesitas desde la consola */
+    window.__commentCounter = {
+        refresh: scanPosts,
+        getCount: (postId) => countsCache.get(postId) || 0,
+        getSubscriptions: () => Array.from(activeSubs.keys())
+    };
+})();
