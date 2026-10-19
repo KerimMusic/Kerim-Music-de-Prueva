@@ -5853,14 +5853,27 @@ body[data-theme="light"] .bn-notif-badge {
     inset: 0;
     width: 100%;
     height: 100%;
-    transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
     will-change: transform;
+    transform: translateX(0); /* Estado base: centrado */
 }
 
-/* Estados de la animación */
-.fs-v2-slide.current { transform: translateX(0); }
-.fs-v2-slide.next { transform: translateX(100%); }
-.fs-v2-slide.prev { transform: translateX(-100%); }
+/* Estados iniciales para la animación */
+.fs-v2-slide.enter-from-right { transform: translateX(100%); }
+.fs-v2-slide.enter-from-left  { transform: translateX(-100%); }
+
+/* Estados animados */
+.fs-v2-slide.slide-active { 
+    transform: translateX(0); 
+    transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1); 
+}
+.fs-v2-slide.slide-exit-left { 
+    transform: translateX(-100%); 
+    transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1); 
+}
+.fs-v2-slide.slide-exit-right { 
+    transform: translateX(100%); 
+    transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1); 
+}
 
 .fs-v2-cover {
     width: 100%;
@@ -5972,7 +5985,14 @@ body[data-theme="light"] .bn-notif-badge {
     height: 46px;
 }
 
-/* Botón Cambiar Modo (V2) */
+/* Contenedor de botones inferiores (Cambiar modo y Comprar) */
+.fs-v2-bottom-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 4px;
+}
+
 .fs-v2-change-btn {
     background: #ff2a2a;
     color: #ffffff;
@@ -5983,12 +6003,25 @@ body[data-theme="light"] .bn-notif-badge {
     font-size: 16px;
     font-weight: 800;
     cursor: pointer;
-    align-self: flex-start;
-    margin-top: 4px;
     box-shadow: 0 8px 24px rgba(255, 42, 42, 0.4);
     transition: transform 0.15s ease;
 }
 .fs-v2-change-btn:active { transform: scale(0.96); }
+
+.fs-v2-buy-btn {
+    background: #ffffff;
+    color: #000000;
+    border: none;
+    border-radius: 50px;
+    padding: 14px 28px;
+    font-family: inherit;
+    font-size: 16px;
+    font-weight: 800;
+    cursor: pointer;
+    box-shadow: 0 8px 24px rgba(255, 255, 255, 0.2);
+    transition: transform 0.15s ease;
+}
+.fs-v2-buy-btn:active { transform: scale(0.96); }
 
 /* Botones de Acción Inferiores */
 .fs-v2-actions {
