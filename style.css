@@ -5701,3 +5701,18 @@ body .sala-musica-view .sm-song-title {
         padding: 5px 10px 5px 8px;
     }
 }
+/* ============================================================
+   CONTADOR DE COMENTARIOS — COMUNIDAD OMEGA
+   ============================================================ */
+.cm-post-comment-count {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: 6px;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Modo claro */
+body[data-theme="light"] .cm-post-comment-count {
+    color: #888888;
+}
