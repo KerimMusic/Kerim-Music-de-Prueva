@@ -15290,6 +15290,11 @@ document.addEventListener('DOMContentLoaded', () => {
 })();
 /* ============================================================
    55. NUEVO MODO DE REPRODUCTOR FULLSCREEN (V2)
+   ------------------------------------------------------------
+   · NO duplica botones: mueve los .fs-actions reales al menú
+     hamburguesa de V2 y los devuelve a V1 al cambiar de modo.
+   · Estado, funciones y datos son compartidos por ser los
+     mismos nodos del DOM.
    ============================================================ */
 (function () {
     'use strict';
@@ -15299,9 +15304,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let v2Initialized = false;
     let currentSlide = null;
     let lastV2Signature = '';
-    let lastPlaybackDirection = 'next'; // Rastrea si vamos hacia adelante o atrás
+    let lastPlaybackDirection = 'next';
 
-    // Escuchar eventos globales para saber la dirección
     document.addEventListener('omega:next', () => { lastPlaybackDirection = 'next'; });
     document.addEventListener('omega:prev', () => { lastPlaybackDirection = 'prev'; });
 
@@ -15315,28 +15319,27 @@ document.addEventListener('DOMContentLoaded', () => {
     function createSlideElement(title, artist, cover) {
         const slide = document.createElement('div');
         slide.className = 'fs-v2-slide';
-        
+
         const img = document.createElement('img');
         img.className = 'fs-v2-cover';
         img.alt = 'Cover';
         if (cover) img.src = cover;
-        
+
         const overlay = document.createElement('div');
         overlay.className = 'fs-v2-title-overlay';
-        
+
         const tSpan = document.createElement('span');
         tSpan.className = 'fs-v2-title';
         tSpan.textContent = title || 'Título';
-        
+
         const aSpan = document.createElement('span');
         aSpan.className = 'fs-v2-artist';
         aSpan.textContent = artist || 'Artista';
-        
+
         overlay.appendChild(tSpan);
         overlay.appendChild(aSpan);
         slide.appendChild(img);
         slide.appendChild(overlay);
-        
         return slide;
     }
 
@@ -15347,56 +15350,83 @@ document.addEventListener('DOMContentLoaded', () => {
         const newSlide = createSlideElement(title, artist, cover);
         const oldSlide = currentSlide;
 
-        // 1. Posicionar nueva slide en el lado correcto (fuera de pantalla)
-        if (direction === 'next') {
-            newSlide.classList.add('enter-from-right');
-        } else {
-            newSlide.classList.add('enter-from-left');
-        }
+        newSlide.classList.add(direction === 'next' ? 'enter-from-right' : 'enter-from-left');
         wrapper.appendChild(newSlide);
-        
-        // 2. Forzar reflow para que el navegador aplique la posición inicial
+
         void newSlide.offsetWidth;
 
-        // 3. Animar nueva slide hacia el centro
         newSlide.classList.remove('enter-from-right', 'enter-from-left');
         newSlide.classList.add('slide-active');
 
-        // 4. Animar slide anterior hacia el lado contrario
         if (oldSlide) {
             oldSlide.classList.add(direction === 'next' ? 'slide-exit-left' : 'slide-exit-right');
         }
 
         currentSlide = newSlide;
 
-        // 5. Limpiar slide anterior del DOM después de la transición
         setTimeout(() => {
-            if (oldSlide && oldSlide.parentNode) {
-                oldSlide.parentNode.removeChild(oldSlide);
-            }
+            if (oldSlide && oldSlide.parentNode) oldSlide.parentNode.removeChild(oldSlide);
         }, 450);
+    }
+
+    /* ---------- MOVER CONTROLES ENTRE V1 Y V2 ---------- */
+    function moveControlsToV2Menu() {
+        const v2Actions = document.getElementById('fs-v2-menu-actions');
+        const v2Buy     = document.getElementById('fs-v2-menu-buy');
+        const fsActions = document.querySelector('.fs-actions');
+        const fsBuyBtn  = document.getElementById('fs-buy-btn');
+
+        if (v2Actions && fsActions && !v2Actions.contains(fsActions)) {
+            fsActions.classList.add('in-v2-menu');
+            v2Actions.appendChild(fsActions);
+        }
+        if (v2Buy && fsBuyBtn && !v2Buy.contains(fsBuyBtn)) {
+            fsBuyBtn.classList.add('in-v2-menu');
+            v2Buy.appendChild(fsBuyBtn);
+        }
+    }
+
+    function moveControlsBackToV1() {
+        const fsContent = document.getElementById('fs-content');
+        const fsTitle   = document.getElementById('fs-title');
+        const fsActions = document.querySelector('.fs-actions');
+        const fsBuyBtn  = document.getElementById('fs-buy-btn');
+
+        if (fsContent && fsActions && !fsContent.contains(fsActions)) {
+            fsActions.classList.remove('in-v2-menu');
+            fsContent.appendChild(fsActions);
+        }
+        if (fsContent && fsBuyBtn && fsTitle && !fsContent.contains(fsBuyBtn)) {
+            fsBuyBtn.classList.remove('in-v2-menu');
+            const v1Toggle = document.querySelector('.fs-v1-change-btn');
+            const anchor = (v1Toggle && v1Toggle.parentNode === fsTitle.parentNode)
+                ? v1Toggle.nextSibling
+                : fsTitle.nextSibling;
+            fsTitle.parentNode.insertBefore(fsBuyBtn, anchor);
+        }
     }
 
     function initV2() {
         const fsPlayer = document.getElementById('fs-player');
         if (!fsPlayer || v2Initialized) return;
-
         audioPlayer = document.getElementById('audio-player');
         if (!audioPlayer) return;
-
         v2Initialized = true;
 
-        // 1. Inyectar HTML del nuevo diseño (V2)
         const v2Html = `
             <div class="fs-content-v2" id="fs-content-v2">
                 <div class="fs-v2-top">
+                    <button class="fs-v2-menu-btn" id="fs-v2-menu-btn" aria-label="Abrir menú de opciones">
+                        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                            <line x1="3" y1="6"  x2="21" y2="6"  stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
+                            <line x1="3" y1="12" x2="21" y2="12" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
+                            <line x1="3" y1="18" x2="21" y2="18" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
+                        </svg>
+                    </button>
                     <button class="fs-v2-close" id="fs-v2-close" aria-label="Cerrar">&times;</button>
                 </div>
                 <div class="fs-v2-main">
-                    <div class="fs-v2-cover-wrapper" id="fs-v2-cover-wrapper">
-                        <!-- Las slides se inyectan dinámicamente aquí -->
-                    </div>
-                    
+                    <div class="fs-v2-cover-wrapper" id="fs-v2-cover-wrapper"></div>
                     <div class="fs-v2-progress">
                         <div class="fs-v2-times">
                             <span id="fs-v2-current">0:00</span>
@@ -15404,51 +15434,39 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>
                         <input type="range" id="fs-v2-progress-slider" min="0" max="100" value="0" step="0.1">
                     </div>
-
                     <div class="fs-v2-controls">
-                        <button id="fs-v2-prev">
+                        <button id="fs-v2-prev" aria-label="Anterior">
                             <svg viewBox="0 0 24 24"><polygon points="19,20 9,12 19,4" fill="#ff2a2a"/><rect x="5" y="4" width="4" height="16" fill="#ff2a2a"/></svg>
                         </button>
-                        <button id="fs-v2-play" class="fs-v2-play-btn">
+                        <button id="fs-v2-play" class="fs-v2-play-btn" aria-label="Reproducir / Pausar">
                             <svg id="fs-v2-play-icon" viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21" fill="#ff2a2a"/></svg>
                         </button>
-                        <button id="fs-v2-next">
+                        <button id="fs-v2-next" aria-label="Siguiente">
                             <svg viewBox="0 0 24 24"><polygon points="5,4 15,12 5,20" fill="#ff2a2a"/><rect x="15" y="4" width="4" height="16" fill="#ff2a2a"/></svg>
                         </button>
                     </div>
-
                     <div class="fs-v2-bottom-actions">
                         <button class="fs-v2-change-btn" id="fs-v2-btn-toggle">Cambiar Modo</button>
-                        <button class="fs-v2-buy-btn" id="fs-v2-buy" style="display: none;">Comprar</button>
                     </div>
-
-                    <div class="fs-v2-actions">
-                        <button class="fs-v2-action-btn" id="fs-v2-like">
-                            <svg viewBox="0 0 24 24"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
-                            <span>Me Gusta</span>
-                        </button>
-                        <button class="fs-v2-action-btn" id="fs-v2-msg">
-                            <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
-                            <span>Mensaje</span>
-                        </button>
-                        <button class="fs-v2-action-btn" id="fs-v2-shuffle">
-                            <svg viewBox="0 0 24 24"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
-                            <span>Aleatorio</span>
-                        </button>
-                        <button class="fs-v2-action-btn" id="fs-v2-repeat">
-                            <svg viewBox="0 0 24 24"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-                            <span>Repetir</span>
-                        </button>
+                </div>
+                <div class="fs-v2-menu" id="fs-v2-menu" aria-hidden="true">
+                    <div class="fs-v2-menu-header">
+                        <h3 class="fs-v2-menu-title">Opciones</h3>
+                        <button class="fs-v2-menu-close" id="fs-v2-menu-close" aria-label="Cerrar menú">&times;</button>
+                    </div>
+                    <div class="fs-v2-menu-scroll">
+                        <div class="fs-v2-menu-actions" id="fs-v2-menu-actions"></div>
+                        <div class="fs-v2-menu-buy" id="fs-v2-menu-buy"></div>
                     </div>
                 </div>
             </div>
         `;
         fsPlayer.insertAdjacentHTML('beforeend', v2Html);
 
-        // 2. Inyectar botón "Cambiar Modo" en el reproductor original (V1)
+        /* Botón "Cambiar Modo" en V1 */
         const v1Content = document.getElementById('fs-content');
         const v1Title = document.getElementById('fs-title');
-        if (v1Content && v1Title) {
+        if (v1Content && v1Title && !document.querySelector('.fs-v1-change-btn')) {
             const btnV1 = document.createElement('button');
             btnV1.className = 'fs-v1-change-btn';
             btnV1.textContent = 'Cambiar Modo';
@@ -15456,67 +15474,46 @@ document.addEventListener('DOMContentLoaded', () => {
             v1Title.parentNode.insertBefore(btnV1, v1Title.nextSibling);
         }
 
-        // 3. Conectar los controles del nuevo modo
+        /* Controles nativos V2 (llaman a las mismas funciones de V1) */
         document.getElementById('fs-v2-close').addEventListener('click', () => {
             document.getElementById('fs-close').click();
         });
-
         document.getElementById('fs-v2-btn-toggle').addEventListener('click', toggleMode);
-
-        document.getElementById('fs-v2-buy').addEventListener('click', () => {
-            document.getElementById('fs-buy-btn')?.click();
-        });
-
         document.getElementById('fs-v2-play').addEventListener('click', () => {
             document.getElementById('play-button').click();
         });
-
         document.getElementById('fs-v2-prev').addEventListener('click', () => {
             lastPlaybackDirection = 'prev';
             document.dispatchEvent(new CustomEvent('omega:prev'));
         });
-
         document.getElementById('fs-v2-next').addEventListener('click', () => {
             lastPlaybackDirection = 'next';
             document.dispatchEvent(new CustomEvent('omega:next'));
         });
 
-        // Sincronizar botones de acción con el reproductor original
-        document.getElementById('fs-v2-like').addEventListener('click', () => {
-            document.getElementById('fs-like').click();
-        });
+        /* Menú hamburguesa */
+        const menu = document.getElementById('fs-v2-menu');
+        const menuBtn = document.getElementById('fs-v2-menu-btn');
+        const menuClose = document.getElementById('fs-v2-menu-close');
+        const openMenu = () => { menu.classList.add('visible'); menu.setAttribute('aria-hidden', 'false'); };
+        const closeMenu = () => { menu.classList.remove('visible'); menu.setAttribute('aria-hidden', 'true'); };
+        menuBtn.addEventListener('click', openMenu);
+        menuClose.addEventListener('click', closeMenu);
+        menu.addEventListener('click', (e) => { if (e.target === menu) closeMenu(); });
 
-        document.getElementById('fs-v2-msg').addEventListener('click', () => {
-            document.getElementById('fs-message-btn')?.click();
-        });
-
-        document.getElementById('fs-v2-shuffle').addEventListener('click', () => {
-            document.getElementById('fs-shuffle')?.click();
-        });
-
-        document.getElementById('fs-v2-repeat').addEventListener('click', () => {
-            document.getElementById('fs-repeat')?.click();
-        });
-
-        // Sincronizar estado de Play/Pause
+        /* Estado de reproducción */
         audioPlayer.addEventListener('play', () => updateV2PlayIcon(true));
         audioPlayer.addEventListener('pause', () => updateV2PlayIcon(false));
-
-        // Si la canción termina por sí sola, la siguiente entrará desde la derecha
         audioPlayer.addEventListener('ended', () => {
             if (localStorage.getItem('omega_repeat_mode_v1') !== 'one') {
                 lastPlaybackDirection = 'next';
             }
         });
 
-        // Barra de Progreso
+        /* Barra de progreso */
         const progSlider = document.getElementById('fs-v2-progress-slider');
         let isSeekingV2 = false;
-
-        progSlider.addEventListener('input', () => {
-            isSeekingV2 = true;
-        });
-
+        progSlider.addEventListener('input', () => { isSeekingV2 = true; });
         progSlider.addEventListener('change', () => {
             if (audioPlayer.duration) {
                 audioPlayer.currentTime = (progSlider.value / 100) * audioPlayer.duration;
@@ -15529,29 +15526,20 @@ document.addEventListener('DOMContentLoaded', () => {
             if (audioPlayer.duration) {
                 const percent = (audioPlayer.currentTime / audioPlayer.duration) * 100;
                 progSlider.value = percent;
-                document.getElementById('fs-v2-current').textContent = formatTime(audioPlayer.currentTime);
+                const cur = document.getElementById('fs-v2-current');
+                if (cur) cur.textContent = formatTime(audioPlayer.currentTime);
             }
         });
 
-        // Sincronizar metadatos (Título, Artista, Portada) y botón de compra
+        /* Sincronización portada / título */
         const titleEl = document.getElementById('player-title');
         const coverEl = document.getElementById('player-cover');
-        const buyBtnV1 = document.getElementById('fs-buy-btn');
-        
         if (titleEl && coverEl) {
             const obs = new MutationObserver(() => {
                 if (isV2Mode) syncV2UI();
             });
             obs.observe(titleEl, { childList: true, characterData: true, subtree: true });
             obs.observe(coverEl, { attributes: true, attributeFilter: ['src'] });
-            
-            // Observar si el botón de comprar original se muestra/oculta
-            if (buyBtnV1) {
-                const buyObs = new MutationObserver(() => {
-                    if (isV2Mode) syncV2UI();
-                });
-                buyObs.observe(buyBtnV1, { attributes: true, attributeFilter: ['class'] });
-            }
         }
     }
 
@@ -15559,34 +15547,28 @@ document.addEventListener('DOMContentLoaded', () => {
         const title = document.getElementById('player-title')?.textContent || '';
         const cover = document.getElementById('player-cover')?.src || '';
         const activeItem = document.querySelector('#playlist .playlist-item.active');
-        
+
         let artist = 'Artista';
         if (activeItem) {
             const sub = activeItem.querySelector('.item-subtitle')?.textContent || '';
             artist = sub.split('·')[0].trim() || artist;
         }
 
-        // Sincronizar botón de compra
-        const buyBtnV1 = document.getElementById('fs-buy-btn');
-        const buyBtnV2 = document.getElementById('fs-v2-buy');
-        if (buyBtnV1 && buyBtnV2) {
-            if (buyBtnV1.classList.contains('visible')) {
-                buyBtnV2.style.display = 'block';
-            } else {
-                buyBtnV2.style.display = 'none';
-            }
+        /* Duración, tiempo actual y estado del botón */
+        const v2Dur = document.getElementById('fs-v2-duration');
+        if (v2Dur && audioPlayer.duration) v2Dur.textContent = formatTime(audioPlayer.duration);
+        if (audioPlayer.duration) {
+            const prog = document.getElementById('fs-v2-progress-slider');
+            const cur  = document.getElementById('fs-v2-current');
+            if (prog) prog.value = (audioPlayer.currentTime / audioPlayer.duration) * 100;
+            if (cur)  cur.textContent = formatTime(audioPlayer.currentTime);
         }
+        updateV2PlayIcon(!audioPlayer.paused);
 
         const signature = title + '||' + cover;
         if (signature === lastV2Signature && !forceNoAnim) return;
         lastV2Signature = signature;
 
-        // Actualizar duración y estado de Play
-        const v2Dur = document.getElementById('fs-v2-duration');
-        if (v2Dur && audioPlayer.duration) v2Dur.textContent = formatTime(audioPlayer.duration);
-        updateV2PlayIcon(!audioPlayer.paused);
-
-        // Si se fuerza (al abrir V2) o no hay slide, actualizar sin animación
         if (forceNoAnim || !currentSlide) {
             const wrapper = document.getElementById('fs-v2-cover-wrapper');
             if (!wrapper) return;
@@ -15596,8 +15578,6 @@ document.addEventListener('DOMContentLoaded', () => {
             wrapper.appendChild(currentSlide);
             return;
         }
-
-        // Si hay cambio de canción, aplicar la animación tipo carrusel
         animateSlideIn(title, artist, cover, lastPlaybackDirection);
     }
 
@@ -15613,31 +15593,35 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function toggleMode() {
         isV2Mode = !isV2Mode;
-        const v2Content = document.getElementById('fs-content-v2');
-        const origContent = document.getElementById('fs-content');
+        const v2Content    = document.getElementById('fs-content-v2');
+        const origContent  = document.getElementById('fs-content');
         const drawerHandle = document.getElementById('fs-drawer-handle');
-        const collabs = document.getElementById('fs-collabs');
-        const v1Toggle = document.querySelector('.fs-v1-change-btn');
+        const drawer       = document.getElementById('fs-drawer');
+        const collabs      = document.getElementById('fs-collabs');
+        const v1Toggle     = document.querySelector('.fs-v1-change-btn');
 
         if (isV2Mode) {
-            if (origContent) origContent.style.display = 'none';
+            if (drawer) drawer.classList.remove('visible');
+            moveControlsToV2Menu();
+            if (origContent)  origContent.style.display = 'none';
             if (drawerHandle) drawerHandle.style.display = 'none';
-            if (collabs) collabs.style.display = 'none';
-            if (v1Toggle) v1Toggle.style.display = 'none';
+            if (collabs)      collabs.style.display = 'none';
+            if (v1Toggle)     v1Toggle.style.display = 'none';
             v2Content.style.display = 'flex';
-            
-            lastV2Signature = ''; 
-            syncV2UI(true); // Forzar sincronización sin animación al entrar
+            lastV2Signature = '';
+            syncV2UI(true);
         } else {
-            if (origContent) origContent.style.display = 'flex';
+            const menu = document.getElementById('fs-v2-menu');
+            if (menu) menu.classList.remove('visible');
+            moveControlsBackToV1();
+            if (origContent)  origContent.style.display = 'flex';
             if (drawerHandle) drawerHandle.style.display = '';
-            if (collabs) collabs.style.display = '';
-            if (v1Toggle) v1Toggle.style.display = '';
+            if (collabs)      collabs.style.display = '';
+            if (v1Toggle)     v1Toggle.style.display = '';
             v2Content.style.display = 'none';
         }
     }
 
-    // Esperar a que el reproductor original se inyecte en el DOM
     let retries = 0;
     const interval = setInterval(() => {
         if (document.getElementById('fs-player')) {
