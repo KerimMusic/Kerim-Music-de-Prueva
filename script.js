@@ -15293,6 +15293,7 @@ document.addEventListener('DOMContentLoaded', () => {
    ------------------------------------------------------------
    · NO duplica botones: mueve los .fs-actions reales al menú
      hamburguesa de V2 y los devuelve a V1 al cambiar de modo.
+   · "Cambiar Modo" vive dentro del menú hamburguesa de V2.
    · Estado, funciones y datos son compartidos por ser los
      mismos nodos del DOM.
    ============================================================ */
@@ -15413,6 +15414,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!audioPlayer) return;
         v2Initialized = true;
 
+        /* HTML de V2 — "Cambiar Modo" vive dentro del menú hamburguesa */
         const v2Html = `
             <div class="fs-content-v2" id="fs-content-v2">
                 <div class="fs-v2-top">
@@ -15445,9 +15447,6 @@ document.addEventListener('DOMContentLoaded', () => {
                             <svg viewBox="0 0 24 24"><polygon points="5,4 15,12 5,20" fill="#ff2a2a"/><rect x="15" y="4" width="4" height="16" fill="#ff2a2a"/></svg>
                         </button>
                     </div>
-                    <div class="fs-v2-bottom-actions">
-                        <button class="fs-v2-change-btn" id="fs-v2-btn-toggle">Cambiar Modo</button>
-                    </div>
                 </div>
                 <div class="fs-v2-menu" id="fs-v2-menu" aria-hidden="true">
                     <div class="fs-v2-menu-header">
@@ -15455,6 +15454,15 @@ document.addEventListener('DOMContentLoaded', () => {
                         <button class="fs-v2-menu-close" id="fs-v2-menu-close" aria-label="Cerrar menú">&times;</button>
                     </div>
                     <div class="fs-v2-menu-scroll">
+                        <button class="fs-v2-change-mode-item" id="fs-v2-change-mode-item" type="button">
+                            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="17 1 21 5 17 9"/>
+                                <path d="M3 11V9a4 4 0 0 1 4-4h14"/>
+                                <polyline points="7 23 3 19 7 15"/>
+                                <path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+                            </svg>
+                            <span>Cambiar Modo</span>
+                        </button>
                         <div class="fs-v2-menu-actions" id="fs-v2-menu-actions"></div>
                         <div class="fs-v2-menu-buy" id="fs-v2-menu-buy"></div>
                     </div>
@@ -15463,7 +15471,7 @@ document.addEventListener('DOMContentLoaded', () => {
         `;
         fsPlayer.insertAdjacentHTML('beforeend', v2Html);
 
-        /* Botón "Cambiar Modo" en V1 */
+        /* Botón "Cambiar Modo" en V1 (visible bajo el título, V1 no tiene hamburguesa) */
         const v1Content = document.getElementById('fs-content');
         const v1Title = document.getElementById('fs-title');
         if (v1Content && v1Title && !document.querySelector('.fs-v1-change-btn')) {
@@ -15478,7 +15486,6 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('fs-v2-close').addEventListener('click', () => {
             document.getElementById('fs-close').click();
         });
-        document.getElementById('fs-v2-btn-toggle').addEventListener('click', toggleMode);
         document.getElementById('fs-v2-play').addEventListener('click', () => {
             document.getElementById('play-button').click();
         });
@@ -15490,6 +15497,9 @@ document.addEventListener('DOMContentLoaded', () => {
             lastPlaybackDirection = 'next';
             document.dispatchEvent(new CustomEvent('omega:next'));
         });
+
+        /* "Cambiar Modo" dentro del menú hamburguesa */
+        document.getElementById('fs-v2-change-mode-item').addEventListener('click', toggleMode);
 
         /* Menú hamburguesa */
         const menu = document.getElementById('fs-v2-menu');
@@ -15554,7 +15564,6 @@ document.addEventListener('DOMContentLoaded', () => {
             artist = sub.split('·')[0].trim() || artist;
         }
 
-        /* Duración, tiempo actual y estado del botón */
         const v2Dur = document.getElementById('fs-v2-duration');
         if (v2Dur && audioPlayer.duration) v2Dur.textContent = formatTime(audioPlayer.duration);
         if (audioPlayer.duration) {
@@ -15599,9 +15608,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const drawer       = document.getElementById('fs-drawer');
         const collabs      = document.getElementById('fs-collabs');
         const v1Toggle     = document.querySelector('.fs-v1-change-btn');
+        const menu         = document.getElementById('fs-v2-menu');
 
         if (isV2Mode) {
             if (drawer) drawer.classList.remove('visible');
+            if (menu)   menu.classList.remove('visible');
             moveControlsToV2Menu();
             if (origContent)  origContent.style.display = 'none';
             if (drawerHandle) drawerHandle.style.display = 'none';
@@ -15611,7 +15622,6 @@ document.addEventListener('DOMContentLoaded', () => {
             lastV2Signature = '';
             syncV2UI(true);
         } else {
-            const menu = document.getElementById('fs-v2-menu');
             if (menu) menu.classList.remove('visible');
             moveControlsBackToV1();
             if (origContent)  origContent.style.display = 'flex';
