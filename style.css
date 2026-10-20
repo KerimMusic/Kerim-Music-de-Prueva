@@ -6250,3 +6250,42 @@ body[data-theme="light"] .fs-actions.in-v2-menu .fs-mode-btn svg {
 }
 body[data-theme="light"] .fs-v2-menu-btn { background: rgba(0, 0, 0, 0.08); }
 body[data-theme="light"] .fs-v2-menu-btn svg line { stroke: #111111; }
+/* ============================================================
+   V2 — "Cambiar Modo" dentro del menú hamburguesa
+   ============================================================ */
+.fs-v2-change-mode-item {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    background: rgba(255, 255, 255, 0.06);
+    border: none;
+    border-radius: 12px;
+    color: #ffffff;
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 800;
+    text-align: left;
+    cursor: pointer;
+    width: 100%;
+    margin-bottom: 6px;
+    transition: background 0.2s ease, transform 0.15s ease;
+}
+.fs-v2-change-mode-item:active {
+    background: rgba(255, 255, 255, 0.14);
+    transform: scale(0.99);
+}
+.fs-v2-change-mode-item svg { flex-shrink: 0; }
+.fs-v2-change-mode-item span { flex: 1; }
+
+/* Modo claro */
+body[data-theme="light"] .fs-v2-change-mode-item {
+    background: #f2f2f2;
+    color: #111111;
+}
+body[data-theme="light"] .fs-v2-change-mode-item:active {
+    background: #e5e5e5;
+}
+body[data-theme="light"] .fs-v2-change-mode-item svg {
+    stroke: #111111;
+}
