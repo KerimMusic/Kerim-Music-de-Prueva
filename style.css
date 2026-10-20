@@ -6068,3 +6068,185 @@ body[data-theme="light"] .bn-notif-badge {
     .fs-v2-controls svg { width: 32px; height: 32px; }
     .fs-v2-controls { gap: 25px; }
 }
+/* ============================================================
+   V2 — MENÚ HAMBURGUESA + CONTROLES COMPARTIDOS
+   ============================================================ */
+
+/* Ajuste del top: ahora tiene menú (izq) + cerrar (der) */
+.fs-content-v2 .fs-v2-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    height: 40px;
+    flex-shrink: 0;
+}
+
+.fs-v2-menu-btn {
+    background: rgba(255, 255, 255, 0.15);
+    border: none;
+    color: #ffffff;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: background 0.2s ease;
+}
+.fs-v2-menu-btn:active { background: rgba(255, 255, 255, 0.32); }
+
+/* Panel del menú */
+.fs-v2-menu {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.94);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.25s ease, visibility 0.25s ease;
+}
+.fs-v2-menu.visible { opacity: 1; visibility: visible; }
+
+.fs-v2-menu-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 20px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    flex-shrink: 0;
+}
+.fs-v2-menu-title {
+    font-size: 18px;
+    font-weight: 800;
+    color: #ffffff;
+    margin: 0;
+    letter-spacing: 0.3px;
+}
+.fs-v2-menu-close {
+    background: rgba(255, 255, 255, 0.15);
+    border: none;
+    color: #ffffff;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 0 3px 0;
+}
+.fs-v2-menu-close:active { background: rgba(255, 255, 255, 0.32); }
+
+.fs-v2-menu-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px 12px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    touch-action: pan-y;
+    overscroll-behavior: contain;
+}
+
+/* El .fs-actions real, reubicado en el menú */
+.fs-actions.in-v2-menu {
+    position: static;
+    bottom: auto;
+    left: auto;
+    right: auto;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 6px;
+    padding: 0;
+    margin: 0;
+    width: 100%;
+}
+
+.fs-actions.in-v2-menu .fs-like,
+.fs-actions.in-v2-menu .fs-mode-btn {
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: center;
+    padding: 14px 16px;
+    gap: 14px;
+    border-radius: 12px;
+    max-width: none;
+    min-width: 0;
+    flex: 0 0 auto;
+    background: rgba(255, 255, 255, 0.06);
+    width: 100%;
+}
+.fs-actions.in-v2-menu .fs-like:active,
+.fs-actions.in-v2-menu .fs-mode-btn:active {
+    background: rgba(255, 255, 255, 0.14);
+    transform: none;
+}
+.fs-actions.in-v2-menu .fs-like svg,
+.fs-actions.in-v2-menu .fs-mode-btn svg {
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+}
+.fs-actions.in-v2-menu .fs-like span,
+.fs-actions.in-v2-menu .fs-mode-btn .fs-mode-label {
+    font-size: 15px;
+    text-align: left;
+    font-weight: 800;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    max-width: none;
+    color: #ffffff;
+}
+.fs-actions.in-v2-menu .fs-like.active span,
+.fs-actions.in-v2-menu .fs-like.downloaded span,
+.fs-actions.in-v2-menu .fs-mode-btn.active .fs-mode-label {
+    color: inherit;
+}
+
+/* El #fs-buy-btn real, reubicado en el menú */
+.fs-buy-btn.in-v2-menu {
+    margin: 4px 0;
+    padding: 16px 24px;
+    font-size: 16px;
+    width: 100%;
+    text-align: center;
+}
+.fs-buy-btn.in-v2-menu.visible {
+    display: block;
+    animation: fs-buy-pop 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Adaptación clara para el menú en modo claro */
+body[data-theme="light"] .fs-v2-menu {
+    background: rgba(255, 255, 255, 0.97);
+    border-left: 1px solid #e5e5e5;
+}
+body[data-theme="light"] .fs-v2-menu-title { color: #111111; }
+body[data-theme="light"] .fs-v2-menu-close {
+    background: rgba(0, 0, 0, 0.08);
+    color: #111111;
+}
+body[data-theme="light"] .fs-actions.in-v2-menu .fs-like,
+body[data-theme="light"] .fs-actions.in-v2-menu .fs-mode-btn {
+    background: #f2f2f2;
+}
+body[data-theme="light"] .fs-actions.in-v2-menu .fs-like span,
+body[data-theme="light"] .fs-actions.in-v2-menu .fs-mode-btn .fs-mode-label {
+    color: #111111;
+}
+body[data-theme="light"] .fs-actions.in-v2-menu .fs-like svg,
+body[data-theme="light"] .fs-actions.in-v2-menu .fs-mode-btn svg {
+    stroke: #111111;
+}
+body[data-theme="light"] .fs-v2-menu-btn { background: rgba(0, 0, 0, 0.08); }
+body[data-theme="light"] .fs-v2-menu-btn svg line { stroke: #111111; }
